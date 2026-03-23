@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contribution Guide
+    url: https://github.com/accesslayerorg/accesslayer-contracts/blob/main/CONTRIBUTING.md
+    about: Read the Rust and Soroban contribution workflow before starting work.
+  - name: Issue Backlog
+    url: https://github.com/accesslayerorg/accesslayer-contracts/blob/main/docs/open-source/issue-backlog.md
+    about: Browse the contracts sections and scoped maintainer-ready issue inventory.
+  - name: Security Policy
+    url: https://github.com/accesslayerorg/accesslayer-contracts/blob/main/SECURITY.md
+    about: Report contract vulnerabilities privately instead of opening public issues.

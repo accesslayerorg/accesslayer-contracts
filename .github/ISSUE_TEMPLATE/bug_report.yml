@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a smart-contract bug or unexpected contract behavior.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - creator registry and storage
+        - buy and sell execution
+        - fees and pricing
+        - tests and tooling
+        - deployment and environment
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the bug and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include contract calls, state assumptions, and failing assertions where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Explain risk, affected users, and whether this is a correctness or security issue.

@@ -1,0 +1,30 @@
+name: Documentation update
+description: Improve contract docs, contributor setup, or design notes.
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: dropdown
+    id: doc_area
+    attributes:
+      label: Documentation area
+      options:
+        - README
+        - CONTRIBUTING guide
+        - issue backlog
+        - deployment docs
+        - testing docs
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is missing or unclear?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+    validations:
+      required: true

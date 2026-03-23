@@ -1,0 +1,48 @@
+name: Maintainer task
+description: Create a scoped contributor task for Access Layer contracts.
+title: "[Task]: "
+labels:
+  - help wanted
+body:
+  - type: dropdown
+    id: section
+    attributes:
+      label: Section
+      options:
+        - Creator registry and storage
+        - Trading, fees, and economics
+        - Testing, tooling, and deployment
+    validations:
+      required: true
+  - type: input
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - ...
+        - ...
+        - ...
+    validations:
+      required: true
+  - type: dropdown
+    id: difficulty
+    attributes:
+      label: Difficulty
+      options:
+        - good first issue
+        - intermediate
+        - advanced
+    validations:
+      required: true

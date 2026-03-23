@@ -1,12 +1,12 @@
 # Access Layer Contracts
 
-This folder contains the on-chain smart contracts for Access Layer on Stellar using Soroban.
+This repository contains the on-chain smart contracts for Access Layer on Stellar using Soroban.
 
-These contracts are where the trust-sensitive marketplace rules should live. The goal is to keep pricing, ownership, and fee logic on-chain while leaving general application features to the server and client.
+These contracts hold the trust-sensitive marketplace rules. The goal is to keep pricing, ownership, and fee logic on-chain while leaving general application features to the server and client.
 
 ## Purpose
 
-The contracts layer will be responsible for:
+The contracts layer is responsible for:
 
 - registering creators on-chain
 - minting and burning creator keys
@@ -34,23 +34,17 @@ The initial `creator-keys` contract is only a starting point. It currently suppo
 - a basic purchase action that increments creator supply
 - reading stored creator data
 
-This is not the final marketplace logic. It is a clean scaffold for the real contract design.
-
-## Expected next steps
-
-1. Define the creator data model and storage keys more carefully.
-2. Add buy and sell functions with payment handling.
-3. Add bonding curve math and fee splits.
-4. Add tests for pricing, supply changes, and permissions.
-5. Prepare deployment scripts for Stellar testnet.
-
-## Commands
-
-From this folder:
+## Verification
 
 ```bash
-cargo check
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
-Later, once Soroban tooling is added, this folder should also include commands for test execution, contract build output, and deployment.
+## Open source workflow
 
+- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before starting work.
+- Browse the maintainer issue inventory in [docs/open-source/issue-backlog.md](./docs/open-source/issue-backlog.md).
+- Review [SECURITY.md](./SECURITY.md) before reporting vulnerabilities.
+- Use the issue templates in [`.github/ISSUE_TEMPLATE`](./.github/ISSUE_TEMPLATE) for new scoped work.
