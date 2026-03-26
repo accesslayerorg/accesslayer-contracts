@@ -53,6 +53,10 @@ impl CreatorKeysContract {
         profile.supply
     }
 
+    pub fn get_creator(env: Env, creator: Address) -> Option<CreatorProfile> {
+        let key = DataKey::Creator(creator);
+        env.storage().persistent().get(&key)
+    }
     pub fn sell_key(env: Env, creator: Address, seller: Address) -> u32 {
         seller.require_auth();
 
@@ -74,30 +78,4 @@ impl CreatorKeysContract {
 
         profile.supply
     }
-
-    pub fn get_creator(env: Env, creator: Address) -> Option<CreatorProfile> {
-        let key = DataKey::Creator(creator);
-        env.storage().persistent().get(&key)
-    }
-}
-pub fn sell_key(env: Env, creator: Address, seller: Address) -> u32 {
-    seller.require_auth();
-
-    let key = DataKey::Creator(creator.clone());
-    let mut profile: CreatorProfile = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| panic!("creator not registered"));
-
-    if profile.supply == 0 {
-        panic!("zero supply");
-    }
-
-    profile.supply -= 1;
-    env.storage().persistent().set(&key, &profile);
-    env.events()
-        .publish((symbol_short!("sell"), creator, seller), profile.supply);
-
-    profile.supply
 }
