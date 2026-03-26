@@ -51,6 +51,34 @@ fn test_set_fee_config_invalid_sum_panics() {
 }
 
 #[test]
+fn test_set_fee_config_max_protocol_bps_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+
+    client.set_fee_config(&admin, &5000u32, &5000u32);
+    let config = client.get_fee_config().unwrap();
+    assert_eq!(config.creator_bps, 5000);
+    assert_eq!(config.protocol_bps, 5000);
+}
+
+#[test]
+#[should_panic(expected = "protocol_bps exceeds maximum allowed (5000 bps)")]
+fn test_set_fee_config_protocol_bps_above_max_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+
+    client.set_fee_config(&admin, &4999u32, &5001u32);
+}
+
+#[test]
 #[should_panic(expected = "fee config not set")]
 fn test_compute_fees_without_config_panics() {
     let env = Env::default();
