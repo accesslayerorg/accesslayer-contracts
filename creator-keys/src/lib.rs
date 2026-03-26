@@ -109,15 +109,23 @@ pub struct CreatorProfile {
     pub supply: u32,
 }
 
+/// Reads a creator profile from storage, returning `None` for unregistered creators.
+///
+/// Use this helper wherever repeated creator read logic is needed to keep
+/// missing-creator behavior consistent across the contract.
+pub fn read_creator_profile(env: &Env, creator: &Address) -> Option<CreatorProfile> {
+    let key = DataKey::Creator(creator.clone());
+    env.storage()
+        .persistent()
+        .get::<DataKey, CreatorProfile>(&key)
+}
+
 /// Reads the key balance (supply) for a creator, returning `0` for unregistered creators.
 ///
 /// Use this helper wherever repeated key balance read logic is needed to keep
 /// missing-balance behavior consistent across the contract.
 pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
-    let key = DataKey::Creator(creator.clone());
-    env.storage()
-        .persistent()
-        .get::<DataKey, CreatorProfile>(&key)
+    read_creator_profile(env, creator)
         .map(|p| p.supply)
         .unwrap_or(0)
 }
@@ -173,17 +181,15 @@ impl CreatorKeysContract {
             return Err(ContractError::InsufficientPayment);
         }
 
-        let key = DataKey::Creator(creator.clone());
-        let mut profile: CreatorProfile = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .ok_or(ContractError::NotRegistered)?;
+        let mut profile: CreatorProfile =
+            read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)?;
 
         profile.supply = profile
             .supply
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
+
+        let key = DataKey::Creator(creator.clone());
         env.storage().persistent().set(&key, &profile);
 
         let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
@@ -207,11 +213,7 @@ impl CreatorKeysContract {
     }
 
     pub fn get_creator(env: Env, creator: Address) -> Result<CreatorProfile, ContractError> {
-        let key = DataKey::Creator(creator);
-        env.storage()
-            .persistent()
-            .get(&key)
-            .ok_or(ContractError::NotRegistered)
+        read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)
     }
 
     /// Read-only view: returns the total key supply for a creator.
@@ -227,8 +229,7 @@ impl CreatorKeysContract {
     /// Returns `true` if a [`CreatorProfile`] exists for the given address,
     /// `false` otherwise. Does not mutate state.
     pub fn is_creator_registered(env: Env, creator: Address) -> bool {
-        let key = DataKey::Creator(creator);
-        env.storage().persistent().has(&key)
+        read_creator_profile(&env, &creator).is_some()
     }
 
     pub fn set_fee_config(
@@ -328,8 +329,7 @@ impl CreatorKeysContract {
     /// config has been set. Use this method for indexers and read-only callers that need
     /// a non-optional result.
     pub fn get_creator_fee_config(env: Env, creator: Address) -> CreatorFeeView {
-        let creator_key = DataKey::Creator(creator);
-        let is_registered = env.storage().persistent().has(&creator_key);
+        let is_registered = read_creator_profile(&env, &creator).is_some();
 
         if !is_registered {
             return CreatorFeeView {
