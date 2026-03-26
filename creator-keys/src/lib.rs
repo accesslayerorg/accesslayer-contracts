@@ -53,6 +53,18 @@ pub mod fee {
     }
 }
 
+/// Stable, non-optional view of the protocol fee configuration.
+///
+/// Returned by [`CreatorKeysContract::get_protocol_fee_view`] for indexer-friendly consumption.
+/// When `is_configured` is `false`, both bps fields are `0` and no fee config has been stored.
+#[derive(Clone)]
+#[contracttype]
+pub struct ProtocolFeeView {
+    pub creator_bps: u32,
+    pub protocol_bps: u32,
+    pub is_configured: bool,
+}
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -162,6 +174,30 @@ impl CreatorKeysContract {
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {
         env.storage().persistent().get(&DataKey::FeeConfig)
+    }
+
+    /// Read-only view: returns the current protocol fee configuration.
+    ///
+    /// Returns a stable [`ProtocolFeeView`] regardless of whether a fee config has been set.
+    /// When no config is stored, `is_configured` is `false` and both bps fields are `0`.
+    /// Use this method for indexers and read-only callers that need a non-optional result.
+    pub fn get_protocol_fee_view(env: Env) -> ProtocolFeeView {
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, fee::FeeConfig>(&DataKey::FeeConfig)
+        {
+            Some(config) => ProtocolFeeView {
+                creator_bps: config.creator_bps,
+                protocol_bps: config.protocol_bps,
+                is_configured: true,
+            },
+            None => ProtocolFeeView {
+                creator_bps: 0,
+                protocol_bps: 0,
+                is_configured: false,
+            },
+        }
     }
 
     pub fn compute_fees_for_payment(env: Env, total: i128) -> (i128, i128) {
