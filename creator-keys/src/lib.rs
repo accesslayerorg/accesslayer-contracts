@@ -1,6 +1,22 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String,
+};
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum ContractError {
+    AlreadyRegistered = 1,
+    NotRegistered = 2,
+    Overflow = 3,
+    InsufficientPayment = 4,
+    KeyPriceNotSet = 5,
+    NotPositiveAmount = 6,
+    FeeConfigNotSet = 7,
+    InvalidFeeConfig = 8,
+}
 
 pub mod fee {
     use soroban_sdk::contracttype;
@@ -22,21 +38,17 @@ pub mod fee {
     }
 
     /// Validates creator and protocol basis points for storage and fee-setting entrypoints.
-    ///
-    /// Requires `creator_bps + protocol_bps == BPS_MAX` and `protocol_bps <= PROTOCOL_BPS_MAX`.
-    pub fn assert_valid_fee_bps(creator_bps: u32, protocol_bps: u32) {
+    pub fn validate_fee_bps(creator_bps: u32, protocol_bps: u32) -> bool {
         let Some(sum) = creator_bps.checked_add(protocol_bps) else {
-            panic!("creator_bps + protocol_bps overflow");
+            return false;
         };
         if sum != BPS_MAX {
-            panic!("creator_bps + protocol_bps must equal 10000");
+            return false;
         }
         if protocol_bps > PROTOCOL_BPS_MAX {
-            panic!(
-                "protocol_bps exceeds maximum allowed ({} bps)",
-                PROTOCOL_BPS_MAX
-            );
+            return false;
         }
+        true
     }
 
     /// Computes the fee split for a given total amount.
@@ -76,6 +88,18 @@ pub struct CreatorDetailsView {
     pub handle: String,
     pub supply: u32,
     pub is_registered: bool,
+/// Stable, non-optional view of a creator's fee configuration.
+///
+/// Returned by [`CreatorKeysContract::get_creator_fee_config`] for indexer-friendly consumption.
+/// When `is_registered` is `false`, the creator does not exist and both bps fields are `0`.
+/// When `is_configured` is `false`, the creator exists but no global fee config has been set.
+#[derive(Clone)]
+#[contracttype]
+pub struct CreatorFeeView {
+    pub creator_bps: u32,
+    pub protocol_bps: u32,
+    pub is_registered: bool,
+    pub is_configured: bool,
 }
 
 #[derive(Clone)]
@@ -84,10 +108,11 @@ pub enum DataKey {
     Creator(Address),
     FeeConfig,
     KeyPrice,
+    KeyBalance(Address, Address),
     TreasuryAddress,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct CreatorProfile {
     pub creator: Address,
@@ -95,14 +120,15 @@ pub struct CreatorProfile {
     pub supply: u32,
 }
 
-/// Shared validation: panics if the payment amount is zero or negative.
+/// Reads a creator profile from storage, returning `None` for unregistered creators.
 ///
-/// Use this before any purchase or payment logic to reject empty transactions
-/// with a clear, consistent error message.
-pub fn assert_positive_amount(amount: i128) {
-    if amount <= 0 {
-        panic!("payment amount must be positive");
-    }
+/// Use this helper wherever repeated creator read logic is needed to keep
+/// missing-creator behavior consistent across the contract.
+pub fn read_creator_profile(env: &Env, creator: &Address) -> Option<CreatorProfile> {
+    let key = DataKey::Creator(creator.clone());
+    env.storage()
+        .persistent()
+        .get::<DataKey, CreatorProfile>(&key)
 }
 
 /// Reads the key balance (supply) for a creator, returning `0` for unregistered creators.
@@ -110,10 +136,7 @@ pub fn assert_positive_amount(amount: i128) {
 /// Use this helper wherever repeated key balance read logic is needed to keep
 /// missing-balance behavior consistent across the contract.
 pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
-    let key = DataKey::Creator(creator.clone());
-    env.storage()
-        .persistent()
-        .get::<DataKey, CreatorProfile>(&key)
+    read_creator_profile(env, creator)
         .map(|p| p.supply)
         .unwrap_or(0)
 }
@@ -123,12 +146,16 @@ pub struct CreatorKeysContract;
 
 #[contractimpl]
 impl CreatorKeysContract {
-    pub fn register_creator(env: Env, creator: Address, handle: String) {
+    pub fn register_creator(
+        env: Env,
+        creator: Address,
+        handle: String,
+    ) -> Result<(), ContractError> {
         creator.require_auth();
 
         let key = DataKey::Creator(creator.clone());
         if env.storage().persistent().has(&key) {
-            panic!("creator already registered");
+            return Err(ContractError::AlreadyRegistered);
         }
 
         let profile = CreatorProfile {
@@ -139,39 +166,65 @@ impl CreatorKeysContract {
 
         env.storage().persistent().set(&key, &profile);
         env.events().publish((symbol_short!("register"),), key);
+
+        Ok(())
     }
 
-    pub fn buy_key(env: Env, creator: Address, buyer: Address, payment: i128) -> u32 {
+    pub fn buy_key(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        payment: i128,
+    ) -> Result<u32, ContractError> {
         buyer.require_auth();
-        assert_positive_amount(payment);
+
+        if payment <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
 
         let price: i128 = env
             .storage()
             .persistent()
             .get(&DataKey::KeyPrice)
-            .unwrap_or_else(|| panic!("key price not set"));
+            .ok_or(ContractError::KeyPriceNotSet)?;
+
         if payment < price {
-            panic!("insufficient payment");
+            return Err(ContractError::InsufficientPayment);
         }
 
+        let mut profile: CreatorProfile =
+            read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)?;
+
+        profile.supply = profile
+            .supply
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+
         let key = DataKey::Creator(creator.clone());
-        let mut profile: CreatorProfile = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic!("creator not registered"));
-
-        profile.supply += 1;
         env.storage().persistent().set(&key, &profile);
-        env.events()
-            .publish((symbol_short!("buy"), creator, buyer), profile.supply);
 
-        profile.supply
+        let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let new_balance = current_balance
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&balance_key, &new_balance);
+
+        env.events().publish(
+            (symbol_short!("buy"), creator, buyer),
+            (profile.supply, payment),
+        );
+
+        Ok(profile.supply)
     }
 
-    pub fn get_creator(env: Env, creator: Address) -> Option<CreatorProfile> {
-        let key = DataKey::Creator(creator);
-        env.storage().persistent().get(&key)
+    pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
+        let key = DataKey::KeyBalance(creator, wallet);
+        env.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    pub fn get_creator(env: Env, creator: Address) -> Result<CreatorProfile, ContractError> {
+        read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)
     }
 
     /// Read-only view: returns stable creator details.
@@ -214,24 +267,35 @@ impl CreatorKeysContract {
     /// Returns `true` if a [`CreatorProfile`] exists for the given address,
     /// `false` otherwise. Does not mutate state.
     pub fn is_creator_registered(env: Env, creator: Address) -> bool {
-        let key = DataKey::Creator(creator);
-        env.storage().persistent().has(&key)
+        read_creator_profile(&env, &creator).is_some()
     }
 
-    pub fn set_fee_config(env: Env, admin: Address, creator_bps: u32, protocol_bps: u32) {
+    pub fn set_fee_config(
+        env: Env,
+        admin: Address,
+        creator_bps: u32,
+        protocol_bps: u32,
+    ) -> Result<(), ContractError> {
         admin.require_auth();
-        fee::assert_valid_fee_bps(creator_bps, protocol_bps);
+        if !fee::validate_fee_bps(creator_bps, protocol_bps) {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+
         let config = fee::FeeConfig {
             creator_bps,
             protocol_bps,
         };
         env.storage().persistent().set(&DataKey::FeeConfig, &config);
+        Ok(())
     }
 
-    pub fn set_key_price(env: Env, admin: Address, price: i128) {
+    pub fn set_key_price(env: Env, admin: Address, price: i128) -> Result<(), ContractError> {
         admin.require_auth();
-        assert_positive_amount(price);
+        if price <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
         env.storage().persistent().set(&DataKey::KeyPrice, &price);
+        Ok(())
     }
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {
@@ -282,13 +346,56 @@ impl CreatorKeysContract {
         }
     }
 
-    pub fn compute_fees_for_payment(env: Env, total: i128) -> (i128, i128) {
+    pub fn compute_fees_for_payment(env: Env, total: i128) -> Result<(i128, i128), ContractError> {
         let config: fee::FeeConfig = env
             .storage()
             .persistent()
             .get(&DataKey::FeeConfig)
-            .unwrap_or_else(|| panic!("fee config not set"));
-        fee::compute_fee_split(total, config.creator_bps, config.protocol_bps)
+            .ok_or(ContractError::FeeConfigNotSet)?;
+        Ok(fee::compute_fee_split(
+            total,
+            config.creator_bps,
+            config.protocol_bps,
+        ))
+    }
+
+    /// Read-only view: returns the fee configuration for a specific creator.
+    ///
+    /// Returns a stable [`CreatorFeeView`] regardless of whether the creator is registered
+    /// or a fee config has been set. When `is_registered` is `false`, the creator does not
+    /// exist and both bps fields are `0`. When `is_configured` is `false`, no global fee
+    /// config has been set. Use this method for indexers and read-only callers that need
+    /// a non-optional result.
+    pub fn get_creator_fee_config(env: Env, creator: Address) -> CreatorFeeView {
+        let is_registered = read_creator_profile(&env, &creator).is_some();
+
+        if !is_registered {
+            return CreatorFeeView {
+                creator_bps: 0,
+                protocol_bps: 0,
+                is_registered: false,
+                is_configured: false,
+            };
+        }
+
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, fee::FeeConfig>(&DataKey::FeeConfig)
+        {
+            Some(config) => CreatorFeeView {
+                creator_bps: config.creator_bps,
+                protocol_bps: config.protocol_bps,
+                is_registered: true,
+                is_configured: true,
+            },
+            None => CreatorFeeView {
+                creator_bps: 0,
+                protocol_bps: 0,
+                is_registered: true,
+                is_configured: false,
+            },
+        }
     }
 }
 
@@ -353,3 +460,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod test;

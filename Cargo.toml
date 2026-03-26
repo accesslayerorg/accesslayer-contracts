@@ -8,7 +8,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-soroban-sdk = "22.0.0"
+soroban-sdk = "22.0.11"
 
 [profile.release]
 opt-level = "z"

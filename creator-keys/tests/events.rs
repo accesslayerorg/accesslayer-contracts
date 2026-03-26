@@ -96,19 +96,21 @@ fn test_buy_key_event_data_is_new_supply() {
 
     client.register_creator(&creator, &String::from_str(&env, "alice"));
 
-    // First buy → supply = 1
+    // First buy → supply = 1, payment = 100
     client.buy_key(&creator, &buyer1, &100_i128);
     let events = env.events().all();
     let (_, _, data) = events.last().unwrap();
-    let supply: u32 = data.into_val(&env);
+    let (supply, payment): (u32, i128) = data.into_val(&env);
     assert_eq!(supply, 1);
+    assert_eq!(payment, 100);
 
-    // Second buy → supply = 2
+    // Second buy → supply = 2, payment = 100
     client.buy_key(&creator, &buyer2, &100_i128);
     let events = env.events().all();
     let (_, _, data) = events.last().unwrap();
-    let supply: u32 = data.into_val(&env);
+    let (supply, payment): (u32, i128) = data.into_val(&env);
     assert_eq!(supply, 2);
+    assert_eq!(payment, 100);
 }
 
 #[test]

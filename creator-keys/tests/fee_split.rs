@@ -1,6 +1,6 @@
 //! Deterministic tests for fee split logic and contract integration.
 
-use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Env};
 
 #[test]
@@ -38,8 +38,7 @@ fn test_compute_fees_for_payment() {
 }
 
 #[test]
-#[should_panic(expected = "creator_bps + protocol_bps must equal 10000")]
-fn test_set_fee_config_invalid_sum_panics() {
+fn test_set_fee_config_invalid_sum_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -47,7 +46,8 @@ fn test_set_fee_config_invalid_sum_panics() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
-    client.set_fee_config(&admin, &8000u32, &1000u32);
+    let result = client.try_set_fee_config(&admin, &8000u32, &1000u32);
+    assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
 }
 
 #[test]
@@ -66,8 +66,7 @@ fn test_set_fee_config_max_protocol_bps_succeeds() {
 }
 
 #[test]
-#[should_panic(expected = "protocol_bps exceeds maximum allowed (5000 bps)")]
-fn test_set_fee_config_protocol_bps_above_max_panics() {
+fn test_set_fee_config_protocol_bps_above_max_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -75,15 +74,16 @@ fn test_set_fee_config_protocol_bps_above_max_panics() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
-    client.set_fee_config(&admin, &4999u32, &5001u32);
+    let result = client.try_set_fee_config(&admin, &4999u32, &5001u32);
+    assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
 }
 
 #[test]
-#[should_panic(expected = "fee config not set")]
-fn test_compute_fees_without_config_panics() {
+fn test_compute_fees_without_config_fails() {
     let env = Env::default();
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
-    client.compute_fees_for_payment(&1000i128);
+    let result = client.try_compute_fees_for_payment(&1000i128);
+    assert_eq!(result, Err(Ok(ContractError::FeeConfigNotSet)));
 }
