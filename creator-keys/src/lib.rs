@@ -77,6 +77,20 @@ pub struct ProtocolFeeView {
     pub is_configured: bool,
 }
 
+/// Stable, non-optional view of a creator's fee configuration.
+///
+/// Returned by [`CreatorKeysContract::get_creator_fee_config`] for indexer-friendly consumption.
+/// When `is_registered` is `false`, the creator does not exist and both bps fields are `0`.
+/// When `is_configured` is `false`, the creator exists but no global fee config has been set.
+#[derive(Clone)]
+#[contracttype]
+pub struct CreatorFeeView {
+    pub creator_bps: u32,
+    pub protocol_bps: u32,
+    pub is_registered: bool,
+    pub is_configured: bool,
+}
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -304,6 +318,46 @@ impl CreatorKeysContract {
             config.creator_bps,
             config.protocol_bps,
         ))
+    }
+
+    /// Read-only view: returns the fee configuration for a specific creator.
+    ///
+    /// Returns a stable [`CreatorFeeView`] regardless of whether the creator is registered
+    /// or a fee config has been set. When `is_registered` is `false`, the creator does not
+    /// exist and both bps fields are `0`. When `is_configured` is `false`, no global fee
+    /// config has been set. Use this method for indexers and read-only callers that need
+    /// a non-optional result.
+    pub fn get_creator_fee_config(env: Env, creator: Address) -> CreatorFeeView {
+        let creator_key = DataKey::Creator(creator);
+        let is_registered = env.storage().persistent().has(&creator_key);
+
+        if !is_registered {
+            return CreatorFeeView {
+                creator_bps: 0,
+                protocol_bps: 0,
+                is_registered: false,
+                is_configured: false,
+            };
+        }
+
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, fee::FeeConfig>(&DataKey::FeeConfig)
+        {
+            Some(config) => CreatorFeeView {
+                creator_bps: config.creator_bps,
+                protocol_bps: config.protocol_bps,
+                is_registered: true,
+                is_configured: true,
+            },
+            None => CreatorFeeView {
+                creator_bps: 0,
+                protocol_bps: 0,
+                is_registered: true,
+                is_configured: false,
+            },
+        }
     }
 }
 
