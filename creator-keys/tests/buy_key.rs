@@ -1,11 +1,10 @@
 //! Tests for `buy_key` creator validation and payment checks.
 
-use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Env, String};
 
 #[test]
-#[should_panic(expected = "creator not registered")]
-fn test_buy_key_unregistered_creator_panics() {
+fn test_buy_key_unregistered_creator_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -16,12 +15,12 @@ fn test_buy_key_unregistered_creator_panics() {
     let buyer = soroban_sdk::Address::generate(&env);
 
     client.set_key_price(&admin, &100i128);
-    client.buy_key(&creator, &buyer, &100i128);
+    let result = client.try_buy_key(&creator, &buyer, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
 #[test]
-#[should_panic(expected = "insufficient payment")]
-fn test_buy_key_insufficient_payment_panics() {
+fn test_buy_key_insufficient_payment_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -33,7 +32,8 @@ fn test_buy_key_insufficient_payment_panics() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
-    client.buy_key(&creator, &buyer, &99i128);
+    let result = client.try_buy_key(&creator, &buyer, &99i128);
+    assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
 }
 
 #[test]
@@ -53,6 +53,6 @@ fn test_buy_key_sufficient_payment_succeeds() {
     let supply = client.buy_key(&creator, &buyer, &100i128);
     assert_eq!(supply, 1);
 
-    let profile = client.get_creator(&creator).unwrap();
+    let profile = client.get_creator(&creator);
     assert_eq!(profile.supply, 1);
 }

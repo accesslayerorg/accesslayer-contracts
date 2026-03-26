@@ -1,6 +1,22 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String,
+};
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum ContractError {
+    AlreadyRegistered = 1,
+    NotRegistered = 2,
+    Overflow = 3,
+    InsufficientPayment = 4,
+    KeyPriceNotSet = 5,
+    NotPositiveAmount = 6,
+    FeeConfigNotSet = 7,
+    InvalidFeeConfig = 8,
+}
 
 pub mod fee {
     use soroban_sdk::contracttype;
@@ -22,21 +38,17 @@ pub mod fee {
     }
 
     /// Validates creator and protocol basis points for storage and fee-setting entrypoints.
-    ///
-    /// Requires `creator_bps + protocol_bps == BPS_MAX` and `protocol_bps <= PROTOCOL_BPS_MAX`.
-    pub fn assert_valid_fee_bps(creator_bps: u32, protocol_bps: u32) {
+    pub fn validate_fee_bps(creator_bps: u32, protocol_bps: u32) -> bool {
         let Some(sum) = creator_bps.checked_add(protocol_bps) else {
-            panic!("creator_bps + protocol_bps overflow");
+            return false;
         };
         if sum != BPS_MAX {
-            panic!("creator_bps + protocol_bps must equal 10000");
+            return false;
         }
         if protocol_bps > PROTOCOL_BPS_MAX {
-            panic!(
-                "protocol_bps exceeds maximum allowed ({} bps)",
-                PROTOCOL_BPS_MAX
-            );
+            return false;
         }
+        true
     }
 
     /// Computes the fee split for a given total amount.
@@ -72,26 +84,15 @@ pub enum DataKey {
     FeeConfig,
     KeyPrice,
     KeyBalance(Address, Address),
-
     TreasuryAddress,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct CreatorProfile {
     pub creator: Address,
     pub handle: String,
     pub supply: u32,
-}
-
-/// Shared validation: panics if the payment amount is zero or negative.
-///
-/// Use this before any purchase or payment logic to reject empty transactions
-/// with a clear, consistent error message.
-pub fn assert_positive_amount(amount: i128) {
-    if amount <= 0 {
-        panic!("payment amount must be positive");
-    }
 }
 
 /// Reads the key balance (supply) for a creator, returning `0` for unregistered creators.
@@ -110,24 +111,18 @@ pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
 #[contract]
 pub struct CreatorKeysContract;
 
-impl CreatorKeysContract {
-    fn require_creator(env: &Env, creator: &Address) -> CreatorProfile {
-        let key = DataKey::Creator(creator.clone());
-        env.storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic!("creator not registered"))
-    }
-}
-
 #[contractimpl]
 impl CreatorKeysContract {
-    pub fn register_creator(env: Env, creator: Address, handle: String) {
+    pub fn register_creator(
+        env: Env,
+        creator: Address,
+        handle: String,
+    ) -> Result<(), ContractError> {
         creator.require_auth();
 
         let key = DataKey::Creator(creator.clone());
         if env.storage().persistent().has(&key) {
-            panic!("creator already registered");
+            return Err(ContractError::AlreadyRegistered);
         }
 
         let profile = CreatorProfile {
@@ -138,25 +133,43 @@ impl CreatorKeysContract {
 
         env.storage().persistent().set(&key, &profile);
         env.events().publish((symbol_short!("register"),), key);
+
+        Ok(())
     }
 
-    pub fn buy_key(env: Env, creator: Address, buyer: Address, payment: i128) -> u32 {
+    pub fn buy_key(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        payment: i128,
+    ) -> Result<u32, ContractError> {
         buyer.require_auth();
-        assert_positive_amount(payment);
+
+        if payment <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
 
         let price: i128 = env
             .storage()
             .persistent()
             .get(&DataKey::KeyPrice)
-            .unwrap_or_else(|| panic!("key price not set"));
+            .ok_or(ContractError::KeyPriceNotSet)?;
+
         if payment < price {
-            panic!("insufficient payment");
+            return Err(ContractError::InsufficientPayment);
         }
 
         let key = DataKey::Creator(creator.clone());
-        let mut profile = Self::require_creator(&env, &creator);
+        let mut profile: CreatorProfile = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NotRegistered)?;
 
-        profile.supply += 1;
+        profile.supply = profile
+            .supply
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
         env.storage().persistent().set(&key, &profile);
         env.events().publish(
             (symbol_short!("buy"), creator, buyer),
@@ -165,9 +178,15 @@ impl CreatorKeysContract {
 
         let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&balance_key, &(current_balance + 1));
+        let new_balance = current_balance
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&balance_key, &new_balance);
+
+        env.events()
+            .publish((symbol_short!("buy"), creator, buyer), profile.supply);
+
+        Ok(profile.supply)
     }
 
     pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
@@ -175,9 +194,12 @@ impl CreatorKeysContract {
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
-    pub fn get_creator(env: Env, creator: Address) -> Option<CreatorProfile> {
+    pub fn get_creator(env: Env, creator: Address) -> Result<CreatorProfile, ContractError> {
         let key = DataKey::Creator(creator);
-        env.storage().persistent().get(&key)
+        env.storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NotRegistered)
     }
 
     /// Read-only view: returns the total key supply for a creator.
@@ -197,20 +219,32 @@ impl CreatorKeysContract {
         env.storage().persistent().has(&key)
     }
 
-    pub fn set_fee_config(env: Env, admin: Address, creator_bps: u32, protocol_bps: u32) {
+    pub fn set_fee_config(
+        env: Env,
+        admin: Address,
+        creator_bps: u32,
+        protocol_bps: u32,
+    ) -> Result<(), ContractError> {
         admin.require_auth();
-        fee::assert_valid_fee_bps(creator_bps, protocol_bps);
+        if !fee::validate_fee_bps(creator_bps, protocol_bps) {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+
         let config = fee::FeeConfig {
             creator_bps,
             protocol_bps,
         };
         env.storage().persistent().set(&DataKey::FeeConfig, &config);
+        Ok(())
     }
 
-    pub fn set_key_price(env: Env, admin: Address, price: i128) {
+    pub fn set_key_price(env: Env, admin: Address, price: i128) -> Result<(), ContractError> {
         admin.require_auth();
-        assert_positive_amount(price);
+        if price <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
         env.storage().persistent().set(&DataKey::KeyPrice, &price);
+        Ok(())
     }
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {
@@ -261,13 +295,17 @@ impl CreatorKeysContract {
         }
     }
 
-    pub fn compute_fees_for_payment(env: Env, total: i128) -> (i128, i128) {
+    pub fn compute_fees_for_payment(env: Env, total: i128) -> Result<(i128, i128), ContractError> {
         let config: fee::FeeConfig = env
             .storage()
             .persistent()
             .get(&DataKey::FeeConfig)
-            .unwrap_or_else(|| panic!("fee config not set"));
-        fee::compute_fee_split(total, config.creator_bps, config.protocol_bps)
+            .ok_or(ContractError::FeeConfigNotSet)?;
+        Ok(fee::compute_fee_split(
+            total,
+            config.creator_bps,
+            config.protocol_bps,
+        ))
     }
 }
 
@@ -332,3 +370,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod test;

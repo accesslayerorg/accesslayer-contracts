@@ -1,6 +1,6 @@
 //! Tests for get_total_key_supply view method (#18) and zero-amount validation (#20).
 
-use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address) {
@@ -75,8 +75,7 @@ fn test_get_total_key_supply_is_read_only() {
 // ── Zero-amount purchase validation tests (#20) ─────────────────────────
 
 #[test]
-#[should_panic(expected = "payment amount must be positive")]
-fn test_buy_key_zero_payment_panics() {
+fn test_buy_key_zero_payment_fails() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _) = setup(&env);
@@ -85,12 +84,12 @@ fn test_buy_key_zero_payment_panics() {
     let buyer = Address::generate(&env);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
 
-    client.buy_key(&creator, &buyer, &0_i128);
+    let result = client.try_buy_key(&creator, &buyer, &0_i128);
+    assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 
 #[test]
-#[should_panic(expected = "payment amount must be positive")]
-fn test_buy_key_negative_payment_panics() {
+fn test_buy_key_negative_payment_fails() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _) = setup(&env);
@@ -99,7 +98,8 @@ fn test_buy_key_negative_payment_panics() {
     let buyer = Address::generate(&env);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
 
-    client.buy_key(&creator, &buyer, &-50_i128);
+    let result = client.try_buy_key(&creator, &buyer, &-50_i128);
+    assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 
 #[test]
@@ -119,8 +119,7 @@ fn test_buy_key_positive_payment_succeeds() {
 // ── Shared helper used in set_key_price (#21) ───────────────────────────
 
 #[test]
-#[should_panic(expected = "payment amount must be positive")]
-fn test_set_key_price_zero_panics() {
+fn test_set_key_price_zero_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -128,12 +127,12 @@ fn test_set_key_price_zero_panics() {
     let client = CreatorKeysContractClient::new(&env, &id);
     let admin = Address::generate(&env);
 
-    client.set_key_price(&admin, &0_i128);
+    let result = client.try_set_key_price(&admin, &0_i128);
+    assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 
 #[test]
-#[should_panic(expected = "payment amount must be positive")]
-fn test_set_key_price_negative_panics() {
+fn test_set_key_price_negative_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -141,5 +140,6 @@ fn test_set_key_price_negative_panics() {
     let client = CreatorKeysContractClient::new(&env, &id);
     let admin = Address::generate(&env);
 
-    client.set_key_price(&admin, &-10_i128);
+    let result = client.try_set_key_price(&admin, &-10_i128);
+    assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }

@@ -1,6 +1,6 @@
 //! Tests for is_creator_registered view method (#28) and duplicate registration rejection (#31).
 
-use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 // ── is_creator_registered tests (#28) ───────────────────────────────────
@@ -68,8 +68,7 @@ fn test_is_creator_registered_different_creators_independent() {
 // ── Duplicate registration rejection tests (#31) ────────────────────────
 
 #[test]
-#[should_panic(expected = "creator already registered")]
-fn test_register_creator_duplicate_panics() {
+fn test_register_creator_duplicate_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -80,13 +79,13 @@ fn test_register_creator_duplicate_panics() {
     let handle = String::from_str(&env, "alice");
 
     client.register_creator(&creator, &handle);
-    // Second registration with the same address should panic
-    client.register_creator(&creator, &handle);
+    // Second registration with the same address should fail with error
+    let result = client.try_register_creator(&creator, &handle);
+    assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
 }
 
 #[test]
-#[should_panic(expected = "creator already registered")]
-fn test_register_creator_duplicate_different_handle_panics() {
+fn test_register_creator_duplicate_different_handle_fails() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -96,8 +95,9 @@ fn test_register_creator_duplicate_different_handle_panics() {
     let creator = Address::generate(&env);
 
     client.register_creator(&creator, &String::from_str(&env, "alice"));
-    // Re-registering with a different handle should still panic
-    client.register_creator(&creator, &String::from_str(&env, "alice_v2"));
+    // Re-registering with a different handle should still fail
+    let result = client.try_register_creator(&creator, &String::from_str(&env, "alice_v2"));
+    assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
 }
 
 #[test]
