@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 2,
     "nonce": 0
   },
   "auth": [
@@ -12,16 +12,16 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_key_price",
+              "function_name": "set_fee_config",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 100
-                  }
+                  "u32": 5000
+                },
+                {
+                  "u32": 5000
                 }
               ]
             }
@@ -49,7 +49,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "KeyPrice"
+                  "symbol": "FeeConfig"
                 }
               ]
             },
@@ -66,16 +66,30 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "KeyPrice"
+                      "symbol": "FeeConfig"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 100
-                  }
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "creator_bps"
+                      },
+                      "val": {
+                        "u32": 5000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "protocol_bps"
+                      },
+                      "val": {
+                        "u32": 5000
+                      }
+                    }
+                  ]
                 }
               }
             },
