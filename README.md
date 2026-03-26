@@ -42,6 +42,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+## Testnet deployment
+
+For contributor test deployments and release checks, use the guide in [docs/stellar-testnet-deployment.md](./docs/stellar-testnet-deployment.md).
+
 ## Open source workflow
 
 - Read [CONTRIBUTING.md](./CONTRIBUTING.md) before starting work.

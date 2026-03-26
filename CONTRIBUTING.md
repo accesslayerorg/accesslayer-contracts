@@ -31,6 +31,8 @@ make clippy
 make test
 ```
 
+For testnet deployment steps, required CLI setup, and the release checklist used for contract updates, see [docs/stellar-testnet-deployment.md](./docs/stellar-testnet-deployment.md).
+
 ## Contract contribution rules
 
 - Document storage and event changes clearly.
