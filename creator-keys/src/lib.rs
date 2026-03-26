@@ -53,6 +53,18 @@ pub mod fee {
     }
 }
 
+/// Stable, non-optional view of the protocol fee configuration.
+///
+/// Returned by [`CreatorKeysContract::get_protocol_fee_view`] for indexer-friendly consumption.
+/// When `is_configured` is `false`, both bps fields are `0` and no fee config has been stored.
+#[derive(Clone)]
+#[contracttype]
+pub struct ProtocolFeeView {
+    pub creator_bps: u32,
+    pub protocol_bps: u32,
+    pub is_configured: bool,
+}
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -60,6 +72,8 @@ pub enum DataKey {
     FeeConfig,
     KeyPrice,
     KeyBalance(Address, Address),
+
+    TreasuryAddress,
 }
 
 #[derive(Clone)]
@@ -70,8 +84,41 @@ pub struct CreatorProfile {
     pub supply: u32,
 }
 
+/// Shared validation: panics if the payment amount is zero or negative.
+///
+/// Use this before any purchase or payment logic to reject empty transactions
+/// with a clear, consistent error message.
+pub fn assert_positive_amount(amount: i128) {
+    if amount <= 0 {
+        panic!("payment amount must be positive");
+    }
+}
+
+/// Reads the key balance (supply) for a creator, returning `0` for unregistered creators.
+///
+/// Use this helper wherever repeated key balance read logic is needed to keep
+/// missing-balance behavior consistent across the contract.
+pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
+    let key = DataKey::Creator(creator.clone());
+    env.storage()
+        .persistent()
+        .get::<DataKey, CreatorProfile>(&key)
+        .map(|p| p.supply)
+        .unwrap_or(0)
+}
+
 #[contract]
 pub struct CreatorKeysContract;
+
+impl CreatorKeysContract {
+    fn require_creator(env: &Env, creator: &Address) -> CreatorProfile {
+        let key = DataKey::Creator(creator.clone());
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic!("creator not registered"))
+    }
+}
 
 #[contractimpl]
 impl CreatorKeysContract {
@@ -79,6 +126,10 @@ impl CreatorKeysContract {
         creator.require_auth();
 
         let key = DataKey::Creator(creator.clone());
+        if env.storage().persistent().has(&key) {
+            panic!("creator already registered");
+        }
+
         let profile = CreatorProfile {
             creator,
             handle,
@@ -91,6 +142,7 @@ impl CreatorKeysContract {
 
     pub fn buy_key(env: Env, creator: Address, buyer: Address, payment: i128) -> u32 {
         buyer.require_auth();
+        assert_positive_amount(payment);
 
         let price: i128 = env
             .storage()
@@ -102,11 +154,7 @@ impl CreatorKeysContract {
         }
 
         let key = DataKey::Creator(creator.clone());
-        let mut profile: CreatorProfile = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic!("creator not registered"));
+        let mut profile = Self::require_creator(&env, &creator);
 
         profile.supply += 1;
         env.storage().persistent().set(&key, &profile);
@@ -133,6 +181,23 @@ impl CreatorKeysContract {
         env.storage().persistent().get(&key)
     }
 
+    /// Read-only view: returns the total key supply for a creator.
+    ///
+    /// Returns `0` if the creator is not registered, avoiding panics for
+    /// invalid lookups. Delegates to the shared [`read_key_balance`] helper.
+    pub fn get_total_key_supply(env: Env, creator: Address) -> u32 {
+        read_key_balance(&env, &creator)
+    }
+
+    /// Read-only view: returns whether a creator is registered in the contract.
+    ///
+    /// Returns `true` if a [`CreatorProfile`] exists for the given address,
+    /// `false` otherwise. Does not mutate state.
+    pub fn is_creator_registered(env: Env, creator: Address) -> bool {
+        let key = DataKey::Creator(creator);
+        env.storage().persistent().has(&key)
+    }
+
     pub fn set_fee_config(env: Env, admin: Address, creator_bps: u32, protocol_bps: u32) {
         admin.require_auth();
         fee::assert_valid_fee_bps(creator_bps, protocol_bps);
@@ -145,14 +210,56 @@ impl CreatorKeysContract {
 
     pub fn set_key_price(env: Env, admin: Address, price: i128) {
         admin.require_auth();
-        if price <= 0 {
-            panic!("key price must be positive");
-        }
+        assert_positive_amount(price);
         env.storage().persistent().set(&DataKey::KeyPrice, &price);
     }
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {
         env.storage().persistent().get(&DataKey::FeeConfig)
+    }
+
+    /// Sets the protocol treasury address.
+    ///
+    /// Only callable by an authorized admin. Stores the treasury address used
+    /// for protocol fee routing.
+    pub fn set_treasury_address(env: Env, admin: Address, treasury: Address) {
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::TreasuryAddress, &treasury);
+    }
+
+    /// Read-only view: returns the current protocol treasury address.
+    ///
+    /// Returns `None` if no treasury address has been configured.
+    /// Use this method for indexers and read-only callers that need the current
+    /// treasury routing target.
+    pub fn get_treasury_address(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::TreasuryAddress)
+    }
+
+    /// Read-only view: returns the current protocol fee configuration.
+    ///
+    /// Returns a stable [`ProtocolFeeView`] regardless of whether a fee config has been set.
+    /// When no config is stored, `is_configured` is `false` and both bps fields are `0`.
+    /// Use this method for indexers and read-only callers that need a non-optional result.
+    pub fn get_protocol_fee_view(env: Env) -> ProtocolFeeView {
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, fee::FeeConfig>(&DataKey::FeeConfig)
+        {
+            Some(config) => ProtocolFeeView {
+                creator_bps: config.creator_bps,
+                protocol_bps: config.protocol_bps,
+                is_configured: true,
+            },
+            None => ProtocolFeeView {
+                creator_bps: 0,
+                protocol_bps: 0,
+                is_configured: false,
+            },
+        }
     }
 
     pub fn compute_fees_for_payment(env: Env, total: i128) -> (i128, i128) {
