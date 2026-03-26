@@ -81,6 +81,8 @@ pub enum DataKey {
     Creator(Address),
     FeeConfig,
     KeyPrice,
+    KeyBalance(Address, Address),
+
     TreasuryAddress,
 }
 
@@ -117,6 +119,16 @@ pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
 
 #[contract]
 pub struct CreatorKeysContract;
+
+impl CreatorKeysContract {
+    fn require_creator(env: &Env, creator: &Address) -> CreatorProfile {
+        let key = DataKey::Creator(creator.clone());
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic!("creator not registered"))
+    }
+}
 
 #[contractimpl]
 impl CreatorKeysContract {
@@ -158,18 +170,34 @@ impl CreatorKeysContract {
         }
 
         let key = DataKey::Creator(creator.clone());
+<<<<<<< mergeconflicts
         let mut profile: CreatorProfile = env
             .storage()
             .persistent()
             .get(&key)
             .ok_or(ContractError::NotRegistered)?;
+=======
+        let mut profile = Self::require_creator(&env, &creator);
+>>>>>>> main
 
         profile.supply += 1;
         env.storage().persistent().set(&key, &profile);
+
+        let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&balance_key, &(current_balance + 1));
+
         env.events()
             .publish((symbol_short!("buy"), creator, buyer), profile.supply);
 
         Ok(profile.supply)
+    }
+
+    pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
+        let key = DataKey::KeyBalance(creator, wallet);
+        env.storage().persistent().get(&key).unwrap_or(0)
     }
 
     pub fn get_creator(env: Env, creator: Address) -> Option<CreatorProfile> {
