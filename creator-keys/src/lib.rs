@@ -112,11 +112,7 @@ impl CreatorKeysContract {
         env.storage().persistent().set(&key, &profile);
 
         let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
-        let current_balance: u32 = env
-            .storage()
-            .persistent()
-            .get(&balance_key)
-            .unwrap_or(0);
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         env.storage()
             .persistent()
             .set(&balance_key, &(current_balance + 1));
