@@ -111,10 +111,26 @@
                     },
                     {
                       "key": {
+                        "symbol": "fee_recipient"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "handle"
                       },
                       "val": {
                         "string": "test"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "holder_count"
+                      },
+                      "val": {
+                        "u32": 0
                       }
                     },
                     {

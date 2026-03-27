@@ -86,10 +86,26 @@
                     },
                     {
                       "key": {
+                        "symbol": "fee_recipient"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "handle"
                       },
                       "val": {
                         "string": "test_creator"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "holder_count"
+                      },
+                      "val": {
+                        "u32": 0
                       }
                     },
                     {

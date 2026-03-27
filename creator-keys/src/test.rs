@@ -362,3 +362,71 @@ fn test_get_quote_fails_if_fee_not_set() {
     let result = client.try_get_buy_quote(&creator);
     assert_eq!(result, Err(Ok(ContractError::FeeConfigNotSet)));
 }
+
+#[test]
+fn test_get_buy_quote_fails_if_not_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &1000);
+
+    let unregistered_creator = Address::generate(&env);
+    let result = client.try_get_buy_quote(&unregistered_creator);
+    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+}
+
+#[test]
+fn test_get_creator_fee_recipient_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    client.register_creator(&creator, &handle);
+
+    let recipient = client.get_creator_fee_recipient(&creator);
+    assert_eq!(recipient, creator);
+}
+
+#[test]
+fn test_get_creator_fee_recipient_fails_if_not_registered() {
+    let env = Env::default();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let unregistered_creator = Address::generate(&env);
+    let result = client.try_get_creator_fee_recipient(&unregistered_creator);
+    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+}
+
+#[test]
+fn test_quote_overflow_guards() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    // Set a massive price that will cause overflow when fees are added
+    let max_price = i128::MAX - 1; 
+    client.set_key_price(&admin, &max_price);
+    client.set_fee_config(&admin, &9000, &1000); // 90/10 split
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    client.register_creator(&creator, &handle);
+
+    // Buy quote: price + fees (will overflow)
+    let result = client.try_get_buy_quote(&creator);
+    assert_eq!(result, Err(Ok(ContractError::Overflow)));
+
+    // Sell quote: price - fees (won't overflow if price is large, but let's test sub overflow)
+    // Actually price - fees is safe if price > fees. 
+    // To test subtraction overflow, we need fees > price.
+    // Price must be positive per contract constraint.
+}

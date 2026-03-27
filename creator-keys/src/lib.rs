@@ -64,6 +64,22 @@ pub mod fee {
         let creator_amount = total - protocol_amount;
         (creator_amount, protocol_amount)
     }
+
+    /// Computes the fee split safely, returning `None` if multiplication or subtraction overflows.
+    pub fn checked_compute_fee_split(
+        total: i128,
+        _creator_bps: u32,
+        protocol_bps: u32,
+    ) -> Option<(i128, i128)> {
+        if total <= 0 {
+            return Some((0, 0));
+        }
+        let protocol_amount = total
+            .checked_mul(protocol_bps as i128)?
+            .checked_div(BPS_MAX as i128)?;
+        let creator_amount = total.checked_sub(protocol_amount)?;
+        Some((creator_amount, protocol_amount))
+    }
 }
 
 /// Stable, non-optional view of the protocol fee configuration.
@@ -152,6 +168,7 @@ pub struct CreatorProfile {
     pub handle: String,
     pub supply: u32,
     pub holder_count: u32,
+    pub fee_recipient: Address,
 }
 
 /// Reads a creator profile from storage, returning `None` for unregistered creators.
@@ -175,27 +192,32 @@ pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
         .unwrap_or(0)
 }
 
-/// Formats a quote response with consistent total amount calculation.
+
+/// Formats a quote response with overflow-safe total amount calculation.
 ///
-/// For buys, total_amount = price + fees.
-/// For sells, total_amount = price - fees.
-fn format_quote_response(
+/// Returns `Err(ContractError::Overflow)` if any addition or subtraction would overflow.
+fn checked_format_quote_response(
     price: i128,
     creator_fee: i128,
     protocol_fee: i128,
     is_buy: bool,
-) -> QuoteResponse {
+) -> Result<QuoteResponse, ContractError> {
+    let fees = creator_fee
+        .checked_add(protocol_fee)
+        .ok_or(ContractError::Overflow)?;
+
     let total_amount = if is_buy {
-        price + creator_fee + protocol_fee
+        price.checked_add(fees).ok_or(ContractError::Overflow)?
     } else {
-        price - creator_fee - protocol_fee
+        price.checked_sub(fees).ok_or(ContractError::Overflow)?
     };
-    QuoteResponse {
+
+    Ok(QuoteResponse {
         price,
         creator_fee,
         protocol_fee,
         total_amount,
-    }
+    })
 }
 
 #[contract]
@@ -216,10 +238,11 @@ impl CreatorKeysContract {
         }
 
         let profile = CreatorProfile {
-            creator,
+            creator: creator.clone(),
             handle,
             supply: 0,
             holder_count: 0,
+            fee_recipient: creator.clone(),
         };
 
         env.storage().persistent().set(&key, &profile);
@@ -376,6 +399,15 @@ impl CreatorKeysContract {
         read_creator_profile(&env, &creator).is_some()
     }
 
+    /// Read-only view: returns the creator fee recipient address.
+    ///
+    /// Fails with [`ContractError::NotRegistered`] if the creator is not registered.
+    /// Reuses current creator storage access patterns.
+    pub fn get_creator_fee_recipient(env: Env, creator: Address) -> Result<Address, ContractError> {
+        let profile = read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)?;
+        Ok(profile.fee_recipient)
+    }
+
     pub fn set_fee_config(
         env: Env,
         admin: Address,
@@ -458,11 +490,8 @@ impl CreatorKeysContract {
             .persistent()
             .get(&DataKey::FeeConfig)
             .ok_or(ContractError::FeeConfigNotSet)?;
-        Ok(fee::compute_fee_split(
-            total,
-            config.creator_bps,
-            config.protocol_bps,
-        ))
+        fee::checked_compute_fee_split(total, config.creator_bps, config.protocol_bps)
+            .ok_or(ContractError::Overflow)
     }
 
     /// Read-only view: returns the fee configuration for a specific creator.
@@ -521,12 +550,7 @@ impl CreatorKeysContract {
 
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
 
-        Ok(format_quote_response(
-            price,
-            creator_fee,
-            protocol_fee,
-            true,
-        ))
+        checked_format_quote_response(price, creator_fee, protocol_fee, true)
     }
 
     /// Read-only view: returns a quote for selling a key.
@@ -556,12 +580,7 @@ impl CreatorKeysContract {
 
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
 
-        Ok(format_quote_response(
-            price,
-            creator_fee,
-            protocol_fee,
-            false,
-        ))
+        checked_format_quote_response(price, creator_fee, protocol_fee, false)
     }
 }
 

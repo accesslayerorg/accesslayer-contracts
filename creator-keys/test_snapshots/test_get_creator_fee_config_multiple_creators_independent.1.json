@@ -134,10 +134,26 @@
                     },
                     {
                       "key": {
+                        "symbol": "fee_recipient"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "handle"
                       },
                       "val": {
                         "string": "creator_one"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "holder_count"
+                      },
+                      "val": {
+                        "u32": 0
                       }
                     },
                     {
@@ -204,10 +220,26 @@
                     },
                     {
                       "key": {
+                        "symbol": "fee_recipient"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "handle"
                       },
                       "val": {
                         "string": "creator_two"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "holder_count"
+                      },
+                      "val": {
+                        "u32": 0
                       }
                     },
                     {
