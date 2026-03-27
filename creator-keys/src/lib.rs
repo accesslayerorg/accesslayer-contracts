@@ -192,7 +192,6 @@ pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
         .unwrap_or(0)
 }
 
-
 /// Formats a quote response with overflow-safe total amount calculation.
 ///
 /// Returns `Err(ContractError::Overflow)` if any addition or subtraction would overflow.

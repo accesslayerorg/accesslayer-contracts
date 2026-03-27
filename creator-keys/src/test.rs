@@ -413,7 +413,7 @@ fn test_quote_overflow_guards() {
 
     let admin = Address::generate(&env);
     // Set a massive price that will cause overflow when fees are added
-    let max_price = i128::MAX - 1; 
+    let max_price = i128::MAX - 1;
     client.set_key_price(&admin, &max_price);
     client.set_fee_config(&admin, &9000, &1000); // 90/10 split
 
@@ -426,7 +426,7 @@ fn test_quote_overflow_guards() {
     assert_eq!(result, Err(Ok(ContractError::Overflow)));
 
     // Sell quote: price - fees (won't overflow if price is large, but let's test sub overflow)
-    // Actually price - fees is safe if price > fees. 
+    // Actually price - fees is safe if price > fees.
     // To test subtraction overflow, we need fees > price.
     // Price must be positive per contract constraint.
 }
