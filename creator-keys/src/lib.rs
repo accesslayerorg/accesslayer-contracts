@@ -91,6 +91,11 @@ pub struct CreatorFeeView {
     pub is_configured: bool,
 }
 
+/// Stable protocol state version for read-only consumers.
+///
+/// Bump this value only when externally consumed protocol state semantics change.
+pub const PROTOCOL_STATE_VERSION: u32 = 1;
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -214,6 +219,14 @@ impl CreatorKeysContract {
 
     pub fn get_creator(env: Env, creator: Address) -> Result<CreatorProfile, ContractError> {
         read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)
+    }
+
+    /// Read-only view: returns the protocol state version.
+    ///
+    /// Returns a stable scalar value for clients and indexers to detect
+    /// protocol-state schema/semantics revisions without mutating contract state.
+    pub fn get_protocol_state_version(_env: Env) -> u32 {
+        PROTOCOL_STATE_VERSION
     }
 
     /// Read-only view: returns the total key supply for a creator.
