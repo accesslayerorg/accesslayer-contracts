@@ -258,6 +258,7 @@ impl CreatorKeysContract {
                 is_registered: false,
             },
         }
+    }
     /// Read-only view: returns the protocol state version.
     ///
     /// Returns a stable scalar value for clients and indexers to detect
