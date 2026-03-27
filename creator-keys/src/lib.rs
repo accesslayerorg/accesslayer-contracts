@@ -284,6 +284,40 @@ impl CreatorKeysContract {
         Ok(profile.supply)
     }
 
+    pub fn sell_key(env: Env, creator: Address, seller: Address) -> Result<u32, ContractError> {
+        seller.require_auth();
+
+        let mut profile: CreatorProfile =
+            read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)?;
+
+        let balance_key = DataKey::KeyBalance(creator.clone(), seller);
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        if current_balance == 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let new_balance = current_balance
+            .checked_sub(1)
+            .ok_or(ContractError::Overflow)?;
+        profile.supply = profile
+            .supply
+            .checked_sub(1)
+            .ok_or(ContractError::Overflow)?;
+
+        if new_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_sub(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        let key = DataKey::Creator(creator);
+        env.storage().persistent().set(&key, &profile);
+        env.storage().persistent().set(&balance_key, &new_balance);
+
+        Ok(profile.supply)
+    }
+
     pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
         let key = DataKey::KeyBalance(creator, wallet);
         env.storage().persistent().get(&key).unwrap_or(0)
