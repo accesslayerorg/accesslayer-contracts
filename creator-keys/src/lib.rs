@@ -151,6 +151,7 @@ pub struct CreatorProfile {
     pub creator: Address,
     pub handle: String,
     pub supply: u32,
+    pub holder_count: u32,
 }
 
 /// Reads a creator profile from storage, returning `None` for unregistered creators.
@@ -218,6 +219,7 @@ impl CreatorKeysContract {
             creator,
             handle,
             supply: 0,
+            holder_count: 0,
         };
 
         env.storage().persistent().set(&key, &profile);
@@ -251,6 +253,16 @@ impl CreatorKeysContract {
         let mut profile: CreatorProfile =
             read_creator_profile(&env, &creator).ok_or(ContractError::NotRegistered)?;
 
+        let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if current_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
         profile.supply = profile
             .supply
             .checked_add(1)
@@ -259,8 +271,6 @@ impl CreatorKeysContract {
         let key = DataKey::Creator(creator.clone());
         env.storage().persistent().set(&key, &profile);
 
-        let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
-        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         let new_balance = current_balance
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
@@ -346,6 +356,16 @@ impl CreatorKeysContract {
     /// invalid lookups. Delegates to the shared [`read_key_balance`] helper.
     pub fn get_total_key_supply(env: Env, creator: Address) -> u32 {
         read_key_balance(&env, &creator)
+    }
+
+    /// Read-only view: returns the number of unique holders for a creator.
+    ///
+    /// Returns `0` if the creator is not registered, avoiding panics for
+    /// invalid lookups. Uses the stored creator profile holder count.
+    pub fn get_creator_holder_count(env: Env, creator: Address) -> u32 {
+        read_creator_profile(&env, &creator)
+            .map(|profile| profile.holder_count)
+            .unwrap_or(0)
     }
 
     /// Read-only view: returns whether a creator is registered in the contract.
