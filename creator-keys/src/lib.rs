@@ -159,6 +159,7 @@ pub enum DataKey {
     KeyPrice,
     KeyBalance(Address, Address),
     TreasuryAddress,
+    AdminAddress,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -499,6 +500,26 @@ impl CreatorKeysContract {
     /// treasury routing target.
     pub fn get_treasury_address(env: Env) -> Option<Address> {
         env.storage().persistent().get(&DataKey::TreasuryAddress)
+    }
+
+    /// Sets the protocol admin address.
+    ///
+    /// Only callable by an authorized admin. Stores the admin address used
+    /// for protocol administration.
+    pub fn set_protocol_admin(env: Env, admin: Address, new_admin: Address) {
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::AdminAddress, &new_admin);
+    }
+
+    /// Read-only view: returns the current protocol admin address.
+    ///
+    /// Returns `None` if no admin address has been configured.
+    /// Use this method for indexers and read-only callers that need the current
+    /// protocol admin address.
+    pub fn get_protocol_admin(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::AdminAddress)
     }
 
     /// Read-only view: returns the current protocol fee configuration.
