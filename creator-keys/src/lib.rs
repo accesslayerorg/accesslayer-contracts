@@ -82,6 +82,29 @@ pub mod fee {
     }
 }
 
+pub mod constants {
+    use super::DataKey;
+
+    pub mod storage {
+        use super::DataKey;
+
+        pub const FEE_CONFIG: DataKey = DataKey::FeeConfig;
+        pub const KEY_PRICE: DataKey = DataKey::KeyPrice;
+        pub const TREASURY_ADDRESS: DataKey = DataKey::TreasuryAddress;
+    }
+
+    pub mod creator_reads {
+        pub const DETAILS: &str = "get_creator_details";
+        pub const FEE_BPS: &str = "get_creator_fee_bps";
+        pub const FEE_CONFIG: &str = "get_creator_fee_config";
+        pub const FEE_RECIPIENT: &str = "get_creator_fee_recipient";
+        pub const HOLDER_KEY_COUNT: &str = "get_holder_key_count";
+        pub const PROFILE: &str = "get_creator";
+        pub const SUPPLY: &str = "get_creator_supply";
+        pub const TREASURY_SHARE: &str = "get_creator_treasury_share";
+    }
+}
+
 /// Stable, non-optional view of the protocol fee configuration.
 ///
 /// Returned by [`CreatorKeysContract::get_protocol_fee_view`] for indexer-friendly consumption.
@@ -206,6 +229,16 @@ pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
         .unwrap_or(0)
 }
 
+fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::FEE_CONFIG)
+}
+
+fn read_required_protocol_fee_config(env: &Env) -> Result<fee::FeeConfig, ContractError> {
+    read_protocol_fee_config(env).ok_or(ContractError::FeeConfigNotSet)
+}
+
 /// Formats a quote response with overflow-safe total amount calculation.
 ///
 /// Returns `Err(ContractError::Overflow)` if any addition or subtraction would overflow.
@@ -287,7 +320,7 @@ impl CreatorKeysContract {
         let price: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::KeyPrice)
+            .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
 
         if payment < price {
@@ -469,6 +502,25 @@ impl CreatorKeysContract {
         Ok(profile.fee_recipient)
     }
 
+    /// Read-only view: returns the configured creator fee rate in basis points.
+    ///
+    /// The returned value is the creator-facing share stored in the current protocol
+    /// fee configuration, scoped to a registered creator lookup.
+    pub fn get_creator_fee_bps(env: Env, creator: Address) -> Result<u32, ContractError> {
+        let _profile = read_registered_creator_profile(&env, &creator)?;
+        let config = read_required_protocol_fee_config(&env)?;
+        Ok(config.creator_bps)
+    }
+
+    /// Read-only view: returns the creator treasury share for a registered creator.
+    ///
+    /// Access Layer currently stores creator treasury share as the creator-facing
+    /// basis-point share in protocol fee configuration. This method provides a
+    /// creator-scoped accessor without mutating state.
+    pub fn get_creator_treasury_share(env: Env, creator: Address) -> Result<u32, ContractError> {
+        Self::get_creator_fee_bps(env, creator)
+    }
+
     pub fn set_fee_config(
         env: Env,
         admin: Address,
@@ -484,7 +536,9 @@ impl CreatorKeysContract {
             creator_bps,
             protocol_bps,
         };
-        env.storage().persistent().set(&DataKey::FeeConfig, &config);
+        env.storage()
+            .persistent()
+            .set(&constants::storage::FEE_CONFIG, &config);
         Ok(())
     }
 
@@ -493,12 +547,14 @@ impl CreatorKeysContract {
         if price <= 0 {
             return Err(ContractError::NotPositiveAmount);
         }
-        env.storage().persistent().set(&DataKey::KeyPrice, &price);
+        env.storage()
+            .persistent()
+            .set(&constants::storage::KEY_PRICE, &price);
         Ok(())
     }
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {
-        env.storage().persistent().get(&DataKey::FeeConfig)
+        read_protocol_fee_config(&env)
     }
 
     /// Sets the protocol treasury address.
@@ -509,7 +565,7 @@ impl CreatorKeysContract {
         admin.require_auth();
         env.storage()
             .persistent()
-            .set(&DataKey::TreasuryAddress, &treasury);
+            .set(&constants::storage::TREASURY_ADDRESS, &treasury);
     }
 
     /// Read-only view: returns the current protocol treasury address.
@@ -518,7 +574,9 @@ impl CreatorKeysContract {
     /// Use this method for indexers and read-only callers that need the current
     /// treasury routing target.
     pub fn get_treasury_address(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::TreasuryAddress)
+        env.storage()
+            .persistent()
+            .get(&constants::storage::TREASURY_ADDRESS)
     }
 
     /// Read-only view: returns the current protocol fee configuration.
@@ -530,7 +588,7 @@ impl CreatorKeysContract {
         match env
             .storage()
             .persistent()
-            .get::<DataKey, fee::FeeConfig>(&DataKey::FeeConfig)
+            .get::<DataKey, fee::FeeConfig>(&constants::storage::FEE_CONFIG)
         {
             Some(config) => ProtocolFeeView {
                 creator_bps: config.creator_bps,
@@ -546,11 +604,7 @@ impl CreatorKeysContract {
     }
 
     pub fn compute_fees_for_payment(env: Env, total: i128) -> Result<(i128, i128), ContractError> {
-        let config: fee::FeeConfig = env
-            .storage()
-            .persistent()
-            .get(&DataKey::FeeConfig)
-            .ok_or(ContractError::FeeConfigNotSet)?;
+        let config = read_required_protocol_fee_config(&env)?;
         fee::checked_compute_fee_split(total, config.creator_bps, config.protocol_bps)
             .ok_or(ContractError::Overflow)
     }
@@ -577,7 +631,7 @@ impl CreatorKeysContract {
         match env
             .storage()
             .persistent()
-            .get::<DataKey, fee::FeeConfig>(&DataKey::FeeConfig)
+            .get::<DataKey, fee::FeeConfig>(&constants::storage::FEE_CONFIG)
         {
             Some(config) => CreatorFeeView {
                 creator_bps: config.creator_bps,
@@ -602,7 +656,7 @@ impl CreatorKeysContract {
         let price: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::KeyPrice)
+            .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
 
         if read_creator_profile(&env, &creator).is_none() {
@@ -627,7 +681,7 @@ impl CreatorKeysContract {
         let price: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::KeyPrice)
+            .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
 
         if read_creator_profile(&env, &creator).is_none() {
