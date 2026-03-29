@@ -84,13 +84,32 @@ pub mod fee {
 
 pub mod constants {
     use super::DataKey;
+    use soroban_sdk::Address;
 
     pub mod storage {
-        use super::DataKey;
+        use super::{creator_key, key_balance_key, DataKey};
+        use soroban_sdk::Address;
 
         pub const FEE_CONFIG: DataKey = DataKey::FeeConfig;
         pub const KEY_PRICE: DataKey = DataKey::KeyPrice;
         pub const TREASURY_ADDRESS: DataKey = DataKey::TreasuryAddress;
+        pub const ADMIN_ADDRESS: DataKey = DataKey::AdminAddress;
+
+        pub fn creator(creator: &Address) -> DataKey {
+            creator_key(creator)
+        }
+
+        pub fn key_balance(creator: &Address, holder: &Address) -> DataKey {
+            key_balance_key(creator, holder)
+        }
+    }
+
+    fn creator_key(creator: &Address) -> DataKey {
+        DataKey::Creator(creator.clone())
+    }
+
+    fn key_balance_key(creator: &Address, holder: &Address) -> DataKey {
+        DataKey::KeyBalance(creator.clone(), holder.clone())
     }
 
     pub mod creator_reads {
@@ -203,7 +222,7 @@ pub struct CreatorProfile {
 /// Use this helper wherever repeated creator read logic is needed to keep
 /// missing-creator behavior consistent across the contract.
 pub fn read_creator_profile(env: &Env, creator: &Address) -> Option<CreatorProfile> {
-    let key = DataKey::Creator(creator.clone());
+    let key = constants::storage::creator(creator);
     env.storage()
         .persistent()
         .get::<DataKey, CreatorProfile>(&key)
@@ -279,7 +298,7 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         creator.require_auth();
 
-        let key = DataKey::Creator(creator.clone());
+        let key = constants::storage::creator(&creator);
         if env.storage().persistent().has(&key) {
             return Err(ContractError::AlreadyRegistered);
         }
@@ -330,7 +349,7 @@ impl CreatorKeysContract {
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
-        let balance_key = DataKey::KeyBalance(creator.clone(), buyer.clone());
+        let balance_key = constants::storage::key_balance(&creator, &buyer);
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
         if current_balance == 0 {
@@ -345,7 +364,7 @@ impl CreatorKeysContract {
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
 
-        let key = DataKey::Creator(creator.clone());
+        let key = constants::storage::creator(&creator);
         env.storage().persistent().set(&key, &profile);
 
         let new_balance = current_balance
@@ -366,7 +385,7 @@ impl CreatorKeysContract {
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
-        let balance_key = DataKey::KeyBalance(creator.clone(), seller);
+        let balance_key = constants::storage::key_balance(&creator, &seller);
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         if current_balance == 0 {
             return Err(ContractError::InsufficientBalance);
@@ -387,7 +406,7 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
         }
 
-        let key = DataKey::Creator(creator);
+        let key = constants::storage::creator(&creator);
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
 
@@ -395,7 +414,7 @@ impl CreatorKeysContract {
     }
 
     pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
-        let key = DataKey::KeyBalance(creator, wallet);
+        let key = constants::storage::key_balance(&creator, &wallet);
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
@@ -408,7 +427,7 @@ impl CreatorKeysContract {
     pub fn get_holder_key_count(env: Env, creator: Address, holder: Address) -> HolderKeyCountView {
         let creator_exists = read_creator_profile(&env, &creator).is_some();
         let key_count = if creator_exists {
-            let key = DataKey::KeyBalance(creator.clone(), holder.clone());
+            let key = constants::storage::key_balance(&creator, &holder);
             env.storage().persistent().get(&key).unwrap_or(0)
         } else {
             0
@@ -432,7 +451,7 @@ impl CreatorKeysContract {
     /// When the creator is not registered, `is_registered` is `false` and
     /// default values are provided for other fields.
     pub fn get_creator_details(env: Env, creator: Address) -> CreatorDetailsView {
-        let key = DataKey::Creator(creator.clone());
+        let key = constants::storage::creator(&creator);
         match env
             .storage()
             .persistent()
@@ -588,7 +607,7 @@ impl CreatorKeysContract {
         admin.require_auth();
         env.storage()
             .persistent()
-            .set(&DataKey::AdminAddress, &new_admin);
+            .set(&constants::storage::ADMIN_ADDRESS, &new_admin);
     }
 
     /// Read-only view: returns the current protocol admin address.
@@ -597,7 +616,9 @@ impl CreatorKeysContract {
     /// Use this method for indexers and read-only callers that need the current
     /// protocol admin address.
     pub fn get_protocol_admin(env: Env) -> Option<Address> {
-        env.storage().persistent().get(&DataKey::AdminAddress)
+        env.storage()
+            .persistent()
+            .get(&constants::storage::ADMIN_ADDRESS)
     }
 
     /// Read-only view: returns the current protocol fee configuration.

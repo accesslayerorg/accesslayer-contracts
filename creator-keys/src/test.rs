@@ -18,7 +18,7 @@ fn test_read_key_balance_returns_registered_creator_supply() {
     let supply = env.as_contract(&contract_id, || {
         env.storage()
             .persistent()
-            .set(&DataKey::Creator(creator.clone()), &profile);
+            .set(&constants::storage::creator(&creator), &profile);
 
         read_key_balance(&env, &creator)
     });
