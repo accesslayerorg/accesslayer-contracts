@@ -1,4 +1,5 @@
 #![no_std]
+pub mod quote_view_errors;
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
 
