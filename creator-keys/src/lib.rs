@@ -1,3 +1,4 @@
+
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
@@ -229,6 +230,7 @@ pub fn read_key_balance(env: &Env, creator: &Address) -> u32 {
         .map(|p| p.supply)
         .unwrap_or(0)
 }
+
 
 fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
     env.storage()
@@ -555,7 +557,7 @@ impl CreatorKeysContract {
     }
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {
-        read_protocol_fee_config(&env)
+    read_protocol_fee_config(&env)
     }
 
     /// Sets the protocol treasury address.
@@ -606,11 +608,7 @@ impl CreatorKeysContract {
     /// When no config is stored, `is_configured` is `false` and both bps fields are `0`.
     /// Use this method for indexers and read-only callers that need a non-optional result.
     pub fn get_protocol_fee_view(env: Env) -> ProtocolFeeView {
-        match env
-            .storage()
-            .persistent()
-            .get::<DataKey, fee::FeeConfig>(&constants::storage::FEE_CONFIG)
-        {
+        match read_protocol_fee_config(&env) {
             Some(config) => ProtocolFeeView {
                 creator_bps: config.creator_bps,
                 protocol_bps: config.protocol_bps,
