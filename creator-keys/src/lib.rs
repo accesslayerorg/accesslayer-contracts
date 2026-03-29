@@ -264,6 +264,24 @@ fn read_required_protocol_fee_config(env: &Env) -> Result<fee::FeeConfig, Contra
     read_protocol_fee_config(env).ok_or(ContractError::FeeConfigNotSet)
 }
 
+/// Resolves and validates the shared inputs required by read-only quote methods.
+///
+/// Reads the key price from storage and confirms the creator is registered.
+/// Returns `(price)` on success, or the appropriate [`ContractError`] on failure.
+fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<i128, ContractError> {
+    let price: i128 = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::KEY_PRICE)
+        .ok_or(ContractError::KeyPriceNotSet)?;
+
+    if read_creator_profile(env, creator).is_none() {
+        return Err(ContractError::NotRegistered);
+    }
+
+    Ok(price)
+}
+
 /// Formats a quote response with overflow-safe total amount calculation.
 ///
 /// Returns `Err(ContractError::Overflow)` if any addition or subtraction would overflow.
@@ -715,18 +733,8 @@ impl CreatorKeysContract {
     /// Returns a [`QuoteResponse`] containing the current price and fee breakdown.
     /// Fees are calculated based on the fixed key price.
     pub fn get_buy_quote(env: Env, creator: Address) -> Result<QuoteResponse, ContractError> {
-        let price: i128 = env
-            .storage()
-            .persistent()
-            .get(&constants::storage::KEY_PRICE)
-            .ok_or(ContractError::KeyPriceNotSet)?;
-
-        if read_creator_profile(&env, &creator).is_none() {
-            return Err(ContractError::NotRegistered);
-        }
-
+        let price = resolve_quote_inputs(&env, &creator)?;
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-
         checked_format_quote_response(price, creator_fee, protocol_fee, true)
     }
 
@@ -740,15 +748,7 @@ impl CreatorKeysContract {
         creator: Address,
         holder: Address,
     ) -> Result<QuoteResponse, ContractError> {
-        let price: i128 = env
-            .storage()
-            .persistent()
-            .get(&constants::storage::KEY_PRICE)
-            .ok_or(ContractError::KeyPriceNotSet)?;
-
-        if read_creator_profile(&env, &creator).is_none() {
-            return Err(ContractError::NotRegistered);
-        }
+        let price = resolve_quote_inputs(&env, &creator)?;
 
         let balance = Self::get_key_balance(env.clone(), creator, holder);
         if balance == 0 {
@@ -756,7 +756,6 @@ impl CreatorKeysContract {
         }
 
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-
         checked_format_quote_response(price, creator_fee, protocol_fee, false)
     }
 }
