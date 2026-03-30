@@ -95,6 +95,7 @@ pub mod constants {
         pub const KEY_PRICE: DataKey = DataKey::KeyPrice;
         pub const TREASURY_ADDRESS: DataKey = DataKey::TreasuryAddress;
         pub const ADMIN_ADDRESS: DataKey = DataKey::AdminAddress;
+        pub const PROTOCOL_FEE_RECIPIENT: DataKey = DataKey::ProtocolFeeRecipient;
 
         pub fn creator(creator: &Address) -> DataKey {
             creator_key(creator)
@@ -213,6 +214,7 @@ pub enum DataKey {
     KeyBalance(Address, Address),
     TreasuryAddress,
     AdminAddress,
+    ProtocolFeeRecipient,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -688,6 +690,17 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::ADMIN_ADDRESS)
+    }
+
+    /// Read-only view: returns the current protocol fee recipient address.
+    ///
+    /// Returns `None` if no protocol fee recipient address has been configured.
+    /// Use this method for indexers and read-only callers that need the current
+    /// protocol fee recipient address.
+    pub fn get_protocol_fee_recipient(env: Env) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_FEE_RECIPIENT)
     }
 
     /// Read-only view: returns whether protocol configuration has been initialized.
