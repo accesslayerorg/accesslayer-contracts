@@ -117,7 +117,7 @@ fn test_get_key_balance_with_contract_address() {
     env.mock_all_auths();
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
-    
+
     let admin = Address::generate(&env);
     client.set_key_price(&admin, &100_i128);
 
