@@ -35,7 +35,7 @@ For testnet deployment steps, required CLI setup, and the release checklist used
 
 ## Contract contribution rules
 
-- Document storage and event changes clearly.
+- Document storage and event changes clearly. See [docs/storage-evolution.md](./docs/storage-evolution.md) for metadata versioning rules.
 - Treat buy, sell, fee, and supply logic as high-sensitivity areas.
 - Prefer incremental contract changes over sweeping redesigns.
 - Add or update tests for every behavior change.
