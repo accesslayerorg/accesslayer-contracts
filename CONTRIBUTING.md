@@ -11,7 +11,9 @@ Thanks for contributing to the Soroban contracts behind Access Layer, a Stellar-
 
 ## Local setup
 
-1. Install the stable Rust toolchain.
+See the [Local Setup Guide](./docs/local-setup.md) for a detailed walkthrough of required tools and troubleshooting.
+
+1. Install the stable Rust toolchain and WASM target.
 2. Make sure `rustfmt` and `clippy` are available.
 3. Run the workspace checks from this repo root.
 
