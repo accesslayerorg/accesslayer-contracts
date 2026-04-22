@@ -88,7 +88,11 @@ impl<'a> EventsFixture<'a> {
     fn get_last_event_by_name(
         &self,
         expected_name: Symbol,
-    ) -> (soroban_sdk::Address, soroban_sdk::vec::Vec<soroban_sdk::Val>, soroban_sdk::Val) {
+    ) -> (
+        soroban_sdk::Address,
+        soroban_sdk::vec::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    ) {
         let events = self.env.events().all();
         let filtered: Vec<_> = events
             .iter()
