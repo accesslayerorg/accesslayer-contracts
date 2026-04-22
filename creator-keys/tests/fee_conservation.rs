@@ -4,7 +4,13 @@
 use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Env, String};
 
-fn setup_test(env: &Env) -> (CreatorKeysContractClient, soroban_sdk::Address, soroban_sdk::Address) {
+fn setup_test(
+    env: &Env,
+) -> (
+    CreatorKeysContractClient,
+    soroban_sdk::Address,
+    soroban_sdk::Address,
+) {
     env.mock_all_auths();
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(env, &contract_id);
