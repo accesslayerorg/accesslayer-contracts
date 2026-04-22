@@ -7,7 +7,7 @@ use soroban_sdk::{testutils::Address as _, Env, String};
 fn setup_test(
     env: &Env,
 ) -> (
-    CreatorKeysContractClient,
+    CreatorKeysContractClient<'_>,
     soroban_sdk::Address,
     soroban_sdk::Address,
 ) {
@@ -26,7 +26,7 @@ fn setup_test(
 #[test]
 fn test_fee_conservation_across_price_range() {
     let env = Env::default();
-    let (client, admin, creator) = setup_test(&env);
+    let (client, admin, _creator) = setup_test(&env);
 
     // Test across various price points
     let prices = [1, 7, 99, 100, 1000, 12345, 100000, 1234567];
@@ -92,7 +92,7 @@ fn test_quote_total_conservation() {
 #[test]
 fn test_low_value_trade_dust_handling() {
     let env = Env::default();
-    let (client, admin, creator) = setup_test(&env);
+    let (client, admin, _creator) = setup_test(&env);
 
     // Price of 1 is the absolute minimum positive price
     let price = 1;
@@ -119,7 +119,7 @@ fn test_low_value_trade_dust_handling() {
 #[test]
 fn test_fee_split_bps_edge_cases() {
     let env = Env::default();
-    let (client, admin, creator) = setup_test(&env);
+    let (client, admin, _creator) = setup_test(&env);
 
     let price = 1000;
     client.set_key_price(&admin, &price);
