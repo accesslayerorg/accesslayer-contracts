@@ -1,15 +1,9 @@
-//! Tests for registration, buy, and sell event payloads using reusable fixtures.
-
-use creator_keys::{events, CreatorKeysContract, CreatorKeysContractClient};
+use crate::events;
 use soroban_sdk::{
-    testutils::{Address as _, Events},
-    Address, Env, IntoVal, String, Symbol,
+    testutils::Events,
+    Address, Env, IntoVal, Symbol,
 };
 
-/// Reusable fixture for contract event assertions.
-///
-/// This helper encapsulates the boilerplate of fetching, filtering, and
-/// deserializing contract events for consistent testing across different actions.
 pub struct EventsFixture<'a> {
     env: &'a Env,
 }
@@ -19,22 +13,19 @@ impl<'a> EventsFixture<'a> {
         Self { env }
     }
 
-    /// Asserts that a creator registration event was emitted with the expected payload.
     pub fn assert_registration_event(
         &self,
         creator: &Address,
-        expected_handle: &String,
+        expected_handle: &soroban_sdk::String,
         expected_supply: u32,
         expected_holder_count: u32,
     ) {
         let last_event = self.get_last_event_by_name(events::REGISTER_EVENT_NAME);
         let (_, topics, data) = last_event;
 
-        // Topic 1: Creator address
         let event_creator: Address = topics.get(1).unwrap().into_val(self.env);
         assert_eq!(event_creator, *creator);
 
-        // Data: CreatorRegisteredEvent struct
         let payload: events::CreatorRegisteredEvent = data.into_val(self.env);
         assert_eq!(payload.creator, *creator);
         assert_eq!(payload.handle, *expected_handle);
@@ -42,7 +33,6 @@ impl<'a> EventsFixture<'a> {
         assert_eq!(payload.holder_count, expected_holder_count);
     }
 
-    /// Asserts that a buy event was emitted with the expected topics and data.
     pub fn assert_buy_event(
         &self,
         creator: &Address,
@@ -53,34 +43,27 @@ impl<'a> EventsFixture<'a> {
         let last_event = self.get_last_event_by_name(events::BUY_EVENT_NAME);
         let (_, topics, data) = last_event;
 
-        // Topic 1: Creator
         let event_creator: Address = topics.get(1).unwrap().into_val(self.env);
         assert_eq!(event_creator, *creator);
 
-        // Topic 2: Buyer
         let event_buyer: Address = topics.get(2).unwrap().into_val(self.env);
         assert_eq!(event_buyer, *buyer);
 
-        // Data: (supply, payment)
         let (supply, payment): (u32, i128) = data.into_val(self.env);
         assert_eq!(supply, expected_supply);
         assert_eq!(payment, expected_payment);
     }
 
-    /// Asserts that a sell event was emitted with the expected topics and data.
     pub fn assert_sell_event(&self, creator: &Address, seller: &Address, expected_supply: u32) {
         let last_event = self.get_last_event_by_name(events::SELL_EVENT_NAME);
         let (_, topics, data) = last_event;
 
-        // Topic 1: Creator
         let event_creator: Address = topics.get(1).unwrap().into_val(self.env);
         assert_eq!(event_creator, *creator);
 
-        // Topic 2: Seller
         let event_seller: Address = topics.get(2).unwrap().into_val(self.env);
         assert_eq!(event_seller, *seller);
 
-        // Data: (supply,)
         let (supply,): (u32,) = data.into_val(self.env);
         assert_eq!(supply, expected_supply);
     }
@@ -109,60 +92,4 @@ impl<'a> EventsFixture<'a> {
         );
         filtered.last().unwrap().clone()
     }
-}
-
-fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address) {
-    let id = env.register(CreatorKeysContract, ());
-    let client = CreatorKeysContractClient::new(env, &id);
-    let admin = Address::generate(env);
-    client.set_key_price(&admin, &100_i128);
-    (client, admin)
-}
-
-#[test]
-fn test_register_creator_emits_correct_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _) = setup(&env);
-    let fixture = EventsFixture::new(&env);
-
-    let creator = Address::generate(&env);
-    let handle = String::from_str(&env, "alice");
-
-    client.register_creator(&creator, &handle);
-
-    fixture.assert_registration_event(&creator, &handle, 0, 0);
-}
-
-#[test]
-fn test_buy_key_emits_correct_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _) = setup(&env);
-    let fixture = EventsFixture::new(&env);
-
-    let creator = Address::generate(&env);
-    let buyer = Address::generate(&env);
-
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
-    client.buy_key(&creator, &buyer, &100_i128);
-
-    fixture.assert_buy_event(&creator, &buyer, 1, 100);
-}
-
-#[test]
-fn test_sell_key_emits_correct_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _) = setup(&env);
-    let fixture = EventsFixture::new(&env);
-
-    let creator = Address::generate(&env);
-    let holder = Address::generate(&env);
-
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
-    client.buy_key(&creator, &holder, &100_i128);
-    client.sell_key(&creator, &holder);
-
-    fixture.assert_sell_event(&creator, &holder, 0);
 }

@@ -12,6 +12,9 @@ pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
 /// Event name for key purchase.
 pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
 
+/// Event name for key sale.
+pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
+
 /// Stable registration event payload for downstream indexers.
 ///
 /// Event shape:

@@ -456,6 +456,11 @@ impl CreatorKeysContract {
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
 
+        env.events().publish(
+            (events::SELL_EVENT_NAME, creator, seller),
+            (profile.supply,),
+        );
+
         Ok(profile.supply)
     }
 
