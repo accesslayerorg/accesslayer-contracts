@@ -64,6 +64,8 @@ Expected artifact:
 target/wasm32v1-none/release/creator_keys.wasm
 ```
 
+This path is a **local build output** only. After you build, copy the wasm to team-controlled storage with a clear name and recorded metadata; see [deploy-artifacts.md](./deploy-artifacts.md).
+
 ## Deploy to Stellar testnet
 
 Deploy the built wasm and save a local alias for follow-up calls:

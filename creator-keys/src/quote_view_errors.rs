@@ -6,4 +6,6 @@
 pub const ERR_NOT_REGISTERED: &str = "not_registered";
 pub const ERR_FEE_CONFIG_NOT_SET: &str = "fee_config_not_set";
 pub const ERR_OVERFLOW: &str = "overflow";
-// Add more as needed for quote-view error cases.
+/// Emitted on the sell path when a checked subtraction would underflow.
+/// Distinct from `ERR_OVERFLOW` so consumers can identify sell-specific underflow.
+pub const ERR_SELL_UNDERFLOW: &str = "sell_underflow";

@@ -18,6 +18,8 @@ pub enum ContractError {
     FeeConfigNotSet = 7,
     InvalidFeeConfig = 8,
     InsufficientBalance = 9,
+    SellUnderflow = 10,
+    ProtocolFeeExceedsCap = 11,
 }
 
 pub mod fee {
@@ -32,7 +34,7 @@ pub mod fee {
     /// expected economic bounds before they affect market logic.
     pub const PROTOCOL_BPS_MAX: u32 = 5_000;
 
-    #[derive(Clone)]
+    #[derive(Clone, Eq, PartialEq)]
     #[contracttype]
     pub struct FeeConfig {
         pub creator_bps: u32,
@@ -75,11 +77,18 @@ pub mod fee {
         if total <= 0 {
             return Some((0, 0));
         }
-        let protocol_amount = total
-            .checked_mul(protocol_bps as i128)?
-            .checked_div(BPS_MAX as i128)?;
+        let protocol_amount =
+            checked_div_i128(total.checked_mul(protocol_bps as i128)?, BPS_MAX as i128)?;
         let creator_amount = total.checked_sub(protocol_amount)?;
         Some((creator_amount, protocol_amount))
+    }
+
+    /// Performs checked integer division for quote math helpers.
+    pub fn checked_div_i128(dividend: i128, divisor: i128) -> Option<i128> {
+        if divisor == 0 {
+            return None;
+        }
+        dividend.checked_div(divisor)
     }
 }
 
@@ -291,7 +300,7 @@ fn read_required_protocol_fee_config(env: &Env) -> Result<fee::FeeConfig, Contra
 ///
 /// Reads the key price from storage and confirms the creator is registered.
 /// Returns `(price)` on success, or the appropriate [`ContractError`] on failure.
-fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<i128, ContractError> {
+fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<Option<i128>, ContractError> {
     let price: i128 = env
         .storage()
         .persistent()
@@ -302,7 +311,32 @@ fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<i128, ContractEr
         return Err(ContractError::NotRegistered);
     }
 
-    Ok(price)
+    normalize_quote_amount(price)
+}
+
+/// Normalizes quote amounts before fee math is applied.
+///
+/// Zero-value quote requests are treated as no-op quotes and return `None`.
+/// Negative quote amounts are rejected consistently across buy and sell paths.
+fn normalize_quote_amount(amount: i128) -> Result<Option<i128>, ContractError> {
+    if amount < 0 {
+        return Err(ContractError::NotPositiveAmount);
+    }
+
+    if amount == 0 {
+        return Ok(None);
+    }
+
+    Ok(Some(amount))
+}
+
+fn zero_quote_response() -> QuoteResponse {
+    QuoteResponse {
+        price: 0,
+        creator_fee: 0,
+        protocol_fee: 0,
+        total_amount: 0,
+    }
 }
 
 /// Formats a quote response with overflow-safe total amount calculation.
@@ -321,7 +355,9 @@ fn checked_format_quote_response(
     let total_amount = if is_buy {
         price.checked_add(fees).ok_or(ContractError::Overflow)?
     } else {
-        price.checked_sub(fees).ok_or(ContractError::Overflow)?
+        price
+            .checked_sub(fees)
+            .ok_or(ContractError::SellUnderflow)?
     };
 
     Ok(QuoteResponse {
@@ -359,7 +395,7 @@ impl CreatorKeysContract {
 
         env.storage().persistent().set(&key, &profile);
         env.events().publish(
-            (events::REGISTER_EVENT_NAME, profile.creator.clone()),
+            events::register_event_topics(&profile.creator),
             events::CreatorRegisteredEvent {
                 creator: profile.creator.clone(),
                 handle: profile.handle.clone(),
@@ -419,7 +455,7 @@ impl CreatorKeysContract {
         env.storage().persistent().set(&balance_key, &new_balance);
 
         env.events().publish(
-            (events::BUY_EVENT_NAME, creator, buyer),
+            events::buy_event_topics(&creator, &buyer),
             (profile.supply, payment),
         );
 
@@ -439,17 +475,17 @@ impl CreatorKeysContract {
 
         let new_balance = current_balance
             .checked_sub(1)
-            .ok_or(ContractError::Overflow)?;
+            .ok_or(ContractError::SellUnderflow)?;
         profile.supply = profile
             .supply
             .checked_sub(1)
-            .ok_or(ContractError::Overflow)?;
+            .ok_or(ContractError::SellUnderflow)?;
 
         if new_balance == 0 {
             profile.holder_count = profile
                 .holder_count
                 .checked_sub(1)
-                .ok_or(ContractError::Overflow)?;
+                .ok_or(ContractError::SellUnderflow)?;
         }
 
         let key = constants::storage::creator(&creator);
@@ -624,14 +660,29 @@ impl CreatorKeysContract {
         protocol_bps: u32,
     ) -> Result<(), ContractError> {
         admin.require_auth();
-        if !fee::validate_fee_bps(creator_bps, protocol_bps) {
+        let Some(sum) = creator_bps.checked_add(protocol_bps) else {
             return Err(ContractError::InvalidFeeConfig);
+        };
+        if sum != fee::BPS_MAX {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+        if protocol_bps > fee::PROTOCOL_BPS_MAX {
+            return Err(ContractError::ProtocolFeeExceedsCap);
         }
 
         let config = fee::FeeConfig {
             creator_bps,
             protocol_bps,
         };
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, fee::FeeConfig>(&constants::storage::FEE_CONFIG)
+            .as_ref()
+            == Some(&config)
+        {
+            return Ok(());
+        }
         env.storage()
             .persistent()
             .set(&constants::storage::FEE_CONFIG, &config);
@@ -642,6 +693,15 @@ impl CreatorKeysContract {
         admin.require_auth();
         if price <= 0 {
             return Err(ContractError::NotPositiveAmount);
+        }
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, i128>(&constants::storage::KEY_PRICE)
+            .as_ref()
+            == Some(&price)
+        {
+            return Ok(());
         }
         env.storage()
             .persistent()
@@ -659,6 +719,15 @@ impl CreatorKeysContract {
     /// for protocol fee routing.
     pub fn set_treasury_address(env: Env, admin: Address, treasury: Address) {
         admin.require_auth();
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, Address>(&constants::storage::TREASURY_ADDRESS)
+            .as_ref()
+            == Some(&treasury)
+        {
+            return;
+        }
         env.storage()
             .persistent()
             .set(&constants::storage::TREASURY_ADDRESS, &treasury);
@@ -681,6 +750,15 @@ impl CreatorKeysContract {
     /// for protocol administration.
     pub fn set_protocol_admin(env: Env, admin: Address, new_admin: Address) {
         admin.require_auth();
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, Address>(&constants::storage::ADMIN_ADDRESS)
+            .as_ref()
+            == Some(&new_admin)
+        {
+            return;
+        }
         env.storage()
             .persistent()
             .set(&constants::storage::ADMIN_ADDRESS, &new_admin);
@@ -786,7 +864,9 @@ impl CreatorKeysContract {
     /// Returns a [`QuoteResponse`] containing the current price and fee breakdown.
     /// Fees are calculated based on the fixed key price.
     pub fn get_buy_quote(env: Env, creator: Address) -> Result<QuoteResponse, ContractError> {
-        let price = resolve_quote_inputs(&env, &creator)?;
+        let Some(price) = resolve_quote_inputs(&env, &creator)? else {
+            return Ok(zero_quote_response());
+        };
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
         checked_format_quote_response(price, creator_fee, protocol_fee, true)
     }
@@ -801,7 +881,9 @@ impl CreatorKeysContract {
         creator: Address,
         holder: Address,
     ) -> Result<QuoteResponse, ContractError> {
-        let price = resolve_quote_inputs(&env, &creator)?;
+        let Some(price) = resolve_quote_inputs(&env, &creator)? else {
+            return Ok(zero_quote_response());
+        };
 
         let balance = Self::get_key_balance(env.clone(), creator, holder);
         if balance == 0 {
@@ -875,6 +957,39 @@ mod tests {
     }
 
     #[test]
+    fn test_checked_div_i128_success() {
+        assert_eq!(fee::checked_div_i128(100, 10), Some(10));
+    }
+
+    #[test]
+    fn test_checked_div_i128_rejects_zero_divisor() {
+        assert_eq!(fee::checked_div_i128(100, 0), None);
+    }
+
+    #[test]
+    fn test_checked_div_i128_rejects_overflow() {
+        assert_eq!(fee::checked_div_i128(i128::MIN, -1), None);
+    }
+
+    #[test]
+    fn test_normalize_quote_amount_preserves_positive_amount() {
+        assert_eq!(super::normalize_quote_amount(100), Ok(Some(100)));
+    }
+
+    #[test]
+    fn test_normalize_quote_amount_maps_zero_to_noop() {
+        assert_eq!(super::normalize_quote_amount(0), Ok(None));
+    }
+
+    #[test]
+    fn test_normalize_quote_amount_rejects_negative_amount() {
+        assert_eq!(
+            super::normalize_quote_amount(-1),
+            Err(super::ContractError::NotPositiveAmount)
+        );
+    }
+
+    #[test]
     fn test_checked_format_quote_response_buy_success() {
         let res = super::checked_format_quote_response(1000, 90, 10, true).unwrap();
         assert_eq!(res.price, 1000);
@@ -907,7 +1022,7 @@ mod tests {
     #[test]
     fn test_checked_format_quote_response_sell_underflow_total() {
         let res = super::checked_format_quote_response(i128::MIN, 1, 0, false);
-        assert_eq!(res, Err(super::ContractError::Overflow));
+        assert_eq!(res, Err(super::ContractError::SellUnderflow));
     }
 }
 
