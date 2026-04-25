@@ -14,6 +14,16 @@ pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
 
 /// Event name for key sale.
 pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
+/// Common topic indexes for event tuple topics.
+pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
+pub const TOPIC_CREATOR_INDEX: u32 = 1;
+pub const TOPIC_BUYER_INDEX: u32 = 2;
+
+/// Stable field order for registration event payloads.
+pub const REGISTER_EVENT_DATA_FIELDS: [&str; 4] = ["creator", "handle", "supply", "holder_count"];
+
+/// Stable field order for buy event tuple payloads.
+pub const BUY_EVENT_DATA_FIELDS: [&str; 2] = ["supply", "payment"];
 
 /// Stable registration event payload for downstream indexers.
 ///
@@ -30,4 +40,14 @@ pub struct CreatorRegisteredEvent {
     pub handle: String,
     pub supply: u32,
     pub holder_count: u32,
+}
+
+/// Shared registration event topics tuple.
+pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
+    (REGISTER_EVENT_NAME, creator.clone())
+}
+
+/// Shared buy event topics tuple.
+pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (BUY_EVENT_NAME, creator.clone(), buyer.clone())
 }
