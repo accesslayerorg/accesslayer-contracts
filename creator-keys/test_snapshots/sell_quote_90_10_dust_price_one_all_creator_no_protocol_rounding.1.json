@@ -68,7 +68,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "c2"
+                  "string": "cr2"
                 }
               ]
             }
@@ -177,7 +177,7 @@
                         "symbol": "handle"
                       },
                       "val": {
-                        "string": "c2"
+                        "string": "cr2"
                       }
                     },
                     {

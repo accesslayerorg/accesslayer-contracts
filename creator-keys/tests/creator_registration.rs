@@ -1,6 +1,8 @@
 //! Tests for is_creator_registered view method (#28) and duplicate registration rejection (#31).
 
-use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{
+    ContractError, CreatorKeysContract, CreatorKeysContractClient, HANDLE_LEN_MAX, HANDLE_LEN_MIN,
+};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 // ── is_creator_registered tests (#28) ───────────────────────────────────
@@ -116,4 +118,76 @@ fn test_register_creator_different_addresses_succeeds() {
 
     assert!(client.is_creator_registered(&alice));
     assert!(client.is_creator_registered(&bob));
+}
+
+#[test]
+fn test_register_creator_accepts_min_handle_length() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let min_handle = "a".repeat(HANDLE_LEN_MIN as usize);
+    client.register_creator(&creator, &String::from_str(&env, &min_handle));
+
+    assert!(client.is_creator_registered(&creator));
+}
+
+#[test]
+fn test_register_creator_accepts_max_handle_length() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let max_handle = "a".repeat(HANDLE_LEN_MAX as usize);
+    client.register_creator(&creator, &String::from_str(&env, &max_handle));
+
+    assert!(client.is_creator_registered(&creator));
+}
+
+#[test]
+fn test_register_creator_rejects_handle_shorter_than_min() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let short_handle = "a".repeat((HANDLE_LEN_MIN - 1) as usize);
+    let result = client.try_register_creator(&creator, &String::from_str(&env, &short_handle));
+    assert_eq!(result, Err(Ok(ContractError::HandleTooShort)));
+}
+
+#[test]
+fn test_register_creator_rejects_handle_longer_than_max() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let long_handle = "a".repeat((HANDLE_LEN_MAX + 1) as usize);
+    let result = client.try_register_creator(&creator, &String::from_str(&env, &long_handle));
+    assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
+}
+
+#[test]
+fn test_register_creator_rejects_invalid_characters_in_handle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let invalid_handle = String::from_str(&env, "Alice-01");
+    let result = client.try_register_creator(&creator, &invalid_handle);
+    assert_eq!(result, Err(Ok(ContractError::InvalidHandleCharacter)));
 }

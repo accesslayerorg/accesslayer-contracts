@@ -19,6 +19,9 @@ Error codes are defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.r
 | 9 | `InsufficientBalance` | 9 | Holder has no keys for the given creator (sell attempt with zero balance) | Verify holder owns keys before attempting a sell; call `get_key_balance` to check holdings |
 | 10 | `SellUnderflow` | 10 | Sell operation would underflow supply/balance (internal invariant violation) or sell quote would result in a negative net amount | Report if encountered; for quotes, check fee configuration relative to key price |
 | 11 | `ProtocolFeeExceedsCap` | 11 | Proposed fee configuration exceeds the maximum allowed protocol share (`protocol_bps > 5000`) | Reduce protocol share to 50% or lower; see `fee::PROTOCOL_BPS_MAX` |
+| 12 | `HandleTooShort` | 12 | Creator handle length is below minimum bound (`< 3`) during registration | Provide a handle with at least 3 characters |
+| 13 | `HandleTooLong` | 13 | Creator handle length exceeds maximum bound (`> 32`) during registration | Provide a handle with at most 32 characters |
+| 14 | `InvalidHandleCharacter` | 14 | Creator handle contains unsupported characters (allowed set: lowercase `a-z`, digits `0-9`, underscore `_`) | Normalize handle to allowed characters before calling `register_creator` |
 
 ## Integration Notes
 
@@ -26,6 +29,7 @@ Error codes are defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.r
 
 - Code 1 (`AlreadyRegistered`) is raised only if the same address calls `register_creator` twice. This is a guard against accidental re-registration; intended behavior should call `get_creator` first or handle registration state off-chain.
 - Code 2 (`NotRegistered`) applies to both reads and writes. Callers must always register a creator before buy/sell/quote operations.
+- Codes 12 (`HandleTooShort`), 13 (`HandleTooLong`), and 14 (`InvalidHandleCharacter`) are deterministic registration validation failures. Validate handles client-side with the same bounds and character set before submitting transactions.
 
 ### Pricing and Fees
 

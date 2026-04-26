@@ -127,3 +127,10 @@ Use this checklist for any contract update that is intended for shared review or
 - Run the register and read smoke tests against the deployed contract.
 - Capture the deployed contract ID and relevant CLI output in the PR description, issue, or release notes.
 - Call out any storage layout, event schema, or authorization changes explicitly for reviewers.
+Use the short actionable checklist in [testnet-release-checklist.md](./testnet-release-checklist.md) for shared review or testnet rollout validation.
+
+At minimum, always capture:
+
+- built wasm artifact path and checksum,
+- deployed contract ID,
+- smoke-test results for register/read calls.

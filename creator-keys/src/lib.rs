@@ -20,6 +20,9 @@ pub enum ContractError {
     InsufficientBalance = 9,
     SellUnderflow = 10,
     ProtocolFeeExceedsCap = 11,
+    HandleTooShort = 12,
+    HandleTooLong = 13,
+    InvalidHandleCharacter = 14,
 }
 
 pub mod fee {
@@ -213,6 +216,8 @@ pub const PROTOCOL_STATE_VERSION: u32 = 1;
 ///
 /// Matches the standard Soroban token decimal convention (7 decimal places).
 pub const KEY_DECIMALS: u32 = 7;
+pub const HANDLE_LEN_MIN: u32 = 3;
+pub const HANDLE_LEN_MAX: u32 = 32;
 
 #[derive(Clone)]
 #[contracttype]
@@ -284,6 +289,31 @@ pub fn read_creator_handle(env: &Env, creator: &Address) -> String {
     read_creator_profile(env, creator)
         .map(|p| p.handle)
         .unwrap_or_else(|| read_none_string(env))
+}
+
+fn is_valid_handle_byte(byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+}
+
+fn validate_creator_handle(handle: &String) -> Result<(), ContractError> {
+    let len = handle.len();
+    if len < HANDLE_LEN_MIN {
+        return Err(ContractError::HandleTooShort);
+    }
+    if len > HANDLE_LEN_MAX {
+        return Err(ContractError::HandleTooLong);
+    }
+
+    let mut bytes = [0u8; HANDLE_LEN_MAX as usize];
+    handle.copy_into_slice(&mut bytes[..len as usize]);
+    if bytes[..len as usize]
+        .iter()
+        .any(|byte| !is_valid_handle_byte(*byte))
+    {
+        return Err(ContractError::InvalidHandleCharacter);
+    }
+
+    Ok(())
 }
 
 fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
@@ -380,7 +410,11 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         creator.require_auth();
 
+        validate_creator_handle(&handle)?;
+
         let key = constants::storage::creator(&creator);
+        // Creator profile storage is a single source of truth keyed by creator address.
+        // Once written, this key's existence is the registration invariant.
         if env.storage().persistent().has(&key) {
             return Err(ContractError::AlreadyRegistered);
         }
@@ -393,6 +427,8 @@ impl CreatorKeysContract {
             fee_recipient: creator.clone(),
         };
 
+        // Persist profile before event publication so indexers reading contract state
+        // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
         env.events().publish(
             events::register_event_topics(&profile.creator),
@@ -432,6 +468,7 @@ impl CreatorKeysContract {
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
         let balance_key = constants::storage::key_balance(&creator, &buyer);
+        // Missing balance entries are treated as zero to keep storage sparse.
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
         if current_balance == 0 {
@@ -447,11 +484,13 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         let key = constants::storage::creator(&creator);
+        // Supply and holder_count must always move together with buyer balance writes.
         env.storage().persistent().set(&key, &profile);
 
         let new_balance = current_balance
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
+        // Balance key is scoped by (creator, holder) so creator positions cannot collide.
         env.storage().persistent().set(&balance_key, &new_balance);
 
         env.events().publish(
@@ -468,6 +507,7 @@ impl CreatorKeysContract {
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
         let balance_key = constants::storage::key_balance(&creator, &seller);
+        // Missing balance entries are interpreted as zero and rejected consistently.
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         if current_balance == 0 {
             return Err(ContractError::InsufficientBalance);
@@ -489,6 +529,8 @@ impl CreatorKeysContract {
         }
 
         let key = constants::storage::creator(&creator);
+        // Profile and holder balance are updated in the same call to preserve
+        // supply/holder_count invariants for subsequent reads.
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
 
@@ -497,6 +539,7 @@ impl CreatorKeysContract {
 
     pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
         let key = constants::storage::key_balance(&creator, &wallet);
+        // Read-only callers get `0` for unseen balances to avoid sparse-map lookups failing.
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
