@@ -47,10 +47,12 @@ stellar keys fund accesslayer-testnet --network testnet
 Run the normal repository checks first:
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo fmt-check
+cargo clippy-all
+cargo test-all
 ```
+
+Or run the full sequence in one go with `make verify`.
 
 Build the contract wasm artifact from the repo root:
 
@@ -118,9 +120,8 @@ If the second command returns a populated profile with `supply: 0`, the deployme
 Use this checklist for any contract update that is intended for shared review or a testnet rollout.
 
 - Confirm the branch includes the intended contract changes only.
-- Run `cargo fmt --all -- --check`.
-- Run `cargo clippy --workspace --all-targets -- -D warnings`.
-- Run `cargo test --workspace`.
+- Run `cargo fmt-check`, `cargo clippy-all`, and `cargo test-all`, or run `make verify`.
+- If you prefer Make, run `make verify`.
 - Rebuild the wasm with `stellar contract build --package creator-keys`.
 - Deploy the new wasm to Stellar testnet from a funded identity.
 - Run the register and read smoke tests against the deployed contract.

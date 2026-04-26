@@ -40,6 +40,14 @@ The initial `creator-keys` contract is only a starting point. It currently suppo
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+
+# Contributor-friendly aliases
+cargo fmt-check
+cargo clippy-all
+cargo test-all
+
+# Or use the Makefile shortcut
+make verify
 ```
 
 ## Testnet deployment

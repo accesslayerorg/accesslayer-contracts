@@ -121,6 +121,11 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
+# Or use the cargo aliases added for this repository
+cargo fmt-check
+cargo clippy-all
+cargo test-all
+
 # Or use the Makefile to run all checks
 make verify
 ```
