@@ -219,6 +219,10 @@ pub const KEY_DECIMALS: u32 = 7;
 pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
 
+/// Canonical storage key schema for persistent protocol state.
+///
+/// For quote-related key usage and invariants, see
+/// [`docs/quote-storage-keys.md`](../../docs/quote-storage-keys.md).
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {

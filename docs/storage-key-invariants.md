@@ -2,6 +2,8 @@
 
 This document describes the storage model, key structure, and invariants that must be maintained across all contract operations in Access Layer contracts.
 
+For quote-specific storage behavior (`get_buy_quote`, `get_sell_quote`), see [quote-storage-keys.md](./quote-storage-keys.md).
+
 ## Overview
 
 Access Layer contracts use Soroban's persistent storage to maintain creator profiles, key balances, and protocol configuration. Understanding these storage invariants is critical for contributors working on contract logic.
