@@ -38,6 +38,7 @@ For guidance on writing deterministic quote tests, see [docs/deterministic-quote
 - **[Deterministic Quote Tests](./docs/deterministic-quote-tests.md)**: Guide for writing tests for quote operations with the fixed price model
 - **[Fee Assumptions](./docs/fee-assumptions.md)**: Fee split logic, rounding behavior, and integration points
 - **[Error Codes](./docs/error-codes.md)**: Contract error reference with causes and expected caller behavior
+- **[Safely Extending Contract Error Codes](./docs/error-extension-guide.md)**: Rules for naming new error variants, preserving discriminants, and updating error tables
 
 For testnet deployment steps, required CLI setup, and the release checklist used for contract updates, see [docs/stellar-testnet-deployment.md](./docs/stellar-testnet-deployment.md). For **wasm artifact** naming, retention, and metadata, see [docs/deploy-artifacts.md](./docs/deploy-artifacts.md). For how **clients and servers** should depend on contract read surfaces and events, see [docs/contract-consumer-boundaries.md](./docs/contract-consumer-boundaries.md).
 
