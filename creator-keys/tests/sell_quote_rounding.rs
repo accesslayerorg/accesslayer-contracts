@@ -145,14 +145,28 @@ fn sell_quote_updates_after_fee_config_mutation_no_stale_reads() {
     let holder = register_holder_with_one_key(&env, &client, &creator);
 
     let q_before = client.get_sell_quote(&creator, &holder);
-    assert_eq!((q_before.creator_fee, q_before.protocol_fee, q_before.total_amount), (900, 100, 0));
+    assert_eq!(
+        (
+            q_before.creator_fee,
+            q_before.protocol_fee,
+            q_before.total_amount
+        ),
+        (900, 100, 0)
+    );
 
     // Mutate fee config to 80/20 and assert quote reflects updated config immediately.
     let admin = Address::generate(&env);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     let q_after = client.get_sell_quote(&creator, &holder);
-    assert_eq!((q_after.creator_fee, q_after.protocol_fee, q_after.total_amount), (800, 200, 0));
+    assert_eq!(
+        (
+            q_after.creator_fee,
+            q_after.protocol_fee,
+            q_after.total_amount
+        ),
+        (800, 200, 0)
+    );
 
     // Regression assertion: quote must not retain stale 90/10 split.
     assert_ne!(q_after.creator_fee, q_before.creator_fee);
