@@ -34,6 +34,33 @@ pub const REGISTER_EVENT_DATA_FIELDS: [&str; 4] = ["creator", "handle", "supply"
 /// Stable field order for buy event tuple payloads.
 pub const BUY_EVENT_DATA_FIELDS: [&str; 2] = ["supply", "payment"];
 
+/// Quote-related field semantics for event payload interpretation.
+///
+/// These fields are derived from quote calculations and may appear in event
+/// payloads or be referenced by indexers correlating events with quote data.
+///
+/// ### Field Types and Semantics
+///
+/// | Field          | Type  | Description                                              |
+/// |----------------|-------|----------------------------------------------------------|
+/// | `price`        | i128  | Base key price before fees (always positive)            |
+/// | `creator_fee`  | i128  | Fee allocated to creator treasury (basis points applied)|
+/// | `protocol_fee` | i128  | Fee allocated to protocol treasury (basis points applied)|
+/// | `total_amount` | i128  | Net amount: `price + fees` for buys, `price - fees` for sells |
+///
+/// ### Compatibility Notes for Indexers
+///
+/// - All monetary values are in the smallest unit (e.g., stroops for XLM).
+/// - Fee values are computed using basis points (1 BPS = 0.01%).
+/// - `total_amount` direction depends on operation type:
+///   - **Buy**: `total_amount = price + creator_fee + protocol_fee`
+///   - **Sell**: `total_amount = price - creator_fee - protocol_fee`
+/// - Indexers should handle potential overflow/underflow scenarios where
+///   `total_amount` may differ from simple arithmetic due to checked math.
+/// - Quote responses are not emitted directly in events; indexers should
+///   call `get_buy_quote` or `get_sell_quote` for fee breakdown details.
+pub const QUOTE_FIELD_SEMANTICS: [&str; 4] = ["price", "creator_fee", "protocol_fee", "total_amount"];
+
 /// Stable registration event payload for downstream indexers.
 ///
 /// Event shape:
