@@ -94,6 +94,11 @@ pub mod fee {
         dividend.checked_div(divisor)
     }
 
+    /// Performs checked integer addition for quote math helpers.
+    pub fn checked_add_i128(left: i128, right: i128) -> Option<i128> {
+        left.checked_add(right)
+    }
+
     /// Performs checked integer subtraction for quote math helpers.
     pub fn checked_sub_i128(left: i128, right: i128) -> Option<i128> {
         left.checked_sub(right)
@@ -383,12 +388,11 @@ fn checked_format_quote_response(
     protocol_fee: i128,
     is_buy: bool,
 ) -> QuoteViewResult {
-    let fees = creator_fee
-        .checked_add(protocol_fee)
+    let fees = fee::checked_add_i128(creator_fee, protocol_fee)
         .ok_or(ContractError::Overflow)?;
 
     let total_amount = if is_buy {
-        price.checked_add(fees).ok_or(ContractError::Overflow)?
+        fee::checked_add_i128(price, fees).ok_or(ContractError::Overflow)?
     } else {
         fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?
     };
@@ -996,6 +1000,25 @@ mod tests {
         assert_eq!(creator, 1);
         assert_eq!(protocol, 0);
         assert_eq!(creator + protocol, 1);
+    }
+
+    #[test]
+    fn test_checked_add_i128_returns_sum_when_safe() {
+        assert_eq!(fee::checked_add_i128(7, 5), Some(12));
+        assert_eq!(fee::checked_add_i128(-3, 5), Some(2));
+    }
+
+    #[test]
+    fn test_checked_add_i128_returns_none_on_overflow() {
+        assert_eq!(fee::checked_add_i128(i128::MAX, 1), None);
+    }
+
+    #[test]
+    fn test_checked_format_quote_response_buys_with_safe_accumulation() {
+        let response = super::checked_format_quote_response(100, 15, 5, true).unwrap();
+        assert_eq!(response.total_amount, 120);
+        assert_eq!(response.creator_fee, 15);
+        assert_eq!(response.protocol_fee, 5);
     }
 
     #[test]
