@@ -26,6 +26,8 @@ pub enum ContractError {
 }
 
 pub mod fee {
+    use crate::ContractError;
+
     use soroban_sdk::contracttype;
 
     /// Basis points per 100% (10000 = 100%).
@@ -56,6 +58,20 @@ pub mod fee {
             return false;
         }
         true
+    }
+
+    /// Shared guard for fee config updates that need structured contract errors.
+    pub fn assert_valid_fee_bps(creator_bps: u32, protocol_bps: u32) -> Result<(), ContractError> {
+        let Some(sum) = creator_bps.checked_add(protocol_bps) else {
+            return Err(ContractError::InvalidFeeConfig);
+        };
+        if sum != BPS_MAX {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+        if protocol_bps > PROTOCOL_BPS_MAX {
+            return Err(ContractError::ProtocolFeeExceedsCap);
+        }
+        Ok(())
     }
 
     /// Computes the fee split for a given total amount.
@@ -724,15 +740,7 @@ impl CreatorKeysContract {
         protocol_bps: u32,
     ) -> Result<(), ContractError> {
         admin.require_auth();
-        let Some(sum) = creator_bps.checked_add(protocol_bps) else {
-            return Err(ContractError::InvalidFeeConfig);
-        };
-        if sum != fee::BPS_MAX {
-            return Err(ContractError::InvalidFeeConfig);
-        }
-        if protocol_bps > fee::PROTOCOL_BPS_MAX {
-            return Err(ContractError::ProtocolFeeExceedsCap);
-        }
+        fee::assert_valid_fee_bps(creator_bps, protocol_bps)?;
 
         let config = fee::FeeConfig {
             creator_bps,

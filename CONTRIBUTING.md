@@ -36,6 +36,7 @@ For guidance on writing deterministic quote tests, see [docs/deterministic-quote
 - **[CI Contract Checks](./docs/ci-contract-checks.md)**: Understanding the CI pipeline, running checks locally, and troubleshooting failures
 - **[Storage Key Invariants](./docs/storage-key-invariants.md)**: Storage model, key structure, and invariants that must be maintained across all operations
 - **[Deterministic Quote Tests](./docs/deterministic-quote-tests.md)**: Guide for writing tests for quote operations with the fixed price model
+- **[Quote Math Refactor Guidelines](./docs/quote-math-refactor-guidelines.md)**: Checklist for preserving quote invariants and required regression coverage during quote-path refactors
 - **[Fee Assumptions](./docs/fee-assumptions.md)**: Fee split logic, rounding behavior, and integration points
 - **[Error Codes](./docs/error-codes.md)**: Contract error reference with causes and expected caller behavior
 - **[Safely Extending Contract Error Codes](./docs/error-extension-guide.md)**: Rules for naming new error variants, preserving discriminants, and updating error tables
