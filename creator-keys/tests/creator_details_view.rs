@@ -92,7 +92,7 @@ fn test_get_creator_details_reflects_latest_state_after_buy_then_sell() {
     assert_eq!(details_after_buy.handle, String::from_str(&env, "bob"));
 
     // State mutation 2: sell the key back — supply must decrement
-    client.sell_key(&creator, &buyer, &1u32);
+    client.sell_key(&creator, &buyer);
 
     let details_after_sell = client.get_creator_details(&creator);
     assert_eq!(
