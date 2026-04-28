@@ -388,8 +388,7 @@ fn checked_format_quote_response(
     protocol_fee: i128,
     is_buy: bool,
 ) -> QuoteViewResult {
-    let fees = fee::checked_add_i128(creator_fee, protocol_fee)
-        .ok_or(ContractError::Overflow)?;
+    let fees = fee::checked_add_i128(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
 
     let total_amount = if is_buy {
         fee::checked_add_i128(price, fees).ok_or(ContractError::Overflow)?
