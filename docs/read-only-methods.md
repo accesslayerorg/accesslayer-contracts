@@ -48,6 +48,31 @@ Returns the current quote for selling one key held by `holder` for `creator`.
 
 ---
 
+## Quote Invariants
+
+The following invariants are guaranteed for successful quote responses:
+
+### Input Invariants
+- **Registration**: The `creator` address must be registered via `register_creator`.
+- **Pricing**: A global key price must be set via `set_key_price`. `price` is always `> 0`.
+- **Fees**: A global fee configuration must be set via `set_fee_config`.
+
+### Output Invariants
+- **Non-negativity**: All fee fields (`creator_fee`, `protocol_fee`) and `price` are always `≥ 0`.
+- **Total Amount Consistency**:
+    - **Buy**: `total_amount = price + creator_fee + protocol_fee`.
+    - **Sell**: `total_amount = price - (creator_fee + protocol_fee)`.
+- **Net Receivables**: On a sell quote, `total_amount` is guaranteed to be non-negative. The contract returns `Err(ContractError::SellUnderflow)` if fees would result in a negative payout.
+- **Rounding**:
+    - `protocol_fee` is calculated as `floor(price * protocol_bps / 10000)`.
+    - `creator_fee` receives any remainder from integer division to ensure `creator_fee + protocol_fee` exactly matches the intended total fee application when `creator_bps + protocol_bps = 10000`.
+
+### Units and Precision
+- All monetary values are raw `i128` integers in the base unit (stroops or protocol-defined).
+- No on-chain decimal scaling is performed. Callers should use `get_key_decimals()` for display formatting.
+
+---
+
 ## Supply and balance methods
 
 ### `get_total_key_supply(creator: Address) → u32`

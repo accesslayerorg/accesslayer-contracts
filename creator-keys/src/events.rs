@@ -3,6 +3,17 @@
 //! This module provides a single source of truth for event names used throughout
 //! the contract, reducing string duplication and ensuring consistency across
 //! event emission paths.
+//!
+//! ### Event Schema Stability
+//!
+//! Downstream indexers rely on the stable ordering of fields in event payloads.
+//! When modifying event structures:
+//! - **Do not reorder** existing fields.
+//! - **Add new fields** only at the end of the structure to maintain compatibility.
+//! - **Avoid removing fields**; if a field is deprecated, keep it with a default value.
+//!
+//! This approach ensures that indexers can reliably parse event data across
+//! different contract versions.
 
 use soroban_sdk::{contracttype, symbol_short, Address, String, Symbol};
 

@@ -105,6 +105,36 @@ fn test_get_fee_config_reads_protocol_fee_bps() {
 }
 
 #[test]
+fn test_get_fee_config_persists_across_repeated_reads() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator_bps = 9500;
+    let protocol_bps = 500;
+    client.set_fee_config(&admin, &creator_bps, &protocol_bps);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    client.register_creator(&creator, &handle);
+
+    // Repeatedly read the fee config and verify stability
+    for _ in 0..5 {
+        let config = client.get_fee_config().unwrap();
+        assert_eq!(config.creator_bps, creator_bps);
+        assert_eq!(config.protocol_bps, protocol_bps);
+
+        let creator_fee_bps = client.get_creator_fee_bps(&creator);
+        assert_eq!(creator_fee_bps, creator_bps);
+
+        let protocol_share = client.get_protocol_treasury_share_bps();
+        assert_eq!(protocol_share, protocol_bps);
+    }
+}
+
+#[test]
 fn test_register_creator() {
     let env = Env::default();
     env.mock_all_auths();
@@ -120,6 +150,28 @@ fn test_register_creator() {
     assert_eq!(profile.handle, handle);
     assert_eq!(profile.creator, creator);
     assert_eq!(profile.supply, 0);
+    assert_eq!(profile.holder_count, 0);
+    assert_eq!(profile.fee_recipient, creator);
+}
+
+#[test]
+fn test_register_creator_persists_registration_metadata() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.register_creator(&creator, &handle);
+
+    let profile = client.get_creator(&creator);
+    assert_eq!(profile.creator, creator);
+    assert_eq!(profile.handle, handle);
+    assert_eq!(profile.supply, 0);
+    assert_eq!(profile.holder_count, 0);
+    assert_eq!(profile.fee_recipient, creator);
 }
 
 #[test]

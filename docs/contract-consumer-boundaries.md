@@ -24,6 +24,18 @@ Stable structs returned by read-only methods are part of the integration contrac
 
 State-changing entrypoints that emit events (for example `register_creator`, `buy_key`) are consumption boundaries for **indexers and analytics**: payload shape and event names are stable API for the server. Any change to event name, field order, or field meaning should be treated as a **breaking** change for indexers unless versioned (e.g. a new event name) or coordinated with consumers.
 
+### Event schema compatibility checklist
+
+For any event payload or event name change, contributors should follow this compatibility checklist:
+
+- Do not rename existing event names or fields without creating a new versioned event. Renames are breaking for downstream indexers that decode by field position or name.
+- Do not change field semantics, types, or encoded meaning without explicit coordination and a documented migration plan.
+- Prefer adding new optional fields only when clients and indexers can safely ignore unknown fields.
+- If an event schema change is required, consider a versioned event name and bump `get_protocol_state_version` when consumer parsing expectations change.
+- Coordinate with downstream indexers before deploying any event payload change; treat event payloads as a stable public API.
+
+For storage key details tied to creator registration metadata and ownership expectations, see [Storage Key Invariants](./storage-key-invariants.md).
+
 ## Compatibility expectations
 
 | Change | Expectation |

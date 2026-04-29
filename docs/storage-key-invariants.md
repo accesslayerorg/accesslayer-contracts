@@ -2,6 +2,8 @@
 
 This document describes the storage model, key structure, and invariants that must be maintained across all contract operations in Access Layer contracts.
 
+For quote-specific storage behavior (`get_buy_quote`, `get_sell_quote`), see [quote-storage-keys.md](./quote-storage-keys.md).
+
 ## Overview
 
 Access Layer contracts use Soroban's persistent storage to maintain creator profiles, key balances, and protocol configuration. Understanding these storage invariants is critical for contributors working on contract logic.
@@ -28,13 +30,22 @@ pub enum DataKey {
 
 | Key                            | Type               | Value Type       | Purpose                                                    |
 | ------------------------------ | ------------------ | ---------------- | ---------------------------------------------------------- |
-| `Creator(Address)`             | Per-creator        | `CreatorProfile` | Stores creator registration data, supply, and holder count |
+| `Creator(Address)`             | Per-creator        | `CreatorProfile` | Stores creator registration metadata, supply, holder_count, and fee recipient |
 | `FeeConfig`                    | Global             | `FeeConfig`      | Stores protocol-wide fee split configuration               |
 | `KeyPrice`                     | Global             | `i128`           | Stores the fixed price for all keys across all creators    |
 | `KeyBalance(Address, Address)` | Per-creator-holder | `u32`            | Stores how many keys a holder owns for a specific creator  |
 | `TreasuryAddress`              | Global             | `Address`        | Protocol treasury address for fee routing                  |
 | `AdminAddress`                 | Global             | `Address`        | Protocol admin address for configuration                   |
 | `ProtocolFeeRecipient`         | Global             | `Address`        | Protocol fee recipient address                             |
+
+### Fee Configuration Storage-Key Notes
+
+| Field | Storage Key | Read Ownership | Write Ownership |
+| ----- | ----------- | -------------- | --------------- |
+| Protocol fee split (`creator_bps`, `protocol_bps`) | `DataKey::FeeConfig` (`constants::storage::FEE_CONFIG`) | `get_fee_config`, `get_protocol_fee_view`, `get_creator_fee_bps`, `get_creator_treasury_share`, quote methods through shared readers | `set_fee_config` (admin-auth only) |
+| Protocol fee recipient | `DataKey::ProtocolFeeRecipient` (`constants::storage::PROTOCOL_FEE_RECIPIENT`) | `get_protocol_fee_recipient` | `set_protocol_fee_recipient` (admin-auth only) |
+
+`set_fee_config` uses the shared `fee::assert_valid_fee_bps` guard to keep key writes aligned with the current constants (`BPS_MAX = 10_000`, `PROTOCOL_BPS_MAX = 5_000`) before persisting the config.
 
 ## Storage Invariants
 
@@ -43,6 +54,18 @@ These invariants must hold true after every contract operation:
 ### 1. Creator Profile Invariants
 
 **Invariant**: A creator exists if and only if `DataKey::Creator(address)` is present in storage.
+
+### Creator registration metadata ownership
+
+**Key ownership**: `DataKey::Creator(address)` is the single source of truth for creator registration metadata and may only be created by `register_creator`.
+
+- `register_creator` must set this key exactly once for a new creator address.
+- The creator address must authorize registration via `creator.require_auth()`.
+- The profile stores `creator`, `handle`, `supply`, `holder_count`, and `fee_recipient`.
+- Indexers may derive registration status, handle, supply, holder_count, and fee recipient from this single entry.
+- Any future change to creator registration metadata storage shape should be treated like an event/schema breaking change and require explicit coordination.
+
+**Implications**:
 
 **Implications**:
 

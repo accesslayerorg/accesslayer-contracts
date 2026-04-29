@@ -26,10 +26,15 @@ pub enum ContractError {
 }
 
 pub mod fee {
+    use crate::ContractError;
+
     use soroban_sdk::contracttype;
 
     /// Basis points per 100% (10000 = 100%).
     pub const BPS_MAX: u32 = 10_000;
+
+    /// Maximum safe amount to prevent overflow in fee calculations.
+    pub const MAX_SAFE_AMOUNT: i128 = i128::MAX / BPS_MAX as i128;
 
     /// Maximum protocol share when configuring fees via [`assert_valid_fee_bps`].
     ///
@@ -58,6 +63,20 @@ pub mod fee {
         true
     }
 
+    /// Shared guard for fee config updates that need structured contract errors.
+    pub fn assert_valid_fee_bps(creator_bps: u32, protocol_bps: u32) -> Result<(), ContractError> {
+        let Some(sum) = creator_bps.checked_add(protocol_bps) else {
+            return Err(ContractError::InvalidFeeConfig);
+        };
+        if sum != BPS_MAX {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+        if protocol_bps > PROTOCOL_BPS_MAX {
+            return Err(ContractError::ProtocolFeeExceedsCap);
+        }
+        Ok(())
+    }
+
     /// Computes the fee split for a given total amount.
     ///
     /// Returns `(creator_amount, protocol_amount)`. Remainder from integer division
@@ -71,6 +90,17 @@ pub mod fee {
         (creator_amount, protocol_amount)
     }
 
+    /// Safely applies a percentage-based fee to an amount.
+    ///
+    /// Returns `None` if the multiplication overflows. Rounding is performed via
+    /// floor division towards zero.
+    pub fn apply_percentage_fee(amount: i128, bps: u32) -> Option<i128> {
+        if amount <= 0 {
+            return Some(0);
+        }
+        checked_div_i128(amount.checked_mul(bps as i128)?, BPS_MAX as i128)
+    }
+
     /// Computes the fee split safely, returning `None` if multiplication or subtraction overflows.
     pub fn checked_compute_fee_split(
         total: i128,
@@ -80,11 +110,8 @@ pub mod fee {
         if total <= 0 {
             return Some((0, 0));
         }
-        let protocol_amount = checked_div_i128(
-            checked_mul_i128(total, protocol_bps as i128)?,
-            BPS_MAX as i128,
-        )?;
-        let creator_amount = total.checked_sub(protocol_amount)?;
+        let protocol_amount = apply_percentage_fee(total, protocol_bps)?;
+        let creator_amount = checked_sub_i128(total, protocol_amount)?;
         Some((creator_amount, protocol_amount))
     }
 
@@ -99,6 +126,11 @@ pub mod fee {
             return None;
         }
         dividend.checked_div(divisor)
+    }
+
+    /// Performs checked integer subtraction for quote math helpers.
+    pub fn checked_sub_i128(left: i128, right: i128) -> Option<i128> {
+        left.checked_sub(right)
     }
 }
 
@@ -226,6 +258,10 @@ pub const KEY_DECIMALS: u32 = 7;
 pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
 
+/// Canonical storage key schema for persistent protocol state.
+///
+/// For quote-related key usage and invariants, see
+/// [`docs/quote-storage-keys.md`](../../docs/quote-storage-keys.md).
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -355,6 +391,7 @@ fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<Option<i128>, Co
 ///
 /// Zero-value quote requests are treated as no-op quotes and return `None`.
 /// Negative quote amounts are rejected consistently across buy and sell paths.
+/// Amounts exceeding MAX_SAFE_AMOUNT are rejected to prevent overflow in fee calculations.
 fn normalize_quote_amount(amount: i128) -> Result<Option<i128>, ContractError> {
     if amount < 0 {
         return Err(ContractError::NotPositiveAmount);
@@ -362,6 +399,10 @@ fn normalize_quote_amount(amount: i128) -> Result<Option<i128>, ContractError> {
 
     if amount == 0 {
         return Ok(None);
+    }
+
+    if amount > fee::MAX_SAFE_AMOUNT {
+        return Err(ContractError::Overflow);
     }
 
     Ok(Some(amount))
@@ -392,9 +433,7 @@ fn checked_format_quote_response(
     let total_amount = if is_buy {
         price.checked_add(fees).ok_or(ContractError::Overflow)?
     } else {
-        price
-            .checked_sub(fees)
-            .ok_or(ContractError::SellUnderflow)?
+        fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?
     };
 
     Ok(QuoteResponse {
@@ -698,6 +737,15 @@ impl CreatorKeysContract {
         Self::get_creator_fee_bps(env, creator)
     }
 
+    /// Read-only view: returns the configured protocol treasury share in basis points.
+    ///
+    /// This value is sourced from the current protocol fee configuration and is
+    /// expressed in stable basis-point units.
+    pub fn get_protocol_treasury_share_bps(env: Env) -> Result<u32, ContractError> {
+        let config = read_required_protocol_fee_config(&env)?;
+        Ok(config.protocol_bps)
+    }
+
     pub fn set_fee_config(
         env: Env,
         admin: Address,
@@ -705,15 +753,7 @@ impl CreatorKeysContract {
         protocol_bps: u32,
     ) -> Result<(), ContractError> {
         admin.require_auth();
-        let Some(sum) = creator_bps.checked_add(protocol_bps) else {
-            return Err(ContractError::InvalidFeeConfig);
-        };
-        if sum != fee::BPS_MAX {
-            return Err(ContractError::InvalidFeeConfig);
-        }
-        if protocol_bps > fee::PROTOCOL_BPS_MAX {
-            return Err(ContractError::ProtocolFeeExceedsCap);
-        }
+        fee::assert_valid_fee_bps(creator_bps, protocol_bps)?;
 
         let config = fee::FeeConfig {
             creator_bps,
@@ -1023,6 +1063,16 @@ mod tests {
     }
 
     #[test]
+    fn test_checked_sub_i128_success() {
+        assert_eq!(fee::checked_sub_i128(100, 10), Some(90));
+    }
+
+    #[test]
+    fn test_checked_sub_i128_underflow() {
+        assert_eq!(fee::checked_sub_i128(i128::MIN, 1), None);
+    }
+
+    #[test]
     fn test_checked_div_i128_rejects_overflow() {
         assert_eq!(fee::checked_div_i128(i128::MIN, -1), None);
     }
@@ -1042,6 +1092,15 @@ mod tests {
         assert_eq!(
             super::normalize_quote_amount(-1),
             Err(super::ContractError::NotPositiveAmount)
+        );
+    }
+
+    #[test]
+    fn test_normalize_quote_amount_rejects_large_amount() {
+        let large = super::fee::MAX_SAFE_AMOUNT + 1;
+        assert_eq!(
+            super::normalize_quote_amount(large),
+            Err(super::ContractError::Overflow)
         );
     }
 
@@ -1079,6 +1138,87 @@ mod tests {
     fn test_checked_format_quote_response_sell_underflow_total() {
         let res = super::checked_format_quote_response(i128::MIN, 1, 0, false);
         assert_eq!(res, Err(super::ContractError::SellUnderflow));
+    }
+
+    #[test]
+    fn test_apply_percentage_fee_success() {
+        assert_eq!(fee::apply_percentage_fee(1000, 1000), Some(100));
+        assert_eq!(fee::apply_percentage_fee(1000, 0), Some(0));
+        assert_eq!(fee::apply_percentage_fee(1000, 10000), Some(1000));
+    }
+
+    #[test]
+    fn test_apply_percentage_fee_zero_amount() {
+        assert_eq!(fee::apply_percentage_fee(0, 1000), Some(0));
+    }
+
+    #[test]
+    fn test_apply_percentage_fee_negative_amount() {
+        assert_eq!(fee::apply_percentage_fee(-100, 1000), Some(0));
+    }
+
+    #[test]
+    fn test_apply_percentage_fee_rounding() {
+        // 999 * 1000 / 10000 = 99.9 -> 99
+        assert_eq!(fee::apply_percentage_fee(999, 1000), Some(99));
+    }
+
+    #[test]
+    fn test_apply_percentage_fee_overflow() {
+        // Multiplication overflows before division
+        assert_eq!(fee::apply_percentage_fee(i128::MAX, 2), None);
+    }
+
+    #[test]
+    fn test_assert_valid_fee_bps() {
+        // Valid scenarios
+        assert_eq!(fee::assert_valid_fee_bps(10000, 0), Ok(()));
+        assert_eq!(fee::assert_valid_fee_bps(5000, 5000), Ok(()));
+        assert_eq!(fee::assert_valid_fee_bps(9000, 1000), Ok(()));
+
+        // Invalid Sum
+        assert_eq!(
+            fee::assert_valid_fee_bps(9000, 2000),
+            Err(super::ContractError::InvalidFeeConfig)
+        );
+        assert_eq!(
+            fee::assert_valid_fee_bps(0, 0),
+            Err(super::ContractError::InvalidFeeConfig)
+        );
+
+        // Protocol Cap Exceeded (PROTOCOL_BPS_MAX = 5000)
+        assert_eq!(
+            fee::assert_valid_fee_bps(4999, 5001),
+            Err(super::ContractError::ProtocolFeeExceedsCap)
+        );
+        assert_eq!(
+            fee::assert_valid_fee_bps(0, 10000),
+            Err(super::ContractError::ProtocolFeeExceedsCap)
+        );
+
+        // Overflow
+        assert_eq!(
+            fee::assert_valid_fee_bps(u32::MAX, 1),
+            Err(super::ContractError::InvalidFeeConfig)
+        );
+    }
+
+    #[test]
+    fn test_validate_fee_bps() {
+        // Valid
+        assert!(fee::validate_fee_bps(10000, 0));
+        assert!(fee::validate_fee_bps(5000, 5000));
+        assert!(fee::validate_fee_bps(9000, 1000));
+
+        // Invalid Sum
+        assert!(!fee::validate_fee_bps(9000, 2000));
+        assert!(!fee::validate_fee_bps(0, 0));
+
+        // Protocol Cap Exceeded
+        assert!(!fee::validate_fee_bps(4999, 5001));
+
+        // Overflow
+        assert!(!fee::validate_fee_bps(u32::MAX, 1));
     }
 }
 

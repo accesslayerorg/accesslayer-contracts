@@ -359,3 +359,71 @@ fn test_buy_quote_multiple_creators_independent_monotonicity() {
     assert_eq!(alice_supply, 1, "alice should have 1 key sold");
     assert_eq!(bob_supply, 1, "bob should have 1 key sold");
 }
+
+// ── Fee config update regression test (#219) ─────────────────────────────────
+
+#[test]
+fn test_buy_quote_updates_after_fee_config_mutation() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let price = 1_000_i128;
+
+    // Set initial fee config: 90% creator, 10% protocol
+    set_pricing_and_fees(&env, &client, price, 9000, 1000);
+    let creator = register_test_creator(&env, &client, "alice");
+
+    // Get quote with initial fee config
+    let q_before = client.get_buy_quote(&creator);
+
+    // Verify initial fee distribution
+    assert_eq!(q_before.price, price);
+    assert_eq!(q_before.creator_fee, 900);
+    assert_eq!(q_before.protocol_fee, 100);
+    assert_eq!(q_before.total_amount, price + 900 + 100);
+
+    // Update fee config: 50% creator, 50% protocol
+    let admin = Address::generate(&env);
+    client.set_fee_config(&admin, &5000u32, &5000u32);
+
+    // Get quote after fee config update
+    let q_after = client.get_buy_quote(&creator);
+
+    // Verify quote reflects updated fee config (no stale reads)
+    assert_eq!(q_after.price, price, "price should remain unchanged");
+    assert_eq!(
+        q_after.creator_fee, 500,
+        "creator_fee should reflect new config"
+    );
+    assert_eq!(
+        q_after.protocol_fee, 500,
+        "protocol_fee should reflect new config"
+    );
+    assert_eq!(
+        q_after.total_amount,
+        price + 500 + 500,
+        "total_amount should reflect new fee split"
+    );
+
+    // Assert fees are different (no stale config)
+    assert_ne!(
+        q_before.creator_fee, q_after.creator_fee,
+        "creator_fee must change after config update"
+    );
+    assert_ne!(
+        q_before.protocol_fee, q_after.protocol_fee,
+        "protocol_fee must change after config update"
+    );
+    // Total amount should remain the same (fee redistribution)
+    assert_eq!(
+        q_before.total_amount, q_after.total_amount,
+        "total_amount should remain same after fee redistribution"
+    );
+
+    // Verify fee invariant: total_amount = price + creator_fee + protocol_fee
+    assert_eq!(
+        q_after.total_amount,
+        q_after.price + q_after.creator_fee + q_after.protocol_fee,
+        "buy quote invariant must hold after fee config update"
+    );
+}
