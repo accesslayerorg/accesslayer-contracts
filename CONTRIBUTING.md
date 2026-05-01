@@ -21,9 +21,17 @@ Thanks for contributing to the Soroban contracts behind Access Layer, a Stellar-
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+
+# Cargo aliases for the same workflow
+cargo fmt-check
+cargo clippy-all
+cargo test-all
+
+# Or use the Makefile shortcut
+make verify
 ```
 
-You can also use the helper targets from the `Makefile` at the repo root (`make fmt-check`, `make clippy`, `make test`).
+You can also use the helper targets from the `Makefile` at the repo root (`make fmt-check`, `make clippy`, `make test`, `make verify`).
 
 ## Integration test helpers
 
