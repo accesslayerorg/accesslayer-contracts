@@ -36,6 +36,8 @@ The initial `creator-keys` contract is only a starting point. It currently suppo
 
 ## Verification
 
+Before running checks, ensure your environment is set up according to the [Local Setup Guide](./docs/local-setup.md).
+
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
