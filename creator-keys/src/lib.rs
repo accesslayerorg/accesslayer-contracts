@@ -904,6 +904,16 @@ impl CreatorKeysContract {
         }
     }
 
+    /// Read-only view: returns the protocol fee basis points value.
+    ///
+    /// Returns the stored `protocol_bps` from the fee configuration.
+    /// Returns `0` if no fee config has been set. Does not mutate contract state.
+    pub fn get_protocol_fee_bps(env: Env) -> u32 {
+        read_protocol_fee_config(&env)
+            .map(|c| c.protocol_bps)
+            .unwrap_or(0)
+    }
+
     pub fn compute_fees_for_payment(env: Env, total: i128) -> Result<(i128, i128), ContractError> {
         let config = read_required_protocol_fee_config(&env)?;
         fee::checked_compute_fee_split(total, config.creator_bps, config.protocol_bps)
