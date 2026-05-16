@@ -89,6 +89,34 @@ fn test_read_required_protocol_fee_config_returns_stored_config() {
 }
 
 #[test]
+fn test_get_protocol_fee_recipient_returns_none_when_unset() {
+    let env = Env::default();
+    let contract_id = env.register(CreatorKeysContract, ());
+
+    let recipient = env.as_contract(&contract_id, || {
+        CreatorKeysContract::get_protocol_fee_recipient(env.clone())
+    });
+
+    assert_eq!(recipient, None);
+}
+
+#[test]
+fn test_get_protocol_fee_recipient_returns_stored_address() {
+    let env = Env::default();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let expected = Address::generate(&env);
+
+    let recipient = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &expected);
+        CreatorKeysContract::get_protocol_fee_recipient(env.clone())
+    });
+
+    assert_eq!(recipient, Some(expected));
+}
+
+#[test]
 fn test_get_fee_config_reads_protocol_fee_bps() {
     let env = Env::default();
     let contract_id = env.register(CreatorKeysContract, ());
