@@ -8,6 +8,44 @@ pub mod events;
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
+/// Contract error variants.
+///
+/// # Stability and Ordering
+///
+/// **IMPORTANT**: New error variants MUST be appended to the end of this enum and NEVER
+/// inserted mid-enum. The numeric discriminant values are part of the contract's ABI and
+/// are exposed to clients, indexers, and monitoring tools.
+///
+/// ## Consequences of Reordering
+///
+/// If a variant is inserted mid-enum or existing variants are reordered:
+/// - Existing clients that match on numeric error codes will break
+/// - Indexers and monitoring tools will misinterpret error types
+/// - Historical error logs will become inconsistent with current definitions
+/// - Contract upgrades will introduce silent behavioral changes
+///
+/// ## Safe Extension Pattern
+///
+/// ✅ **Correct**: Append new variants at the end
+/// ```rust,ignore
+/// pub enum ContractError {
+///     AlreadyRegistered = 1,
+///     NotRegistered = 2,
+///     // ... existing variants ...
+///     InvalidHandleCharacter = 14,
+///     NewError = 15,  // ✅ Safe: appended at end
+/// }
+/// ```
+///
+/// ❌ **Incorrect**: Insert mid-enum
+/// ```rust,ignore
+/// pub enum ContractError {
+///     AlreadyRegistered = 1,
+///     NewError = 2,  // ❌ BREAKS ABI: shifts all subsequent variants
+///     NotRegistered = 3,  // was 2, now 3 - breaks existing clients
+///     // ...
+/// }
+/// ```
 pub enum ContractError {
     AlreadyRegistered = 1,
     NotRegistered = 2,
