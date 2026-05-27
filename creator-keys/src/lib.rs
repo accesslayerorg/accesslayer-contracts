@@ -5,9 +5,6 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 
 pub mod events;
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
 /// Contract error variants.
 ///
 /// # Stability and Ordering
@@ -46,6 +43,9 @@ pub mod events;
 ///     // ...
 /// }
 /// ```
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
 pub enum ContractError {
     AlreadyRegistered = 1,
     NotRegistered = 2,
