@@ -18,7 +18,7 @@ fn test_zero_creator_bps_full_payment_to_creator_after_protocol_fee() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
     
-    // Set up: 0% creator fee, 10% protocol fee (0 bps creator, 1000 bps protocol)
+    // Set up: 0% creator fee, 100% protocol fee (0 bps creator, 10000 bps protocol)
     let admin = soroban_sdk::Address::generate(&env);
     client.set_fee_config(&admin, &0u32, &10000u32);
     
@@ -64,7 +64,7 @@ fn test_zero_creator_bps_with_partial_protocol_fee() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
     
-    // Set up: 0% creator fee, 20% protocol fee (0 bps creator, 2000 bps protocol)
+    // Set up: 80% creator fee, 20% protocol fee (8000 bps creator, 2000 bps protocol)
     // This means creator gets 80% and protocol gets 20%
     let admin = soroban_sdk::Address::generate(&env);
     client.set_fee_config(&admin, &8000u32, &2000u32);
