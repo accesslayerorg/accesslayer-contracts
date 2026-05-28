@@ -31,31 +31,76 @@ fn test_creator_details_identical_across_three_consecutive_reads() {
     let read3 = client.get_creator_details(&creator);
 
     // Assert all reads return identical values for all fields
-    assert_eq!(read1.is_registered, read2.is_registered, "is_registered must be identical across reads");
-    assert_eq!(read2.is_registered, read3.is_registered, "is_registered must be identical across reads");
-    
-    assert_eq!(read1.creator, read2.creator, "creator address must be identical across reads");
-    assert_eq!(read2.creator, read3.creator, "creator address must be identical across reads");
-    
-    assert_eq!(read1.handle, read2.handle, "handle must be identical across reads");
-    assert_eq!(read2.handle, read3.handle, "handle must be identical across reads");
-    
-    assert_eq!(read1.supply, read2.supply, "supply must be identical across reads");
-    assert_eq!(read2.supply, read3.supply, "supply must be identical across reads");
-    
-    assert_eq!(read1.holder_count, read2.holder_count, "holder_count must be identical across reads");
-    assert_eq!(read2.holder_count, read3.holder_count, "holder_count must be identical across reads");
-    
-    assert_eq!(read1.fee_recipient, read2.fee_recipient, "fee_recipient must be identical across reads");
-    assert_eq!(read2.fee_recipient, read3.fee_recipient, "fee_recipient must be identical across reads");
+    assert_eq!(
+        read1.is_registered, read2.is_registered,
+        "is_registered must be identical across reads"
+    );
+    assert_eq!(
+        read2.is_registered, read3.is_registered,
+        "is_registered must be identical across reads"
+    );
+
+    assert_eq!(
+        read1.creator, read2.creator,
+        "creator address must be identical across reads"
+    );
+    assert_eq!(
+        read2.creator, read3.creator,
+        "creator address must be identical across reads"
+    );
+
+    assert_eq!(
+        read1.handle, read2.handle,
+        "handle must be identical across reads"
+    );
+    assert_eq!(
+        read2.handle, read3.handle,
+        "handle must be identical across reads"
+    );
+
+    assert_eq!(
+        read1.supply, read2.supply,
+        "supply must be identical across reads"
+    );
+    assert_eq!(
+        read2.supply, read3.supply,
+        "supply must be identical across reads"
+    );
+
+    assert_eq!(
+        read1.holder_count, read2.holder_count,
+        "holder_count must be identical across reads"
+    );
+    assert_eq!(
+        read2.holder_count, read3.holder_count,
+        "holder_count must be identical across reads"
+    );
+
+    assert_eq!(
+        read1.fee_recipient, read2.fee_recipient,
+        "fee_recipient must be identical across reads"
+    );
+    assert_eq!(
+        read2.fee_recipient, read3.fee_recipient,
+        "fee_recipient must be identical across reads"
+    );
 
     // Verify expected values
     assert!(read1.is_registered, "creator should be registered");
     assert_eq!(read1.creator, creator, "creator address should match");
     assert_eq!(read1.handle, handle, "handle should match");
-    assert_eq!(read1.supply, 0, "supply should be 0 for newly registered creator");
-    assert_eq!(read1.holder_count, 0, "holder_count should be 0 for newly registered creator");
-    assert_eq!(read1.fee_recipient, creator, "fee_recipient should default to creator address");
+    assert_eq!(
+        read1.supply, 0,
+        "supply should be 0 for newly registered creator"
+    );
+    assert_eq!(
+        read1.holder_count, 0,
+        "holder_count should be 0 for newly registered creator"
+    );
+    assert_eq!(
+        read1.fee_recipient, creator,
+        "fee_recipient should default to creator address"
+    );
 }
 
 #[test]
@@ -81,27 +126,27 @@ fn test_creator_details_identical_across_five_consecutive_reads_after_buy() {
     assert_eq!(read2.is_registered, read3.is_registered);
     assert_eq!(read3.is_registered, read4.is_registered);
     assert_eq!(read4.is_registered, read5.is_registered);
-    
+
     assert_eq!(read1.creator, read2.creator);
     assert_eq!(read2.creator, read3.creator);
     assert_eq!(read3.creator, read4.creator);
     assert_eq!(read4.creator, read5.creator);
-    
+
     assert_eq!(read1.handle, read2.handle);
     assert_eq!(read2.handle, read3.handle);
     assert_eq!(read3.handle, read4.handle);
     assert_eq!(read4.handle, read5.handle);
-    
+
     assert_eq!(read1.supply, read2.supply);
     assert_eq!(read2.supply, read3.supply);
     assert_eq!(read3.supply, read4.supply);
     assert_eq!(read4.supply, read5.supply);
-    
+
     assert_eq!(read1.holder_count, read2.holder_count);
     assert_eq!(read2.holder_count, read3.holder_count);
     assert_eq!(read3.holder_count, read4.holder_count);
     assert_eq!(read4.holder_count, read5.holder_count);
-    
+
     assert_eq!(read1.fee_recipient, read2.fee_recipient);
     assert_eq!(read2.fee_recipient, read3.fee_recipient);
     assert_eq!(read3.fee_recipient, read4.fee_recipient);
@@ -110,7 +155,10 @@ fn test_creator_details_identical_across_five_consecutive_reads_after_buy() {
     // Verify expected values after buy
     assert!(read1.is_registered);
     assert_eq!(read1.supply, 1, "supply should be 1 after one buy");
-    assert_eq!(read1.holder_count, 1, "holder_count should be 1 after one buyer");
+    assert_eq!(
+        read1.holder_count, 1,
+        "holder_count should be 1 after one buyer"
+    );
 }
 
 #[test]
@@ -130,7 +178,7 @@ fn test_creator_details_no_storage_writes_during_reads() {
     // Note: In Soroban SDK, we can't directly inspect storage writes, but we can
     // verify that repeated reads don't change the returned values, which would
     // indicate no state mutation is occurring.
-    
+
     // Perform multiple reads
     let read1 = client.get_creator_details(&creator);
     let read2 = client.get_creator_details(&creator);
@@ -143,15 +191,21 @@ fn test_creator_details_no_storage_writes_during_reads() {
     assert_eq!(read1.is_registered, read2.is_registered);
     assert_eq!(read2.is_registered, read3.is_registered);
     assert_eq!(read3.is_registered, read4.is_registered);
-    
+
     assert_eq!(read1.supply, read2.supply);
     assert_eq!(read2.supply, read3.supply);
     assert_eq!(read3.supply, read4.supply);
-    
+
     // Verify the method is truly read-only by checking that the state
     // remains unchanged after multiple calls
-    assert_eq!(read1.supply, 0, "supply should remain 0 (no writes during reads)");
-    assert_eq!(read4.supply, 0, "supply should still be 0 after multiple reads");
+    assert_eq!(
+        read1.supply, 0,
+        "supply should remain 0 (no writes during reads)"
+    );
+    assert_eq!(
+        read4.supply, 0,
+        "supply should still be 0 after multiple reads"
+    );
 }
 
 #[test]
@@ -169,23 +223,33 @@ fn test_unregistered_creator_details_identical_across_reads() {
     // Assert all reads return identical default values
     assert_eq!(read1.is_registered, read2.is_registered);
     assert_eq!(read2.is_registered, read3.is_registered);
-    assert!(!read1.is_registered, "unregistered creator should return false");
-    
+    assert!(
+        !read1.is_registered,
+        "unregistered creator should return false"
+    );
+
     assert_eq!(read1.creator, read2.creator);
     assert_eq!(read2.creator, read3.creator);
     assert_eq!(read1.creator, unregistered_creator);
-    
+
     assert_eq!(read1.handle, read2.handle);
     assert_eq!(read2.handle, read3.handle);
-    assert_eq!(read1.handle, String::from_str(&env, ""), "handle should be empty for unregistered");
-    
+    assert_eq!(
+        read1.handle,
+        String::from_str(&env, ""),
+        "handle should be empty for unregistered"
+    );
+
     assert_eq!(read1.supply, read2.supply);
     assert_eq!(read2.supply, read3.supply);
     assert_eq!(read1.supply, 0, "supply should be 0 for unregistered");
-    
+
     assert_eq!(read1.holder_count, read2.holder_count);
     assert_eq!(read2.holder_count, read3.holder_count);
-    assert_eq!(read1.holder_count, 0, "holder_count should be 0 for unregistered");
+    assert_eq!(
+        read1.holder_count, 0,
+        "holder_count should be 0 for unregistered"
+    );
 }
 
 #[test]
@@ -216,7 +280,7 @@ fn test_creator_details_consistency_across_ten_reads() {
     assert_eq!(read0.is_registered, read7.is_registered);
     assert_eq!(read0.is_registered, read8.is_registered);
     assert_eq!(read0.is_registered, read9.is_registered);
-    
+
     assert_eq!(read0.creator, read1.creator);
     assert_eq!(read0.creator, read2.creator);
     assert_eq!(read0.creator, read3.creator);
@@ -226,7 +290,7 @@ fn test_creator_details_consistency_across_ten_reads() {
     assert_eq!(read0.creator, read7.creator);
     assert_eq!(read0.creator, read8.creator);
     assert_eq!(read0.creator, read9.creator);
-    
+
     assert_eq!(read0.handle, read1.handle);
     assert_eq!(read0.handle, read2.handle);
     assert_eq!(read0.handle, read3.handle);
@@ -236,7 +300,7 @@ fn test_creator_details_consistency_across_ten_reads() {
     assert_eq!(read0.handle, read7.handle);
     assert_eq!(read0.handle, read8.handle);
     assert_eq!(read0.handle, read9.handle);
-    
+
     assert_eq!(read0.supply, read1.supply);
     assert_eq!(read0.supply, read2.supply);
     assert_eq!(read0.supply, read3.supply);
@@ -246,7 +310,7 @@ fn test_creator_details_consistency_across_ten_reads() {
     assert_eq!(read0.supply, read7.supply);
     assert_eq!(read0.supply, read8.supply);
     assert_eq!(read0.supply, read9.supply);
-    
+
     assert_eq!(read0.holder_count, read1.holder_count);
     assert_eq!(read0.holder_count, read2.holder_count);
     assert_eq!(read0.holder_count, read3.holder_count);
@@ -256,7 +320,7 @@ fn test_creator_details_consistency_across_ten_reads() {
     assert_eq!(read0.holder_count, read7.holder_count);
     assert_eq!(read0.holder_count, read8.holder_count);
     assert_eq!(read0.holder_count, read9.holder_count);
-    
+
     assert_eq!(read0.fee_recipient, read1.fee_recipient);
     assert_eq!(read0.fee_recipient, read2.fee_recipient);
     assert_eq!(read0.fee_recipient, read3.fee_recipient);
