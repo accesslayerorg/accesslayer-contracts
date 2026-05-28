@@ -36,6 +36,8 @@ The initial `creator-keys` contract is only a starting point. It currently suppo
 
 ## Verification
 
+For first-time local setup, install the required Soroban tooling with [docs/local-soroban-prerequisites.md](./docs/local-soroban-prerequisites.md).
+
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings

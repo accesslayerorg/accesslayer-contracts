@@ -11,9 +11,7 @@ Thanks for contributing to the Soroban contracts behind Access Layer, a Stellar-
 
 ## Local setup
 
-1. Install the stable Rust toolchain.
-2. Make sure `rustfmt` and `clippy` are available.
-3. Run the workspace checks from this repo root.
+Follow [docs/local-soroban-prerequisites.md](./docs/local-soroban-prerequisites.md) before running the contract checks for the first time. It covers the required Rust components, Soroban wasm target, Stellar CLI version, setup health checks, and common troubleshooting notes.
 
 ## Verification commands
 
