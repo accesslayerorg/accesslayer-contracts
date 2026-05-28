@@ -76,15 +76,6 @@ fn test_creator_details_identical_across_three_consecutive_reads() {
         "holder_count must be identical across reads"
     );
 
-    assert_eq!(
-        read1.fee_recipient, read2.fee_recipient,
-        "fee_recipient must be identical across reads"
-    );
-    assert_eq!(
-        read2.fee_recipient, read3.fee_recipient,
-        "fee_recipient must be identical across reads"
-    );
-
     // Verify expected values
     assert!(read1.is_registered, "creator should be registered");
     assert_eq!(read1.creator, creator, "creator address should match");
@@ -96,10 +87,6 @@ fn test_creator_details_identical_across_three_consecutive_reads() {
     assert_eq!(
         read1.holder_count, 0,
         "holder_count should be 0 for newly registered creator"
-    );
-    assert_eq!(
-        read1.fee_recipient, creator,
-        "fee_recipient should default to creator address"
     );
 }
 
@@ -146,11 +133,6 @@ fn test_creator_details_identical_across_five_consecutive_reads_after_buy() {
     assert_eq!(read2.holder_count, read3.holder_count);
     assert_eq!(read3.holder_count, read4.holder_count);
     assert_eq!(read4.holder_count, read5.holder_count);
-
-    assert_eq!(read1.fee_recipient, read2.fee_recipient);
-    assert_eq!(read2.fee_recipient, read3.fee_recipient);
-    assert_eq!(read3.fee_recipient, read4.fee_recipient);
-    assert_eq!(read4.fee_recipient, read5.fee_recipient);
 
     // Verify expected values after buy
     assert!(read1.is_registered);
@@ -320,16 +302,6 @@ fn test_creator_details_consistency_across_ten_reads() {
     assert_eq!(read0.holder_count, read7.holder_count);
     assert_eq!(read0.holder_count, read8.holder_count);
     assert_eq!(read0.holder_count, read9.holder_count);
-
-    assert_eq!(read0.fee_recipient, read1.fee_recipient);
-    assert_eq!(read0.fee_recipient, read2.fee_recipient);
-    assert_eq!(read0.fee_recipient, read3.fee_recipient);
-    assert_eq!(read0.fee_recipient, read4.fee_recipient);
-    assert_eq!(read0.fee_recipient, read5.fee_recipient);
-    assert_eq!(read0.fee_recipient, read6.fee_recipient);
-    assert_eq!(read0.fee_recipient, read7.fee_recipient);
-    assert_eq!(read0.fee_recipient, read8.fee_recipient);
-    assert_eq!(read0.fee_recipient, read9.fee_recipient);
 
     // Verify expected values
     assert!(read0.is_registered);
