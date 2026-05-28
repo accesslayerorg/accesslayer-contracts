@@ -3,7 +3,7 @@
 use creator_keys::{events, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Events},
-    Address, Env, IntoVal, String, Symbol,
+    Address, Env, IntoVal, String, Symbol, Val, Vec,
 };
 
 const KEY_PRICE: i128 = 100;
@@ -58,9 +58,15 @@ impl<'a> EventFixture<'a> {
         let (_, topics, _) = event_log.last().unwrap();
 
         TradeTopics {
-            event_name: topics.get(0).unwrap().into_val(env),
-            creator: topics.get(1).unwrap().into_val(env),
-            actor: topics.get(2).unwrap().into_val(env),
+            event_name: topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .unwrap()
+                .into_val(env),
+            creator: topics
+                .get(events::TOPIC_CREATOR_INDEX)
+                .unwrap()
+                .into_val(env),
+            actor: topics.get(events::TOPIC_BUYER_INDEX).unwrap().into_val(env),
         }
     }
 
@@ -82,6 +88,19 @@ impl<'a> EventFixture<'a> {
     }
 }
 
+fn assert_event_topic_matches(env: &Env, event: &(Address, Vec<Val>, Val), expected_topic: Symbol) {
+    let actual_topic: Symbol = event
+        .1
+        .get(events::TOPIC_EVENT_NAME_INDEX)
+        .expect("event topic should be present")
+        .into_val(env);
+
+    assert_eq!(
+        actual_topic, expected_topic,
+        "event topic should match expected contract identifier"
+    );
+}
+
 #[test]
 fn test_register_creator_emits_event() {
     let env = Env::default();
@@ -94,12 +113,13 @@ fn test_register_creator_emits_event() {
     assert!(!events.is_empty(), "should emit at least one event");
 
     let last = events.last().unwrap();
-    let (_, topics, _data) = last;
+    assert_event_topic_matches(&env, &last, events::REGISTER_EVENT_NAME);
 
-    let topic: Symbol = topics.get(0).unwrap().into_val(&env);
-    assert_eq!(topic, events::REGISTER_EVENT_NAME);
-
-    let event_creator: Address = topics.get(1).unwrap().into_val(&env);
+    let event_creator: Address = last
+        .1
+        .get(events::TOPIC_CREATOR_INDEX)
+        .unwrap()
+        .into_val(&env);
     assert_eq!(event_creator, fixture.creator);
 }
 
@@ -120,6 +140,23 @@ fn test_register_creator_event_data_is_indexer_friendly() {
     assert_eq!(payload.handle, handle);
     assert_eq!(payload.supply, 0);
     assert_eq!(payload.holder_count, 0);
+    assert_eq!(payload.creator_bps, 0);
+    assert_eq!(payload.protocol_bps, 0);
+}
+
+#[test]
+fn test_register_creator_event_payload_field_order_is_documented() {
+    assert_eq!(
+        events::REGISTER_EVENT_DATA_FIELDS,
+        [
+            "creator",
+            "handle",
+            "supply",
+            "holder_count",
+            "creator_bps",
+            "protocol_bps"
+        ]
+    );
 }
 
 #[test]
@@ -133,6 +170,21 @@ fn test_register_creator_event_fires_once() {
     let after = env.events().all().len();
 
     assert_eq!(after - before, 1, "register should emit exactly one event");
+}
+
+#[test]
+#[should_panic(expected = "event topic should match expected contract identifier")]
+fn test_assert_event_topic_matches_rejects_unexpected_identifier() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let fixture = EventFixture::new(&env);
+
+    fixture.register_creator(&env, "alice");
+
+    let events = env.events().all();
+    let last = events.last().unwrap();
+
+    assert_event_topic_matches(&env, &last, events::BUY_EVENT_NAME);
 }
 
 #[test]
@@ -177,6 +229,11 @@ fn test_buy_key_event_payload_tracks_new_supply_across_purchases() {
 }
 
 #[test]
+fn test_buy_key_event_payload_field_order_is_documented() {
+    assert_eq!(events::BUY_EVENT_DATA_FIELDS, ["supply", "payment"]);
+}
+
+#[test]
 fn test_buy_key_event_present_after_purchase() {
     let env = Env::default();
     env.mock_all_auths();
@@ -188,7 +245,7 @@ fn test_buy_key_event_present_after_purchase() {
 
     let has_buy_event = env.events().all().iter().any(|(_, topics, _)| {
         topics
-            .get(0)
+            .get(events::TOPIC_EVENT_NAME_INDEX)
             .map(|value| {
                 let sym: Symbol = value.into_val(&env);
                 sym == events::BUY_EVENT_NAME

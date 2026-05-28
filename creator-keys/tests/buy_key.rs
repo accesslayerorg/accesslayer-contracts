@@ -1,56 +1,53 @@
 //! Tests for `buy_key` creator validation and payment checks.
 
-use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
-use soroban_sdk::{testutils::Address as _, Env, String};
+mod contract_test_env;
+
+use contract_test_env::{
+    compute_expected_buy_price, register_creator_keys, register_test_creator,
+    set_key_price_for_tests, test_env_with_auths,
+};
+use creator_keys::ContractError;
+use soroban_sdk::{testutils::Address as _, Address};
 
 #[test]
 fn test_buy_key_unregistered_creator_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let base_price = 100i128;
+    set_key_price_for_tests(&env, &client, base_price);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
 
-    let contract_id = env.register(CreatorKeysContract, ());
-    let client = CreatorKeysContractClient::new(&env, &contract_id);
-    let admin = soroban_sdk::Address::generate(&env);
-    let creator = soroban_sdk::Address::generate(&env);
-    let buyer = soroban_sdk::Address::generate(&env);
-
-    client.set_key_price(&admin, &100i128);
-    let result = client.try_buy_key(&creator, &buyer, &100i128);
+    let expected_price = compute_expected_buy_price(0, base_price);
+    let result = client.try_buy_key(&creator, &buyer, &expected_price);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
 #[test]
 fn test_buy_key_insufficient_payment_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let base_price = 100i128;
+    set_key_price_for_tests(&env, &client, base_price);
+    let creator = register_test_creator(&env, &client, "alice");
+    let buyer = Address::generate(&env);
 
-    let contract_id = env.register(CreatorKeysContract, ());
-    let client = CreatorKeysContractClient::new(&env, &contract_id);
-    let admin = soroban_sdk::Address::generate(&env);
-    let creator = soroban_sdk::Address::generate(&env);
-    let buyer = soroban_sdk::Address::generate(&env);
-
-    client.set_key_price(&admin, &100i128);
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
-    let result = client.try_buy_key(&creator, &buyer, &99i128);
+    let expected_price = compute_expected_buy_price(0, base_price);
+    let result = client.try_buy_key(&creator, &buyer, &(expected_price - 1));
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
 }
 
 #[test]
 fn test_buy_key_sufficient_payment_succeeds() {
-    let env = Env::default();
-    env.mock_all_auths();
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let base_price = 100i128;
+    set_key_price_for_tests(&env, &client, base_price);
+    let creator = register_test_creator(&env, &client, "alice");
+    let buyer = Address::generate(&env);
 
-    let contract_id = env.register(CreatorKeysContract, ());
-    let client = CreatorKeysContractClient::new(&env, &contract_id);
-    let admin = soroban_sdk::Address::generate(&env);
-    let creator = soroban_sdk::Address::generate(&env);
-    let buyer = soroban_sdk::Address::generate(&env);
-
-    client.set_key_price(&admin, &100i128);
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
-
-    let supply = client.buy_key(&creator, &buyer, &100i128);
+    let expected_price = compute_expected_buy_price(0, base_price);
+    let supply = client.buy_key(&creator, &buyer, &expected_price);
     assert_eq!(supply, 1);
 
     let profile = client.get_creator(&creator);

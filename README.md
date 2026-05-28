@@ -36,6 +36,8 @@ The initial `creator-keys` contract is only a starting point. It currently suppo
 
 ## Verification
 
+For first-time local setup, install the required Soroban tooling with [docs/local-soroban-prerequisites.md](./docs/local-soroban-prerequisites.md).
+
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -44,7 +46,7 @@ cargo test --workspace
 
 ## Testnet deployment
 
-For contributor test deployments and release checks, use the guide in [docs/stellar-testnet-deployment.md](./docs/stellar-testnet-deployment.md).
+For contributor test deployments and release checks, use the guide in [docs/stellar-testnet-deployment.md](./docs/stellar-testnet-deployment.md). Store and name release wasm files using [docs/deploy-artifacts.md](./docs/deploy-artifacts.md). For client and server integration expectations (read methods, events, version bumps), see [docs/contract-consumer-boundaries.md](./docs/contract-consumer-boundaries.md). For detailed return value semantics of every read-only entrypoint (units, precision, edge-case outputs), see [docs/read-only-methods.md](./docs/read-only-methods.md). For contract event naming conventions and topic format, see [docs/contract-event-conventions.md](./docs/contract-event-conventions.md). For quote-related storage key behavior and invariants, see [docs/quote-storage-keys.md](./docs/quote-storage-keys.md). For caller restrictions and the authorization model for each public function, see [docs/authorization-model.md](./docs/authorization-model.md).
 
 ## Open source workflow
 

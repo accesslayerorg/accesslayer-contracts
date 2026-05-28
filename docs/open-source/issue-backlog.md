@@ -13,7 +13,7 @@ This backlog is organized into contributor-ready sections. Each section contains
 7. `contracts-registry-07` Add helper accessors for supply and creator lookup responses.
 8. `contracts-registry-08` Document storage keys and invariants for contributor onboarding.
 9. `contracts-registry-09` Add contract comments that explain persistent storage choices.
-10. `contracts-registry-10` Define a roadmap issue for optional creator profile expansion fields.
+10. `contracts-registry-10` Define a roadmap issue for optional creator profile expansion fields. See [creator-profile-expansion-roadmap.md](./creator-profile-expansion-roadmap.md).
 
 ## Section 2: Trading, Fees, and Economics
 
@@ -33,7 +33,7 @@ This backlog is organized into contributor-ready sections. Each section contains
 1. `contracts-tooling-01` Add a reusable test helper module for common contract setup.
 2. `contracts-tooling-02` Add cargo aliases or scripts for formatter, clippy, and test workflows.
 3. `contracts-tooling-03` Add deployment notes for Stellar testnet.
-4. `contracts-tooling-04` Add a contract release checklist covering verification and deployment.
+4. `contracts-tooling-04` Add a contract release checklist covering verification and deployment. See [testnet-release-checklist.md](../testnet-release-checklist.md).
 5. `contracts-tooling-05` Add one `good first issue` test-only task with clear acceptance criteria.
 6. `contracts-tooling-06` Add CI documentation explaining what each contract check validates.
 7. `contracts-tooling-07` Add a local developer guide for Soroban prerequisites.
