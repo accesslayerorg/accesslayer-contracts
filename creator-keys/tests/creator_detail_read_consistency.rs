@@ -12,8 +12,6 @@ mod contract_test_env;
 use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Env, String};
 
-extern crate std;
-
 #[test]
 fn test_creator_details_identical_across_three_consecutive_reads() {
     let env = Env::default();
@@ -197,22 +195,80 @@ fn test_creator_details_consistency_across_ten_reads() {
     let creator = contract_test_env::register_test_creator(&env, &client, "dave");
 
     // Perform ten consecutive reads
-    let reads: Vec<_> = (0..10)
-        .map(|_| client.get_creator_details(&creator))
-        .collect();
+    let read0 = client.get_creator_details(&creator);
+    let read1 = client.get_creator_details(&creator);
+    let read2 = client.get_creator_details(&creator);
+    let read3 = client.get_creator_details(&creator);
+    let read4 = client.get_creator_details(&creator);
+    let read5 = client.get_creator_details(&creator);
+    let read6 = client.get_creator_details(&creator);
+    let read7 = client.get_creator_details(&creator);
+    let read8 = client.get_creator_details(&creator);
+    let read9 = client.get_creator_details(&creator);
 
-    // Verify all reads are identical
-    for i in 1..reads.len() {
-        assert_eq!(reads[0].is_registered, reads[i].is_registered, "is_registered mismatch at read {}", i);
-        assert_eq!(reads[0].creator, reads[i].creator, "creator mismatch at read {}", i);
-        assert_eq!(reads[0].handle, reads[i].handle, "handle mismatch at read {}", i);
-        assert_eq!(reads[0].supply, reads[i].supply, "supply mismatch at read {}", i);
-        assert_eq!(reads[0].holder_count, reads[i].holder_count, "holder_count mismatch at read {}", i);
-        assert_eq!(reads[0].fee_recipient, reads[i].fee_recipient, "fee_recipient mismatch at read {}", i);
-    }
+    // Verify all reads are identical to the first read
+    assert_eq!(read0.is_registered, read1.is_registered);
+    assert_eq!(read0.is_registered, read2.is_registered);
+    assert_eq!(read0.is_registered, read3.is_registered);
+    assert_eq!(read0.is_registered, read4.is_registered);
+    assert_eq!(read0.is_registered, read5.is_registered);
+    assert_eq!(read0.is_registered, read6.is_registered);
+    assert_eq!(read0.is_registered, read7.is_registered);
+    assert_eq!(read0.is_registered, read8.is_registered);
+    assert_eq!(read0.is_registered, read9.is_registered);
+    
+    assert_eq!(read0.creator, read1.creator);
+    assert_eq!(read0.creator, read2.creator);
+    assert_eq!(read0.creator, read3.creator);
+    assert_eq!(read0.creator, read4.creator);
+    assert_eq!(read0.creator, read5.creator);
+    assert_eq!(read0.creator, read6.creator);
+    assert_eq!(read0.creator, read7.creator);
+    assert_eq!(read0.creator, read8.creator);
+    assert_eq!(read0.creator, read9.creator);
+    
+    assert_eq!(read0.handle, read1.handle);
+    assert_eq!(read0.handle, read2.handle);
+    assert_eq!(read0.handle, read3.handle);
+    assert_eq!(read0.handle, read4.handle);
+    assert_eq!(read0.handle, read5.handle);
+    assert_eq!(read0.handle, read6.handle);
+    assert_eq!(read0.handle, read7.handle);
+    assert_eq!(read0.handle, read8.handle);
+    assert_eq!(read0.handle, read9.handle);
+    
+    assert_eq!(read0.supply, read1.supply);
+    assert_eq!(read0.supply, read2.supply);
+    assert_eq!(read0.supply, read3.supply);
+    assert_eq!(read0.supply, read4.supply);
+    assert_eq!(read0.supply, read5.supply);
+    assert_eq!(read0.supply, read6.supply);
+    assert_eq!(read0.supply, read7.supply);
+    assert_eq!(read0.supply, read8.supply);
+    assert_eq!(read0.supply, read9.supply);
+    
+    assert_eq!(read0.holder_count, read1.holder_count);
+    assert_eq!(read0.holder_count, read2.holder_count);
+    assert_eq!(read0.holder_count, read3.holder_count);
+    assert_eq!(read0.holder_count, read4.holder_count);
+    assert_eq!(read0.holder_count, read5.holder_count);
+    assert_eq!(read0.holder_count, read6.holder_count);
+    assert_eq!(read0.holder_count, read7.holder_count);
+    assert_eq!(read0.holder_count, read8.holder_count);
+    assert_eq!(read0.holder_count, read9.holder_count);
+    
+    assert_eq!(read0.fee_recipient, read1.fee_recipient);
+    assert_eq!(read0.fee_recipient, read2.fee_recipient);
+    assert_eq!(read0.fee_recipient, read3.fee_recipient);
+    assert_eq!(read0.fee_recipient, read4.fee_recipient);
+    assert_eq!(read0.fee_recipient, read5.fee_recipient);
+    assert_eq!(read0.fee_recipient, read6.fee_recipient);
+    assert_eq!(read0.fee_recipient, read7.fee_recipient);
+    assert_eq!(read0.fee_recipient, read8.fee_recipient);
+    assert_eq!(read0.fee_recipient, read9.fee_recipient);
 
     // Verify expected values
-    assert!(reads[0].is_registered);
-    assert_eq!(reads[0].handle, String::from_str(&env, "dave"));
-    assert_eq!(reads[0].supply, 0);
+    assert!(read0.is_registered);
+    assert_eq!(read0.handle, String::from_str(&env, "dave"));
+    assert_eq!(read0.supply, 0);
 }
