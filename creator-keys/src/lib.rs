@@ -137,6 +137,27 @@ pub mod fee {
     pub fn checked_add_i128(left: i128, right: i128) -> Option<i128> {
         left.checked_add(right)
     }
+
+    /// Computes the checked sum of creator and protocol fee components.
+    ///
+    /// Returns `None` if the addition would overflow. Use this helper wherever
+    /// fee components are combined before being compared against a price or total,
+    /// to keep the overflow guard consistent across buy and sell quote paths.
+    ///
+    /// # Naming convention
+    ///
+    /// Quote helpers in this module follow a `checked_*` prefix convention:
+    /// - `checked_*` functions return `Option<T>` and propagate `None` on overflow.
+    /// - `compute_*` functions return the result directly (may panic on overflow in
+    ///   debug builds; use only where inputs are already validated).
+    /// - `apply_*` functions apply a rate or percentage to a single amount.
+    ///
+    /// `checked_fee_sum` belongs to the `checked_*` family: it is the canonical
+    /// helper for summing two fee components before they are used in total-amount
+    /// arithmetic, replacing ad-hoc inline `checked_add` calls at each call site.
+    pub fn checked_fee_sum(creator_fee: i128, protocol_fee: i128) -> Option<i128> {
+        creator_fee.checked_add(protocol_fee)
+    }
 }
 
 pub mod constants {
@@ -431,9 +452,7 @@ fn checked_format_quote_response(
     protocol_fee: i128,
     is_buy: bool,
 ) -> QuoteViewResult {
-    let fees = creator_fee
-        .checked_add(protocol_fee)
-        .ok_or(ContractError::Overflow)?;
+    let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
 
     let total_amount = if is_buy {
         price.checked_add(fees).ok_or(ContractError::Overflow)?
@@ -1263,6 +1282,36 @@ mod tests {
 
         // Overflow
         assert!(!fee::validate_fee_bps(u32::MAX, 1));
+    }
+
+    // --- checked_fee_sum unit tests ---
+
+    /// Verifies that `checked_fee_sum` returns the correct sum for two ordinary
+    /// positive fee components.
+    #[test]
+    fn test_checked_fee_sum_success() {
+        assert_eq!(fee::checked_fee_sum(900, 100), Some(1000));
+        assert_eq!(fee::checked_fee_sum(0, 0), Some(0));
+        assert_eq!(fee::checked_fee_sum(500, 500), Some(1000));
+    }
+
+    /// Verifies that `checked_fee_sum` returns `None` when the addition would
+    /// overflow `i128`, preventing silent wrapping in fee total calculations.
+    #[test]
+    fn test_checked_fee_sum_overflow_returns_none() {
+        assert_eq!(fee::checked_fee_sum(i128::MAX, 1), None);
+        assert_eq!(fee::checked_fee_sum(i128::MAX, i128::MAX), None);
+    }
+
+    /// Edge case: verifies `checked_fee_sum` at the boundary where one component
+    /// is exactly `i128::MAX` and the other is zero — the only non-overflowing
+    /// case at that boundary.
+    #[test]
+    fn test_checked_fee_sum_boundary_max_plus_zero() {
+        assert_eq!(fee::checked_fee_sum(i128::MAX, 0), Some(i128::MAX));
+        assert_eq!(fee::checked_fee_sum(0, i128::MAX), Some(i128::MAX));
+        // One above the boundary must overflow
+        assert_eq!(fee::checked_fee_sum(i128::MAX, 1), None);
     }
 }
 

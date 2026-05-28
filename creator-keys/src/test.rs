@@ -1,4 +1,6 @@
 use super::*;
+use soroban_sdk::testutils::Events;
+use soroban_sdk::TryIntoVal;
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
@@ -626,4 +628,194 @@ fn test_get_protocol_admin_persists_across_reads() {
     let second_read = client.get_protocol_admin();
     assert_eq!(first_read, second_read);
     assert_eq!(first_read, Some(new_admin));
+}
+
+// ---------------------------------------------------------------------------
+// Regression tests: fee component ordering in emitted event payloads
+//
+// These tests lock down the stable field order of event payloads that carry
+// fee-adjacent data. They are intentionally narrow: they assert ordering and
+// presence of specific fields, not unrelated payload changes.
+// ---------------------------------------------------------------------------
+
+/// Regression: `CreatorRegisteredEvent` field order must remain
+/// `(creator, handle, supply, holder_count)`.
+///
+/// The `REGISTER_EVENT_DATA_FIELDS` constant documents the intended order.
+/// This test confirms the emitted payload matches that declaration so that
+/// downstream indexers relying on positional field access do not silently break.
+#[test]
+fn test_register_event_field_order_is_stable() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    client.register_creator(&creator, &handle);
+
+    let all_events = env.events().all();
+    assert_eq!(
+        all_events.len(),
+        1,
+        "expected exactly one event after registration"
+    );
+
+    let (_contract_id, topics, data): (
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    ) = all_events.get(0).unwrap();
+
+    // Topic[0] must be the event name symbol, Topic[1] must be the creator address.
+    // This mirrors TOPIC_EVENT_NAME_INDEX=0 and TOPIC_CREATOR_INDEX=1.
+    let event_name: soroban_sdk::Symbol = topics
+        .get(events::TOPIC_EVENT_NAME_INDEX)
+        .unwrap()
+        .try_into_val(&env)
+        .unwrap();
+    let topic_creator: Address = topics
+        .get(events::TOPIC_CREATOR_INDEX)
+        .unwrap()
+        .try_into_val(&env)
+        .unwrap();
+    assert_eq!(event_name, events::REGISTER_EVENT_NAME);
+    assert_eq!(topic_creator, creator);
+
+    // Data must deserialise as CreatorRegisteredEvent with fields in declared order.
+    let payload: events::CreatorRegisteredEvent = data.try_into_val(&env).unwrap();
+    assert_eq!(payload.creator, creator, "field[0] creator mismatch");
+    assert_eq!(payload.handle, handle, "field[1] handle mismatch");
+    assert_eq!(payload.supply, 0, "field[2] supply mismatch");
+    assert_eq!(payload.holder_count, 0, "field[3] holder_count mismatch");
+
+    // Confirm the constant declaration matches the struct field order.
+    assert_eq!(events::REGISTER_EVENT_DATA_FIELDS[0], "creator");
+    assert_eq!(events::REGISTER_EVENT_DATA_FIELDS[1], "handle");
+    assert_eq!(events::REGISTER_EVENT_DATA_FIELDS[2], "supply");
+    assert_eq!(events::REGISTER_EVENT_DATA_FIELDS[3], "holder_count");
+}
+
+/// Regression: buy event topic order must remain `(BUY_EVENT_NAME, creator, buyer)`.
+///
+/// The `BUY_EVENT_DATA_FIELDS` constant documents the intended tuple order
+/// `(supply, payment)`. This test confirms both topic and data ordering so that
+/// indexers relying on positional topic access do not silently break.
+#[test]
+fn test_buy_event_topic_and_data_order_is_stable() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &500);
+    client.set_fee_config(&admin, &9000, &1000);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "bob");
+    client.register_creator(&creator, &handle);
+
+    let buyer = Address::generate(&env);
+    client.buy_key(&creator, &buyer, &500);
+
+    let all_events = env.events().all();
+    // Each client call is a separate invocation; env.events().all() returns events
+    // from the most recent call only. After buy_key, exactly one buy event is present.
+    assert_eq!(all_events.len(), 1, "expected exactly one buy event");
+
+    // The buy event is the only one emitted in this invocation.
+    let (_contract_id, topics, data): (
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    ) = all_events.get(all_events.len() - 1).unwrap();
+
+    // Topic[0] = event name, Topic[1] = creator, Topic[2] = buyer
+    let event_name: soroban_sdk::Symbol = topics
+        .get(events::TOPIC_EVENT_NAME_INDEX)
+        .unwrap()
+        .try_into_val(&env)
+        .unwrap();
+    let topic_creator: Address = topics
+        .get(events::TOPIC_CREATOR_INDEX)
+        .unwrap()
+        .try_into_val(&env)
+        .unwrap();
+    let topic_buyer: Address = topics
+        .get(events::TOPIC_BUYER_INDEX)
+        .unwrap()
+        .try_into_val(&env)
+        .unwrap();
+    assert_eq!(
+        event_name,
+        events::BUY_EVENT_NAME,
+        "topic[0] event name mismatch"
+    );
+    assert_eq!(topic_creator, creator, "topic[1] creator mismatch");
+    assert_eq!(topic_buyer, buyer, "topic[2] buyer mismatch");
+
+    // Data tuple must be (supply: u32, payment: i128) — supply first, payment second.
+    let (supply, payment): (u32, i128) = data.try_into_val(&env).unwrap();
+    assert_eq!(supply, 1, "data[0] supply mismatch");
+    assert_eq!(payment, 500, "data[1] payment mismatch");
+
+    // Confirm the constant declaration matches the tuple field order.
+    assert_eq!(events::BUY_EVENT_DATA_FIELDS[0], "supply");
+    assert_eq!(events::BUY_EVENT_DATA_FIELDS[1], "payment");
+}
+
+/// Regression: `CreatorRegisteredEvent` initial fee-adjacent fields (`supply`,
+/// `holder_count`) must be zero at registration time and must not be reordered
+/// relative to identity fields (`creator`, `handle`).
+///
+/// This guards against a refactor accidentally swapping the numeric tail fields
+/// with the address/string head fields, which would silently corrupt indexer reads.
+#[test]
+fn test_register_event_fee_adjacent_fields_are_zero_and_ordered_after_identity_fields() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "carol");
+    client.register_creator(&creator, &handle);
+
+    let all_events = env.events().all();
+    let (_contract_id, _topics, data): (
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    ) = all_events.get(0).unwrap();
+
+    let payload: events::CreatorRegisteredEvent = data.try_into_val(&env).unwrap();
+
+    // Identity fields come first (indices 0 and 1 in REGISTER_EVENT_DATA_FIELDS).
+    assert_eq!(
+        payload.creator, creator,
+        "identity field 'creator' must be first"
+    );
+    assert_eq!(
+        payload.handle, handle,
+        "identity field 'handle' must be second"
+    );
+
+    // Fee-adjacent numeric fields come after identity fields (indices 2 and 3).
+    // Both must be zero at registration time — no supply or holders yet.
+    assert_eq!(
+        payload.supply, 0,
+        "fee-adjacent field 'supply' must be zero at registration"
+    );
+    assert_eq!(
+        payload.holder_count, 0,
+        "fee-adjacent field 'holder_count' must be zero at registration"
+    );
+
+    // Cross-check: the constant array must place numeric fields after identity fields.
+    let identity_fields = &events::REGISTER_EVENT_DATA_FIELDS[..2];
+    let numeric_fields = &events::REGISTER_EVENT_DATA_FIELDS[2..];
+    assert_eq!(identity_fields, &["creator", "handle"]);
+    assert_eq!(numeric_fields, &["supply", "holder_count"]);
 }
