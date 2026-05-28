@@ -85,6 +85,31 @@ pub fn register_test_creator(
     creator
 }
 
+/// Standard creator basis points used by fixture helpers as the default fee split.
+pub const DEFAULT_CREATOR_BPS: u32 = 9000;
+
+/// Standard protocol basis points used by fixture helpers as the default fee split.
+pub const DEFAULT_PROTOCOL_BPS: u32 = 1000;
+
+/// Register a creator with a provided fee configuration and return the creator address.
+///
+/// This helper sets the global fee config and registers a new creator in one step,
+/// reducing boilerplate in tests that need a registered creator with non-default fees.
+/// For the standard 90/10 split, pass [`DEFAULT_CREATOR_BPS`] and [`DEFAULT_PROTOCOL_BPS`].
+pub fn register_test_creator_with_fee_config(
+    env: &Env,
+    client: &CreatorKeysContractClient<'_>,
+    handle: &str,
+    creator_bps: u32,
+    protocol_bps: u32,
+) -> Address {
+    let admin = Address::generate(env);
+    client.set_fee_config(&admin, &creator_bps, &protocol_bps);
+    let creator = Address::generate(env);
+    client.register_creator(&creator, &String::from_str(env, handle));
+    creator
+}
+
 /// Write the persistent key price directly (bypassing `set_key_price`), for state edge cases.
 pub fn set_stored_key_price(env: &Env, contract_id: &Address, price: i128) {
     env.as_contract(contract_id, || {

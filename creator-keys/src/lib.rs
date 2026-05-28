@@ -1185,6 +1185,26 @@ mod tests {
         assert_eq!(fee::checked_div_i128(i128::MIN, -1), None);
     }
 
+    /// Both operands at `i128::MAX / 2 + 1` must overflow.
+    ///
+    /// `(i128::MAX / 2 + 1) + (i128::MAX / 2 + 1) == i128::MAX + 1`, which
+    /// exceeds i128 capacity, so the helper must return `None` rather than wrap.
+    #[test]
+    fn test_checked_add_i128_both_at_half_max_plus_one_overflows() {
+        let half_plus_one = i128::MAX / 2 + 1;
+        assert_eq!(fee::checked_add_i128(half_plus_one, half_plus_one), None);
+    }
+
+    /// Both operands at `i128::MAX / 2` must not overflow.
+    ///
+    /// `(i128::MAX / 2) + (i128::MAX / 2) == i128::MAX - 1`, which fits in i128,
+    /// so the helper must return the correct sum just below the overflow boundary.
+    #[test]
+    fn test_checked_add_i128_both_at_half_max_succeeds() {
+        let half = i128::MAX / 2;
+        assert_eq!(fee::checked_add_i128(half, half), Some(half + half));
+    }
+
     #[test]
     fn test_normalize_quote_amount_preserves_positive_amount() {
         assert_eq!(super::normalize_quote_amount(100), Ok(Some(100)));
