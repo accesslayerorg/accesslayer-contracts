@@ -12,6 +12,8 @@ mod contract_test_env;
 use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Env, String};
 
+extern crate std;
+
 #[test]
 fn test_creator_details_identical_across_three_consecutive_reads() {
     let env = Env::default();
