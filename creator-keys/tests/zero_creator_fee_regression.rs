@@ -178,6 +178,14 @@ fn test_zero_creator_bps_no_rounding_errors_with_odd_amounts() {
     // Protocol fee = floor(999 * 3333 / 10000) = floor(332.9667) = 332
     // Creator fee = 999 - 332 = 667
     // Verify the split is correct
-    assert!(protocol_fee >= 332 && protocol_fee <= 333, "Protocol fee should be 332 or 333, got {}", protocol_fee);
-    assert!(creator_fee >= 666 && creator_fee <= 667, "Creator fee should be 666 or 667, got {}", creator_fee);
+    assert!(
+        protocol_fee >= 332 && protocol_fee <= 333,
+        "Protocol fee should be 332 or 333, got {}",
+        protocol_fee
+    );
+    assert!(
+        creator_fee >= 666 && creator_fee <= 667,
+        "Creator fee should be 666 or 667, got {}",
+        creator_fee
+    );
 }
