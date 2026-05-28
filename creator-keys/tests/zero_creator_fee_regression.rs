@@ -9,7 +9,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
+    register_creator_keys, register_test_creator, register_test_creator_with_fee_config,
+    set_key_price_for_tests, test_env_with_auths,
 };
 use soroban_sdk::testutils::Address as _;
 
@@ -113,22 +114,19 @@ fn test_zero_protocol_bps_full_payment_to_creator() {
     let (client, _) = register_creator_keys(&env);
 
     // Set up: 100% creator fee, 0% protocol fee (10000 bps creator, 0 bps protocol)
-    let admin = soroban_sdk::Address::generate(&env);
-    client.set_fee_config(&admin, &10000u32, &0u32);
+    // Set key price
+    set_key_price_for_tests(&env, &client, 1000i128);
 
-    // Verify fee config
+    // Register creator with custom fee config using the fixture helper
+    let creator = register_test_creator_with_fee_config(&env, &client, "charlie", 10000, 0);
+
+    // Verify fee config is set as expected
     let config = client.get_fee_config().unwrap();
     assert_eq!(
         config.creator_bps, 10000,
         "Creator bps should be 10000 (100%)"
     );
     assert_eq!(config.protocol_bps, 0, "Protocol bps should be 0");
-
-    // Set key price
-    set_key_price_for_tests(&env, &client, 1000i128);
-
-    // Register creator
-    let creator = register_test_creator(&env, &client, "charlie");
     let buyer = soroban_sdk::Address::generate(&env);
 
     // Perform a buy
@@ -161,14 +159,11 @@ fn test_zero_creator_bps_no_rounding_errors_with_odd_amounts() {
     let (client, _) = register_creator_keys(&env);
 
     // Set up: 0% creator fee, 33.33% protocol fee (6667 bps creator, 3333 bps protocol)
-    let admin = soroban_sdk::Address::generate(&env);
-    client.set_fee_config(&admin, &6667u32, &3333u32);
-
     // Set key price
     set_key_price_for_tests(&env, &client, 999i128);
 
-    // Register creator
-    let creator = register_test_creator(&env, &client, "dave");
+    // Register creator with custom fee config using the fixture helper
+    let creator = register_test_creator_with_fee_config(&env, &client, "dave", 6667, 3333);
     let buyer = soroban_sdk::Address::generate(&env);
 
     // Perform a buy with an odd payment amount
