@@ -187,3 +187,35 @@ pub fn compute_expected_sell_price(_supply: u32, base_price: i128) -> i128 {
 pub fn compute_expected_protocol_fee(price: i128, protocol_bps: u32) -> i128 {
     (price * protocol_bps as i128) / 10_000
 }
+
+/// Represents a trade operation (buy or sell) in a sequence.
+#[derive(Debug, Clone, Copy)]
+pub enum TradeOperation {
+    /// A buy operation (increases balance by 1).
+    Buy,
+    /// A sell operation (decreases balance by 1).
+    Sell,
+}
+
+/// Computes the expected key balance after a sequence of buy and sell operations.
+///
+/// Takes an initial balance and applies a sequence of trades, returning the
+/// final expected balance. Each buy increases the balance by 1, each sell
+/// decreases it by 1 (stopping at 0 if a sell would go negative).
+///
+/// This helper makes test fixtures clearer by replacing magic numbers with
+/// explicit trade sequences and reduces maintenance burden when test logic changes.
+/// Mirrors the actual contract balance tracking logic.
+pub fn compute_expected_balance_after_trades(
+    initial_balance: u32,
+    trades: &[TradeOperation],
+) -> u32 {
+    let mut balance = initial_balance as i32;
+    for trade in trades {
+        match trade {
+            TradeOperation::Buy => balance += 1,
+            TradeOperation::Sell => balance = (balance - 1).max(0),
+        }
+    }
+    balance as u32
+}
