@@ -213,6 +213,10 @@ pub mod constants {
         pub const ADMIN_ADDRESS: DataKey = DataKey::AdminAddress;
         pub const PROTOCOL_FEE_RECIPIENT: DataKey = DataKey::ProtocolFeeRecipient;
 
+        pub fn creator_fee_balance(creator: &Address) -> DataKey {
+            DataKey::CreatorFeeBalance(creator.clone())
+        }
+
         pub fn creator(creator: &Address) -> DataKey {
             creator_key(creator)
         }
@@ -235,6 +239,7 @@ pub mod constants {
         pub const FEE_BPS: &str = "get_creator_fee_bps";
         pub const FEE_CONFIG: &str = "get_creator_fee_config";
         pub const FEE_RECIPIENT: &str = "get_creator_fee_recipient";
+        pub const FEE_RECIPIENT_BALANCE: &str = "get_creator_fee_balance";
         pub const HOLDER_KEY_COUNT: &str = "get_holder_key_count";
         pub const PROFILE: &str = "get_creator";
         pub const SUPPLY: &str = "get_creator_supply";
@@ -337,6 +342,7 @@ pub enum DataKey {
     TreasuryAddress,
     AdminAddress,
     ProtocolFeeRecipient,
+    CreatorFeeBalance(Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -397,6 +403,28 @@ pub fn read_creator_handle(env: &Env, creator: &Address) -> String {
     read_creator_profile(env, creator)
         .map(|p| p.handle)
         .unwrap_or_else(|| read_none_string(env))
+}
+
+/// Reads accrued creator fee balance for a creator, returning `0` when none is stored.
+pub fn read_creator_fee_recipient_balance(env: &Env, creator: &Address) -> i128 {
+    let key = constants::storage::creator_fee_balance(creator);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Credits `amount` to the creator fee recipient balance for `creator`.
+fn credit_creator_fee_recipient_balance(
+    env: &Env,
+    creator: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let key = constants::storage::creator_fee_balance(creator);
+    let current = read_creator_fee_recipient_balance(env, creator);
+    let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&key, &updated);
+    Ok(())
 }
 
 fn is_valid_handle_byte(byte: u8) -> bool {
@@ -638,6 +666,13 @@ impl CreatorKeysContract {
         // Balance key is scoped by (creator, holder) so creator positions cannot collide.
         env.storage().persistent().set(&balance_key, &new_balance);
 
+        if let Some(config) = read_protocol_fee_config(&env) {
+            let (creator_fee, _) =
+                fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
+                    .ok_or(ContractError::Overflow)?;
+            credit_creator_fee_recipient_balance(&env, &creator, creator_fee)?;
+        }
+
         env.events().publish(
             events::buy_event_topics(&creator, &buyer),
             (profile.supply, payment),
@@ -818,6 +853,15 @@ impl CreatorKeysContract {
     pub fn get_creator_fee_recipient(env: Env, creator: Address) -> Result<Address, ContractError> {
         let profile = read_registered_creator_profile(&env, &creator)?;
         Ok(profile.fee_recipient)
+    }
+
+    /// Read-only view: returns accrued creator fee balance for the creator's fee recipient.
+    ///
+    /// Fails with [`ContractError::NotRegistered`] if the creator is not registered.
+    /// Returns `0` when no buy has accrued fees yet.
+    pub fn get_creator_fee_balance(env: Env, creator: Address) -> Result<i128, ContractError> {
+        read_registered_creator_profile(&env, &creator)?;
+        Ok(read_creator_fee_recipient_balance(&env, &creator))
     }
 
     /// Read-only view: returns the configured creator fee rate in basis points.

@@ -257,6 +257,16 @@ Returns the fee recipient address for `creator` (defaults to the creator's own a
 
 ---
 
+### `get_creator_fee_balance(creator: Address) → Result<i128, ContractError>`
+
+Returns accrued creator fee balance for the creator's fee recipient after buy executions.
+
+- Returns `0` when no buy has accrued fees yet.
+- Returns `Err(ContractError::NotRegistered)` for unregistered creators.
+- Amount unit matches key price and quote fee fields (raw `i128`).
+
+---
+
 ### `is_protocol_config_initialized(env: Env) → bool`
 
 Returns `true` if a protocol fee configuration has been stored; `false` otherwise.
