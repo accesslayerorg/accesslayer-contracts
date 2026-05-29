@@ -9,6 +9,7 @@ use contract_test_env::{
     compute_expected_balance_after_trades, register_creator_keys, register_test_creator,
     set_key_price_for_tests, test_env_with_auths, TradeOperation,
 };
+use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Address;
 
 #[test]
