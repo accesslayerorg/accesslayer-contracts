@@ -436,7 +436,10 @@ fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
 /// is the all-zero public key. Setting it as a fee recipient would silently
 /// burn all protocol fees. This helper rejects it at the point of assignment.
 fn validate_non_zero_address(env: &Env, addr: &Address) -> Result<(), ContractError> {
-    let zero_str = String::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
+    let zero_str = String::from_str(
+        env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    );
     let zero_addr = Address::from_string(&zero_str);
     if *addr == zero_addr {
         return Err(ContractError::ZeroAddress);
@@ -1520,8 +1523,10 @@ mod tests {
     fn test_validate_non_zero_address_rejects_zero() {
         use soroban_sdk::{Address, Env, String};
         let env = Env::default();
-        let zero_str =
-            String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
+        let zero_str = String::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
         let zero_addr = Address::from_string(&zero_str);
         let result = super::validate_non_zero_address(&env, &zero_addr);
         assert_eq!(result, Err(super::ContractError::ZeroAddress));

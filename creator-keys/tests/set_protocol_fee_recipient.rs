@@ -16,8 +16,10 @@ fn test_set_protocol_fee_recipient_rejects_zero_address() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
-    let zero_str =
-        String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF");
+    let zero_str = String::from_str(
+        &env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    );
     let zero_addr = Address::from_string(&zero_str);
 
     let result = client.try_set_protocol_fee_recipient(&admin, &zero_addr);
