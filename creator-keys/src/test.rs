@@ -191,6 +191,7 @@ fn test_duplicate_registration_fails() {
     // Second registration should fail with AlreadyRegistered error
     let result = client.try_register_creator(&creator, &handle);
     assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -208,6 +209,7 @@ fn test_buy_key_fails_if_not_registered() {
 
     let result = client.try_buy_key(&creator, &buyer, &100);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -291,6 +293,7 @@ fn test_buy_key_insufficient_payment() {
     let buyer = Address::generate(&env);
     let result = client.try_buy_key(&creator, &buyer, &99);
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -303,9 +306,11 @@ fn test_set_key_price_invalid_amount() {
     let admin = Address::generate(&env);
     let result = client.try_set_key_price(&admin, &0);
     assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
+    assert_no_events(&env);
 
     let result = client.try_set_key_price(&admin, &-1);
     assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -841,5 +846,21 @@ fn test_register_event_fee_adjacent_fields_are_zero_and_ordered_after_identity_f
     assert_eq!(
         numeric_fields,
         &["supply", "holder_count", "creator_bps", "protocol_bps"]
+    );
+}
+
+/// Asserts that no events were emitted during the most recent contract call.
+///
+/// In the Soroban test environment, `env.events().all()` returns events from
+/// the most recent top-level invocation only. This helper confirms that the
+/// event log for the last call is empty, typically used to verify that failed
+/// transactions did not leave side-effect artifacts in the event stream.
+fn assert_no_events(env: &Env) {
+    let all_events = env.events().all();
+    assert_eq!(
+        all_events.len(),
+        0,
+        "Expected no events to be emitted, but found: {:?}",
+        all_events
     );
 }
