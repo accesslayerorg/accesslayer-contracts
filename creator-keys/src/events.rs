@@ -41,8 +41,14 @@ pub const REGISTER_EVENT_DATA_FIELDS: [&str; 6] = [
     "protocol_bps",
 ];
 
+/// Number of fields in the registration event data payload.
+pub const REGISTER_EVENT_FIELD_COUNT: usize = REGISTER_EVENT_DATA_FIELDS.len();
+
 /// Stable field order for buy event tuple payloads.
 pub const BUY_EVENT_DATA_FIELDS: [&str; 2] = ["supply", "payment"];
+
+/// Number of fields in the buy event data payload.
+pub const BUY_EVENT_FIELD_COUNT: usize = BUY_EVENT_DATA_FIELDS.len();
 
 /// Stable registration event payload for downstream indexers.
 ///

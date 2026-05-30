@@ -101,6 +101,18 @@ fn assert_event_topic_matches(env: &Env, event: &(Address, Vec<Val>, Val), expec
     );
 }
 
+fn assert_event_field_count(event: &(Address, Vec<Val>, Val), env: &Env, expected: usize) {
+    let data_vec: Vec<Val> = event.2.clone().into_val(env);
+    assert_eq!(
+        data_vec.len(),
+        expected,
+        "expected event to have {} fields, got {}: {:?}",
+        expected,
+        data_vec.len(),
+        data_vec
+    );
+}
+
 #[test]
 fn test_register_creator_emits_event() {
     let env = Env::default();
@@ -142,6 +154,9 @@ fn test_register_creator_event_data_is_indexer_friendly() {
     assert_eq!(payload.holder_count, 0);
     assert_eq!(payload.creator_bps, 0);
     assert_eq!(payload.protocol_bps, 0);
+
+    // Ensure the event contains exactly the documented number of fields.
+    assert_event_field_count(last, &env, creator_keys::events::REGISTER_EVENT_FIELD_COUNT);
 }
 
 #[test]
@@ -205,6 +220,11 @@ fn test_buy_key_event_payload_fields_are_validated_from_fixture() {
     assert_eq!(topics.actor, buyer);
     assert_eq!(payload.supply, 1);
     assert_eq!(payload.payment, 150);
+
+    // Ensure the buy event contains exactly the documented number of fields.
+    let all_events = env.events().all();
+    let last_event = all_events.last().unwrap();
+    assert_event_field_count(last_event, &env, creator_keys::events::BUY_EVENT_FIELD_COUNT);
 }
 
 #[test]
