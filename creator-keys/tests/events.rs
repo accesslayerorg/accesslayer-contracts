@@ -104,7 +104,7 @@ fn assert_event_topic_matches(env: &Env, event: &(Address, Vec<Val>, Val), expec
 fn assert_event_field_count(event: &(Address, Vec<Val>, Val), env: &Env, expected: usize) {
     let data_vec: Vec<Val> = event.2.clone().into_val(env);
     assert_eq!(
-        data_vec.len(),
+        data_vec.len() as usize,
         expected,
         "expected event to have {} fields, got {}: {:?}",
         expected,
