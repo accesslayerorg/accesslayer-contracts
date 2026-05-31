@@ -6,9 +6,10 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
+    capture_snapshot, register_creator_keys, register_test_creator, set_key_price_for_tests,
+    test_env_with_auths,
 };
-use creator_keys::ContractError;
+use creator_keys::{constants, ContractError};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn setup(env: &Env, price: i128) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
@@ -69,6 +70,33 @@ fn test_sell_second_key_after_selling_last_returns_insufficient_balance() {
 }
 
 // ── Normal sell path uses SellUnderflow only for arithmetic underflow ─────
+
+#[test]
+fn test_sell_registered_zero_supply_creator_returns_sell_underflow_without_state_change() {
+    let env = test_env_with_auths();
+    let (client, contract_id) = register_creator_keys(&env);
+    set_key_price_for_tests(&env, &client, 100);
+    let creator = register_test_creator(&env, &client, "alice");
+    let seller = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        let balance_key = constants::storage::key_balance(&creator, &seller);
+        env.storage().persistent().set(&balance_key, &1_u32);
+    });
+
+    let before = capture_snapshot(&client, &creator, &seller);
+    assert_eq!(before.supply, 0, "setup: creator supply must be zero");
+    assert_eq!(
+        before.key_balance, 1,
+        "setup: seller balance must be nonzero"
+    );
+
+    let result = client.try_sell_key(&creator, &seller);
+
+    assert_eq!(result, Err(Ok(ContractError::SellUnderflow)));
+    let after = capture_snapshot(&client, &creator, &seller);
+    before.assert_unchanged(&after);
+}
 
 #[test]
 fn test_sell_after_buy_succeeds_without_underflow_error() {
