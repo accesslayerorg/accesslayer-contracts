@@ -22,7 +22,7 @@ fn test_register_creator_minimum_handle_length_success() {
 
     // State assertion: after a successful call, storage and derived views match expectations
     assert!(client.is_creator_registered(&creator));
-    let profile = client.get_creator(&creator).unwrap();
+    let profile = client.get_creator(&creator);
     assert_eq!(profile.handle, handle);
 }
 
