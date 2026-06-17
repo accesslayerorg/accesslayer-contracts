@@ -6,7 +6,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_stored_key_price, test_env_with_auths,
+    register_creator_keys, register_test_creator, set_stored_key_price, stroops_to_display_units,
+    test_env_with_auths,
 };
 use creator_keys::CreatorKeysContractClient;
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -60,6 +61,7 @@ fn test_buy_quote_with_large_amount_succeeds() {
 
     let q = client.get_buy_quote(&creator);
     assert_eq!(q.price, large_price);
+    assert_eq!(stroops_to_display_units(q.price), 50_000);
 }
 
 #[test]
@@ -90,6 +92,7 @@ fn test_sell_quote_with_large_amount_succeeds() {
 
     let q = client.get_sell_quote(&creator, &holder);
     assert_eq!(q.price, large_price);
+    assert_eq!(stroops_to_display_units(q.price), 50_000);
 }
 
 #[test]

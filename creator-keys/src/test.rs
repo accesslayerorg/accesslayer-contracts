@@ -15,6 +15,7 @@ fn test_read_key_balance_returns_registered_creator_supply() {
         supply: 7,
         holder_count: 3,
         fee_recipient: creator.clone(),
+        registered_at: 0,
     };
 
     let supply = env.as_contract(&contract_id, || {
@@ -191,6 +192,7 @@ fn test_duplicate_registration_fails() {
     // Second registration should fail with AlreadyRegistered error
     let result = client.try_register_creator(&creator, &handle, &None);
     assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -208,6 +210,7 @@ fn test_buy_key_fails_if_not_registered() {
 
     let result = client.try_buy_key(&creator, &buyer, &100);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -291,6 +294,7 @@ fn test_buy_key_insufficient_payment() {
     let buyer = Address::generate(&env);
     let result = client.try_buy_key(&creator, &buyer, &99);
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -303,9 +307,11 @@ fn test_set_key_price_invalid_amount() {
     let admin = Address::generate(&env);
     let result = client.try_set_key_price(&admin, &0);
     assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
+    assert_no_events(&env);
 
     let result = client.try_set_key_price(&admin, &-1);
     assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
+    assert_no_events(&env);
 }
 
 #[test]
@@ -417,6 +423,27 @@ fn test_get_treasury_address_persists_across_reads() {
     let second_read = client.get_treasury_address();
     assert_eq!(first_read, second_read);
     assert_eq!(first_read, Some(treasury));
+}
+
+#[test]
+fn test_get_treasury_address_returns_updated_value_after_admin_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury_old = Address::generate(&env);
+    let treasury_new = Address::generate(&env);
+
+    client.set_treasury_address(&admin, &treasury_old);
+    assert_eq!(client.get_treasury_address(), Some(treasury_old.clone()));
+
+    client.set_treasury_address(&admin, &treasury_new);
+    let result = client.get_treasury_address();
+
+    assert_eq!(result, Some(treasury_new));
+    assert_ne!(result, Some(treasury_old));
 }
 
 #[test]
@@ -820,5 +847,21 @@ fn test_register_event_fee_adjacent_fields_are_zero_and_ordered_after_identity_f
     assert_eq!(
         numeric_fields,
         &["supply", "holder_count", "creator_bps", "protocol_bps"]
+    );
+}
+
+/// Asserts that no events were emitted during the most recent contract call.
+///
+/// In the Soroban test environment, `env.events().all()` returns events from
+/// the most recent top-level invocation only. This helper confirms that the
+/// event log for the last call is empty, typically used to verify that failed
+/// transactions did not leave side-effect artifacts in the event stream.
+fn assert_no_events(env: &Env) {
+    let all_events = env.events().all();
+    assert_eq!(
+        all_events.len(),
+        0,
+        "Expected no events to be emitted, but found: {:?}",
+        all_events
     );
 }

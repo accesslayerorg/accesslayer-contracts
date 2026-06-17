@@ -69,3 +69,35 @@ fn test_get_protocol_fee_view_updates_after_reconfiguration() {
     assert_eq!(v2.protocol_bps, 2000);
     assert_eq!(v2.creator_bps, 8000);
 }
+
+#[test]
+fn test_protocol_fee_bps_multiple_sequential_updates() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+
+    // First update
+    client.set_fee_config(&admin, &9000u32, &1000u32);
+    let v1 = client.get_protocol_fee_view();
+    assert_eq!(v1.protocol_bps, 1000);
+
+    // Second update
+    client.set_fee_config(&admin, &7500u32, &2500u32);
+    let v2 = client.get_protocol_fee_view();
+    assert_eq!(v2.protocol_bps, 2500);
+    assert_ne!(v2.protocol_bps, v1.protocol_bps);
+
+    // Third update
+    client.set_fee_config(&admin, &6000u32, &4000u32);
+    let v3 = client.get_protocol_fee_view();
+    assert_eq!(v3.protocol_bps, 4000);
+    assert_ne!(v3.protocol_bps, v2.protocol_bps);
+    assert_ne!(v3.protocol_bps, v1.protocol_bps);
+
+    // Verify earlier values are not returned
+    assert_ne!(v3.protocol_bps, 1000);
+    assert_ne!(v3.protocol_bps, 2500);
+}

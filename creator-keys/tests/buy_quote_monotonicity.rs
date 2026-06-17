@@ -8,7 +8,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
+    perform_incrementing_buys, register_creator_keys, register_test_creator, set_pricing_and_fees,
+    test_env_with_auths,
 };
 use creator_keys::CreatorKeysContractClient;
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -18,18 +19,6 @@ fn setup_with_fees<'a>(env: &'a Env, price: i128) -> (CreatorKeysContractClient<
     set_pricing_and_fees(env, &client, price, 9000, 1000);
     let creator = register_test_creator(env, &client, "alice");
     (client, creator)
-}
-
-fn buy_n(
-    client: &CreatorKeysContractClient<'_>,
-    creator: &Address,
-    buyer: &Address,
-    n: u32,
-    price: i128,
-) {
-    for _ in 0..n {
-        client.buy_key(creator, buyer, &price);
-    }
 }
 
 // ── Monotonicity: fixed price means each quote is identical ───────────��───
@@ -70,9 +59,11 @@ fn test_buy_quote_price_unchanged_after_five_buys() {
     let buyer = Address::generate(&env);
 
     let before = client.get_buy_quote(&creator);
-    buy_n(&client, &creator, &buyer, 5, 500);
+    let state = perform_incrementing_buys(&client, &creator, &buyer, 5, 500, 1);
     let after = client.get_buy_quote(&creator);
 
+    assert_eq!(state.supply, 5);
+    assert_eq!(state.key_balance, 5);
     assert_eq!(before.price, after.price, "price must be deterministic");
     assert_eq!(before.total_amount, after.total_amount);
 }
@@ -103,9 +94,11 @@ fn test_buy_quote_total_amount_ordering_is_deterministic_small_range() {
     let buyer = Address::generate(&env);
 
     let q_start = client.get_buy_quote(&creator);
-    buy_n(&client, &creator, &buyer, 3, 1_000);
+    let state = perform_incrementing_buys(&client, &creator, &buyer, 3, 1_000, 1);
     let q_after = client.get_buy_quote(&creator);
 
+    assert_eq!(state.supply, 3);
+    assert_eq!(state.key_balance, 3);
     // Fixed price: total_amount should be unchanged.
     assert_eq!(q_start.total_amount, q_after.total_amount);
     // Fees must be non-negative.
@@ -119,9 +112,11 @@ fn test_buy_quote_fees_sum_to_total_minus_price() {
     let (client, creator) = setup_with_fees(&env, 1_000);
     let buyer = Address::generate(&env);
 
-    buy_n(&client, &creator, &buyer, 2, 1_000);
+    let state = perform_incrementing_buys(&client, &creator, &buyer, 2, 1_000, 1);
     let q = client.get_buy_quote(&creator);
 
+    assert_eq!(state.supply, 2);
+    assert_eq!(state.key_balance, 2);
     // total_amount = price + creator_fee + protocol_fee for a buy quote
     assert_eq!(
         q.total_amount,
@@ -165,8 +160,10 @@ fn test_buy_quote_total_amount_never_below_price() {
     let (client, creator) = setup_with_fees(&env, 10_000);
     let buyer = Address::generate(&env);
 
-    buy_n(&client, &creator, &buyer, 10, 10_000);
+    let state = perform_incrementing_buys(&client, &creator, &buyer, 10, 10_000, 1);
 
+    assert_eq!(state.supply, 10);
+    assert_eq!(state.key_balance, 10);
     let q = client.get_buy_quote(&creator);
     assert!(
         q.total_amount >= q.price,

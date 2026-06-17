@@ -47,13 +47,9 @@ The following table summarizes the events currently implemented in the `creator-
 
 | Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
 | :--- | :--- | :--- | :--- |
-| `register` | `(Symbol("register"), creator)` | `creator`, `handle`, `supply`, `holder_count` | `struct CreatorRegisteredEvent` |
+| `register` | `(Symbol("register"), creator)` | `creator`, `handle`, `supply`, `holder_count`, `creator_bps`, `protocol_bps` | `struct CreatorRegisteredEvent` |
 | `buy` | `(Symbol("buy"), creator, buyer)` | `supply`, `payment` | `tuple (u32, i128)` |
+| `sell` | `(Symbol("sell"), creator, seller)` | `supply` | `tuple (u32)` |
 
-## Deviations and Exceptions
-
-### Unimplemented Events
-- **`sell_key`**: Currently, the `sell_key` operation does not emit an event. This is a known deviation from the pattern where every state-mutating operation should emit an event. Indexers tracking supply or holder changes must currently rely on state snapshots or future contract updates that introduce this event.
-
-### Data Type Inconsistency
-While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
+## Data Type Inconsistency
+While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.

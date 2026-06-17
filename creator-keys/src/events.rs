@@ -14,6 +14,11 @@
 //!
 //! This approach ensures that indexers can reliably parse event data across
 //! different contract versions.
+//!
+//! ### Quote-Related Event Field Semantics
+//!
+//! - `supply`: Number of keys in circulation after the trade (for buy/sell events)
+//! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
 use soroban_sdk::{contracttype, symbol_short, Address, String, Symbol};
 
@@ -22,6 +27,9 @@ pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
 
 /// Event name for key purchase.
 pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
+
+/// Event name for key sale.
+pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
 
 /// Common topic indexes for event tuple topics.
 pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
@@ -38,8 +46,20 @@ pub const REGISTER_EVENT_DATA_FIELDS: [&str; 6] = [
     "protocol_bps",
 ];
 
+/// Number of fields in the registration event data payload.
+pub const REGISTER_EVENT_FIELD_COUNT: usize = REGISTER_EVENT_DATA_FIELDS.len();
+
 /// Stable field order for buy event tuple payloads.
 pub const BUY_EVENT_DATA_FIELDS: [&str; 2] = ["supply", "payment"];
+
+/// Number of fields in the buy event data payload.
+pub const BUY_EVENT_FIELD_COUNT: usize = BUY_EVENT_DATA_FIELDS.len();
+
+/// Stable field order for sell event tuple payloads.
+pub const SELL_EVENT_DATA_FIELDS: [&str; 1] = ["supply"];
+
+/// Number of fields in the sell event data payload.
+pub const SELL_EVENT_FIELD_COUNT: usize = SELL_EVENT_DATA_FIELDS.len();
 
 /// Stable registration event payload for downstream indexers.
 ///

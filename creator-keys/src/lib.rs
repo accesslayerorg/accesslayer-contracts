@@ -8,6 +8,44 @@ pub mod events;
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
+/// Contract error variants.
+///
+/// # Stability and Ordering
+///
+/// **IMPORTANT**: New error variants MUST be appended to the end of this enum and NEVER
+/// inserted mid-enum. The numeric discriminant values are part of the contract's ABI and
+/// are exposed to clients, indexers, and monitoring tools.
+///
+/// ## Consequences of Reordering
+///
+/// If a variant is inserted mid-enum or existing variants are reordered:
+/// - Existing clients that match on numeric error codes will break
+/// - Indexers and monitoring tools will misinterpret error types
+/// - Historical error logs will become inconsistent with current definitions
+/// - Contract upgrades will introduce silent behavioral changes
+///
+/// ## Safe Extension Pattern
+///
+/// ✅ **Correct**: Append new variants at the end
+/// ```rust,ignore
+/// pub enum ContractError {
+///     AlreadyRegistered = 1,
+///     NotRegistered = 2,
+///     // ... existing variants ...
+///     InvalidHandleCharacter = 14,
+///     NewError = 15,  // ✅ Safe: appended at end
+/// }
+/// ```
+///
+/// ❌ **Incorrect**: Insert mid-enum
+/// ```rust,ignore
+/// pub enum ContractError {
+///     AlreadyRegistered = 1,
+///     NewError = 2,  // ❌ BREAKS ABI: shifts all subsequent variants
+///     NotRegistered = 3,  // was 2, now 3 - breaks existing clients
+///     // ...
+/// }
+/// ```
 pub enum ContractError {
     AlreadyRegistered = 1,
     NotRegistered = 2,
@@ -23,8 +61,7 @@ pub enum ContractError {
     HandleTooShort = 12,
     HandleTooLong = 13,
     InvalidHandleCharacter = 14,
-    SupplyCapExceeded = 15,
-    InvalidMaxSupply = 16,
+    ZeroAddress = 15,
 }
 
 pub mod fee {
@@ -175,6 +212,12 @@ pub mod constants {
         pub const TREASURY_ADDRESS: DataKey = DataKey::TreasuryAddress;
         pub const ADMIN_ADDRESS: DataKey = DataKey::AdminAddress;
         pub const PROTOCOL_FEE_RECIPIENT: DataKey = DataKey::ProtocolFeeRecipient;
+        pub const PROTOCOL_FEE_RECIPIENT_BALANCE: DataKey = DataKey::ProtocolFeeRecipientBalance;
+        pub const PROTOCOL_STATE_VERSION: DataKey = DataKey::ProtocolStateVersion;
+
+        pub fn creator_fee_balance(creator: &Address) -> DataKey {
+            DataKey::CreatorFeeBalance(creator.clone())
+        }
 
         pub fn creator(creator: &Address) -> DataKey {
             creator_key(creator)
@@ -202,6 +245,7 @@ pub mod constants {
         pub const FEE_BPS: &str = "get_creator_fee_bps";
         pub const FEE_CONFIG: &str = "get_creator_fee_config";
         pub const FEE_RECIPIENT: &str = "get_creator_fee_recipient";
+        pub const FEE_RECIPIENT_BALANCE: &str = "get_creator_fee_balance";
         pub const HOLDER_KEY_COUNT: &str = "get_holder_key_count";
         pub const PROFILE: &str = "get_creator";
         pub const SUPPLY: &str = "get_creator_supply";
@@ -225,8 +269,16 @@ pub struct ProtocolFeeView {
 
 /// Stable, non-optional view of creator details.
 ///
-/// Returned by [`CreatorKeysContract::get_creator_details`] for indexer-friendly consumption.
-/// When `is_registered` is `false`, default values are returned for other fields.
+/// Returned by [`CreatorKeysContract::get_creator_details`] and
+/// [`CreatorKeysContract::get_creators_batch`] for indexer-friendly consumption.
+/// When `is_registered` is `false`, default values are returned for all other fields,
+/// including `registered_at: 0`.
+///
+/// # Field Stability
+///
+/// Fields are append-only. Do not reorder existing fields; the Soroban XDR encoder
+/// serialises struct fields in declaration order and downstream indexers rely on
+/// positional stability.
 #[derive(Clone)]
 #[contracttype]
 pub struct CreatorDetailsView {
@@ -234,6 +286,13 @@ pub struct CreatorDetailsView {
     pub handle: String,
     pub supply: u32,
     pub is_registered: bool,
+    /// Ledger sequence number at the time the creator registered.
+    ///
+    /// Set to `env.ledger().sequence()` inside [`CreatorKeysContract::register_creator`].
+    /// Returns `0` for unregistered addresses so callers never receive an `Option`.
+    /// Clients can use this field to sort a marketplace grid chronologically without
+    /// maintaining a separate off-chain index.
+    pub registered_at: u32,
 }
 /// Stable, non-optional view of a creator's fee configuration.
 ///
@@ -278,10 +337,11 @@ pub struct QuoteResponse {
 /// Shared result type for read-only quote methods.
 pub type QuoteViewResult = Result<QuoteResponse, ContractError>;
 
-/// Stable protocol state version for read-only consumers.
+/// Initial protocol state version for read-only consumers.
 ///
-/// Bump this value only when externally consumed protocol state semantics change.
-pub const PROTOCOL_STATE_VERSION: u32 = 1;
+/// The actual version is stored in storage and incremented on config updates.
+/// This constant is only the starting value.
+pub const PROTOCOL_STATE_VERSION_INITIAL: u32 = 1;
 
 /// Decimal precision used by creator key values.
 ///
@@ -304,7 +364,9 @@ pub enum DataKey {
     TreasuryAddress,
     AdminAddress,
     ProtocolFeeRecipient,
-    MaxSupply(Address),
+    ProtocolFeeRecipientBalance,
+    CreatorFeeBalance(Address),
+    ProtocolStateVersion,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -315,6 +377,12 @@ pub struct CreatorProfile {
     pub supply: u32,
     pub holder_count: u32,
     pub fee_recipient: Address,
+    /// Ledger sequence number captured at registration time via `env.ledger().sequence()`.
+    ///
+    /// Stored as the last field so existing serialised profiles written before this
+    /// field was added deserialise correctly — the Soroban persistent storage layer
+    /// reads structs by field index, so appending is the only safe extension pattern.
+    pub registered_at: u32,
 }
 
 /// Reads a creator profile from storage, returning `None` for unregistered creators.
@@ -367,6 +435,28 @@ pub fn read_creator_handle(env: &Env, creator: &Address) -> String {
         .unwrap_or_else(|| read_none_string(env))
 }
 
+/// Reads accrued creator fee balance for a creator, returning `0` when none is stored.
+pub fn read_creator_fee_recipient_balance(env: &Env, creator: &Address) -> i128 {
+    let key = constants::storage::creator_fee_balance(creator);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Credits `amount` to the creator fee recipient balance for `creator`.
+fn credit_creator_fee_recipient_balance(
+    env: &Env,
+    creator: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let key = constants::storage::creator_fee_balance(creator);
+    let current = read_creator_fee_recipient_balance(env, creator);
+    let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&key, &updated);
+    Ok(())
+}
+
 fn is_valid_handle_byte(byte: u8) -> bool {
     byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
 }
@@ -398,8 +488,72 @@ fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
         .get(&constants::storage::FEE_CONFIG)
 }
 
+/// Validates that an address is not the Stellar zero address.
+///
+/// The zero address (`GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`)
+/// is the all-zero public key. Setting it as a fee recipient would silently
+/// burn all protocol fees. This helper rejects it at the point of assignment.
+fn validate_non_zero_address(env: &Env, addr: &Address) -> Result<(), ContractError> {
+    let zero_str = String::from_str(
+        env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    );
+    let zero_addr = Address::from_string(&zero_str);
+    if *addr == zero_addr {
+        return Err(ContractError::ZeroAddress);
+    }
+    Ok(())
+}
+
 fn read_required_protocol_fee_config(env: &Env) -> Result<fee::FeeConfig, ContractError> {
     read_protocol_fee_config(env).ok_or(ContractError::FeeConfigNotSet)
+}
+
+fn read_protocol_fee_recipient_balance(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::PROTOCOL_FEE_RECIPIENT_BALANCE)
+        .unwrap_or(0)
+}
+
+fn credit_protocol_fee_recipient_balance(env: &Env, amount: i128) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let updated = read_protocol_fee_recipient_balance(env)
+        .checked_add(amount)
+        .ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(
+        &constants::storage::PROTOCOL_FEE_RECIPIENT_BALANCE,
+        &updated,
+    );
+    Ok(())
+}
+
+fn accrue_sell_protocol_fee(env: &Env) -> Result<(), ContractError> {
+    if env
+        .storage()
+        .persistent()
+        .get::<DataKey, Address>(&constants::storage::PROTOCOL_FEE_RECIPIENT)
+        .is_none()
+    {
+        return Ok(());
+    }
+
+    let Some(price) = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::KEY_PRICE)
+    else {
+        return Ok(());
+    };
+
+    if read_protocol_fee_config(env).is_none() {
+        return Ok(());
+    }
+
+    let (_, protocol_fee) = CreatorKeysContract::compute_fees_for_payment(env.clone(), price)?;
+    credit_protocol_fee_recipient_balance(env, protocol_fee)
 }
 
 /// Resolves and validates the shared inputs required by read-only quote methods.
@@ -480,6 +634,18 @@ pub struct CreatorKeysContract;
 
 #[contractimpl]
 impl CreatorKeysContract {
+    /// Registers a new creator profile. This is a contract initialization
+    /// entrypoint; the contract has no single `initialize` call, so the
+    /// init-time parameter validation lives on the individual setters.
+    ///
+    /// Parameter validation:
+    /// - `creator`: must authorize the call (`require_auth`). A profile must not
+    ///   already exist for this address, otherwise
+    ///   [`ContractError::AlreadyRegistered`].
+    /// - `handle`: validated by [`validate_creator_handle`] — below the minimum
+    ///   length returns [`ContractError::HandleTooShort`], above the maximum
+    ///   returns [`ContractError::HandleTooLong`], and any disallowed byte
+    ///   returns [`ContractError::InvalidHandleCharacter`].
     pub fn register_creator(
         env: Env,
         creator: Address,
@@ -509,6 +675,7 @@ impl CreatorKeysContract {
             supply: 0,
             holder_count: 0,
             fee_recipient: creator.clone(),
+            registered_at: env.ledger().sequence(),
         };
 
         let fee_config = read_protocol_fee_config(&env).unwrap_or(fee::FeeConfig {
@@ -603,6 +770,14 @@ impl CreatorKeysContract {
         // Balance key is scoped by (creator, holder) so creator positions cannot collide.
         env.storage().persistent().set(&balance_key, &new_balance);
 
+        if let Some(config) = read_protocol_fee_config(&env) {
+            let (creator_fee, protocol_fee) =
+                fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
+                    .ok_or(ContractError::Overflow)?;
+            credit_creator_fee_recipient_balance(&env, &creator, creator_fee)?;
+            credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+        }
+
         env.events().publish(
             events::buy_event_topics(&creator, &buyer),
             (profile.supply, payment),
@@ -643,6 +818,10 @@ impl CreatorKeysContract {
         // supply/holder_count invariants for subsequent reads.
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
+        accrue_sell_protocol_fee(&env)?;
+
+        env.events()
+            .publish((events::SELL_EVENT_NAME, creator, seller), profile.supply);
 
         Ok(profile.supply)
     }
@@ -684,7 +863,7 @@ impl CreatorKeysContract {
     ///
     /// Returns a [`CreatorDetailsView`] regardless of registration status.
     /// When the creator is not registered, `is_registered` is `false` and
-    /// default values are provided for other fields.
+    /// default values are provided for other fields, including `registered_at: 0`.
     pub fn get_creator_details(env: Env, creator: Address) -> CreatorDetailsView {
         let key = constants::storage::creator(&creator);
         match env
@@ -697,21 +876,77 @@ impl CreatorKeysContract {
                 handle: profile.handle,
                 supply: profile.supply,
                 is_registered: true,
+                registered_at: profile.registered_at,
             },
             None => CreatorDetailsView {
                 creator,
                 handle: read_none_string(&env),
                 supply: 0,
                 is_registered: false,
+                registered_at: 0,
             },
         }
+    }
+
+    /// Read-only batch view: returns [`CreatorDetailsView`] for each address in `creators`.
+    ///
+    /// Iterates the provided addresses in order and fetches each creator's profile
+    /// from persistent storage. The output `Vec` is the same length as the input and
+    /// preserves input order, so clients can zip the two slices without an extra sort.
+    ///
+    /// Unregistered addresses never cause the call to fail: they produce a default
+    /// [`CreatorDetailsView`] with `is_registered: false` and `registered_at: 0`,
+    /// matching the single-address behaviour of [`get_creator_details`].
+    ///
+    /// # Usage
+    ///
+    /// ```text
+    /// let views = client.get_creators_batch(&vec![alice, bob, unknown]);
+    /// // views[0] → alice's details (is_registered: true)
+    /// // views[1] → bob's details   (is_registered: true)
+    /// // views[2] → default view    (is_registered: false, registered_at: 0)
+    /// ```
+    pub fn get_creators_batch(
+        env: Env,
+        creators: soroban_sdk::Vec<Address>,
+    ) -> soroban_sdk::Vec<CreatorDetailsView> {
+        let mut results = soroban_sdk::Vec::new(&env);
+        for creator in creators.iter() {
+            let key = constants::storage::creator(&creator);
+            let view = match env
+                .storage()
+                .persistent()
+                .get::<DataKey, CreatorProfile>(&key)
+            {
+                Some(profile) => CreatorDetailsView {
+                    creator: profile.creator,
+                    handle: profile.handle,
+                    supply: profile.supply,
+                    is_registered: true,
+                    registered_at: profile.registered_at,
+                },
+                None => CreatorDetailsView {
+                    creator,
+                    handle: read_none_string(&env),
+                    supply: 0,
+                    is_registered: false,
+                    registered_at: 0,
+                },
+            };
+            results.push_back(view);
+        }
+        results
     }
     /// Read-only view: returns the protocol state version.
     ///
     /// Returns a stable scalar value for clients and indexers to detect
-    /// protocol-state schema/semantics revisions without mutating contract state.
-    pub fn get_protocol_state_version(_env: Env) -> u32 {
-        PROTOCOL_STATE_VERSION
+    /// protocol-state schema/semantics revisions. The version is stored in
+    /// storage and increments on config updates.
+    pub fn get_protocol_state_version(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_STATE_VERSION)
+            .unwrap_or(PROTOCOL_STATE_VERSION_INITIAL)
     }
 
     /// Read-only view: returns the decimal precision used by creator key values.
@@ -791,6 +1026,15 @@ impl CreatorKeysContract {
         Ok(profile.fee_recipient)
     }
 
+    /// Read-only view: returns accrued creator fee balance for the creator's fee recipient.
+    ///
+    /// Fails with [`ContractError::NotRegistered`] if the creator is not registered.
+    /// Returns `0` when no buy has accrued fees yet.
+    pub fn get_creator_fee_balance(env: Env, creator: Address) -> Result<i128, ContractError> {
+        read_registered_creator_profile(&env, &creator)?;
+        Ok(read_creator_fee_recipient_balance(&env, &creator))
+    }
+
     /// Read-only view: returns the configured creator fee rate in basis points.
     ///
     /// The returned value is the creator-facing share stored in the current protocol
@@ -819,6 +1063,15 @@ impl CreatorKeysContract {
         Ok(config.protocol_bps)
     }
 
+    /// Sets the global protocol/creator fee split. Contract initialization
+    /// entrypoint.
+    ///
+    /// Parameter validation (via [`fee::assert_valid_fee_bps`]):
+    /// - `admin`: must authorize the call (`require_auth`).
+    /// - `creator_bps` + `protocol_bps`: must sum to exactly `BPS_MAX` (10_000),
+    ///   otherwise [`ContractError::InvalidFeeConfig`].
+    /// - `protocol_bps`: must not exceed `PROTOCOL_BPS_MAX`, otherwise
+    ///   [`ContractError::ProtocolFeeExceedsCap`].
     pub fn set_fee_config(
         env: Env,
         admin: Address,
@@ -844,9 +1097,29 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .set(&constants::storage::FEE_CONFIG, &config);
+
+        // Increment protocol state version on config update
+        let current_version = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_STATE_VERSION)
+            .unwrap_or(PROTOCOL_STATE_VERSION_INITIAL);
+        let new_version = current_version
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_STATE_VERSION, &new_version);
+
         Ok(())
     }
 
+    /// Sets the per-key price. Contract initialization entrypoint.
+    ///
+    /// Parameter validation:
+    /// - `admin`: must authorize the call (`require_auth`).
+    /// - `price`: must be strictly positive; zero or negative returns
+    ///   [`ContractError::NotPositiveAmount`].
     pub fn set_key_price(env: Env, admin: Address, price: i128) -> Result<(), ContractError> {
         admin.require_auth();
         if price <= 0 {
@@ -942,6 +1215,45 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::PROTOCOL_FEE_RECIPIENT)
+    }
+
+    /// Read-only view: returns the accrued protocol fee balance for the configured recipient.
+    ///
+    /// Returns `0` when no protocol fees have been accrued from sell execution.
+    pub fn get_protocol_recipient_balance(env: Env) -> i128 {
+        read_protocol_fee_recipient_balance(&env)
+    }
+
+    /// Sets the protocol fee recipient address.
+    ///
+    /// Only callable by an authorized admin. Rejects the Stellar zero address
+    /// to prevent silent fee burning.
+    ///
+    /// Parameter validation:
+    /// - `admin`: must authorize the call (`require_auth`).
+    /// - `recipient`: must not be the Stellar zero address, otherwise
+    ///   [`ContractError::ZeroAddress`].
+    pub fn set_protocol_fee_recipient(
+        env: Env,
+        admin: Address,
+        recipient: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        validate_non_zero_address(&env, &recipient)?;
+
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, Address>(&constants::storage::PROTOCOL_FEE_RECIPIENT)
+            .as_ref()
+            == Some(&recipient)
+        {
+            return Ok(());
+        }
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &recipient);
+        Ok(())
     }
 
     /// Read-only view: returns whether protocol configuration has been initialized.
@@ -1189,6 +1501,26 @@ mod tests {
         assert_eq!(fee::checked_div_i128(i128::MIN, -1), None);
     }
 
+    /// Both operands at `i128::MAX / 2 + 1` must overflow.
+    ///
+    /// `(i128::MAX / 2 + 1) + (i128::MAX / 2 + 1) == i128::MAX + 1`, which
+    /// exceeds i128 capacity, so the helper must return `None` rather than wrap.
+    #[test]
+    fn test_checked_add_i128_both_at_half_max_plus_one_overflows() {
+        let half_plus_one = i128::MAX / 2 + 1;
+        assert_eq!(fee::checked_add_i128(half_plus_one, half_plus_one), None);
+    }
+
+    /// Both operands at `i128::MAX / 2` must not overflow.
+    ///
+    /// `(i128::MAX / 2) + (i128::MAX / 2) == i128::MAX - 1`, which fits in i128,
+    /// so the helper must return the correct sum just below the overflow boundary.
+    #[test]
+    fn test_checked_add_i128_both_at_half_max_succeeds() {
+        let half = i128::MAX / 2;
+        assert_eq!(fee::checked_add_i128(half, half), Some(half + half));
+    }
+
     #[test]
     fn test_normalize_quote_amount_preserves_positive_amount() {
         assert_eq!(super::normalize_quote_amount(100), Ok(Some(100)));
@@ -1361,6 +1693,88 @@ mod tests {
         assert_eq!(fee::checked_fee_sum(0, i128::MAX), Some(i128::MAX));
         // One above the boundary must overflow
         assert_eq!(fee::checked_fee_sum(i128::MAX, 1), None);
+    }
+
+    // --- BPS truncation on small amounts ---
+
+    /// Bps calculation on very small amounts produces zero due to integer division
+    /// truncation. These tests document the behavior at the lower precision boundary.
+    ///
+    /// Formula: `amount * bps / 10_000` (floor division).
+    /// When the product `amount * bps < 10_000`, the result truncates to zero.
+    #[test]
+    fn test_apply_percentage_fee_truncation_1_stroop() {
+        // 1 * 1000 / 10_000 = 0.1 → truncated to 0
+        // At 1 stroop with 10% bps, the fee is zero — value is silently lost.
+        let result = fee::apply_percentage_fee(1, 1000);
+        assert_eq!(result, Some(0), "1 stroop at 1000 bps truncates to 0");
+    }
+
+    #[test]
+    fn test_apply_percentage_fee_truncation_10_stroops() {
+        // 10 * 1000 / 10_000 = 1.0 → exactly 1
+        // At 10 stroops with 10% bps, the fee is exactly 1.
+        let result = fee::apply_percentage_fee(10, 1000);
+        assert_eq!(result, Some(1), "10 stroops at 1000 bps yields 1");
+    }
+
+    #[test]
+    fn test_apply_percentage_fee_truncation_100_stroops() {
+        // 100 * 1000 / 10_000 = 10.0 → exactly 10
+        let result = fee::apply_percentage_fee(100, 1000);
+        assert_eq!(result, Some(10), "100 stroops at 1000 bps yields 10");
+    }
+
+    #[test]
+    fn test_fee_split_truncation_1_stroop() {
+        // 1 * 1000 / 10_000 = 0 protocol, 1 creator (remainder to creator)
+        // Truncation causes the full amount to go to creator.
+        let (creator, protocol) = fee::compute_fee_split(1, 9000, 1000);
+        assert_eq!(protocol, 0, "1 stroop: protocol fee truncated to 0");
+        assert_eq!(creator, 1, "1 stroop: creator gets full amount");
+        assert_eq!(creator + protocol, 1, "conservation holds");
+    }
+
+    #[test]
+    fn test_fee_split_truncation_10_stroops() {
+        // 10 * 1000 / 10_000 = 1 protocol, 9 creator
+        let (creator, protocol) = fee::compute_fee_split(10, 9000, 1000);
+        assert_eq!(protocol, 1, "10 stroops: protocol fee is 1");
+        assert_eq!(creator, 9, "10 stroops: creator gets 9");
+        assert_eq!(creator + protocol, 10, "conservation holds");
+    }
+
+    #[test]
+    fn test_fee_split_truncation_100_stroops() {
+        // 100 * 1000 / 10_000 = 10 protocol, 90 creator
+        let (creator, protocol) = fee::compute_fee_split(100, 9000, 1000);
+        assert_eq!(protocol, 10, "100 stroops: protocol fee is 10");
+        assert_eq!(creator, 90, "100 stroops: creator gets 90");
+        assert_eq!(creator + protocol, 100, "conservation holds");
+    }
+
+    // --- Zero address validation ---
+
+    #[test]
+    fn test_validate_non_zero_address_rejects_zero() {
+        use soroban_sdk::{Address, Env, String};
+        let env = Env::default();
+        let zero_str = String::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
+        let zero_addr = Address::from_string(&zero_str);
+        let result = super::validate_non_zero_address(&env, &zero_addr);
+        assert_eq!(result, Err(super::ContractError::ZeroAddress));
+    }
+
+    #[test]
+    fn test_validate_non_zero_address_accepts_valid() {
+        use soroban_sdk::{testutils::Address as _, Address, Env};
+        let env = Env::default();
+        let valid = Address::generate(&env);
+        let result = super::validate_non_zero_address(&env, &valid);
+        assert_eq!(result, Ok(()));
     }
 }
 

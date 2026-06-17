@@ -89,6 +89,35 @@ fn test_sell_key_fails_when_seller_has_no_keys() {
 }
 
 #[test]
+fn test_sell_reverts_when_seller_has_insufficient_balance() {
+    let env = test_env_with_auths();
+    let (client, creator) = setup(&env);
+    let seller = Address::generate(&env);
+
+    // Seller buys 1 key.
+    client.buy_key(&creator, &seller, &100_i128);
+    assert_eq!(client.get_key_balance(&creator, &seller), 1);
+    assert_eq!(client.get_total_key_supply(&creator), 1);
+
+    // Seller sells their only key — this succeeds.
+    client.sell_key(&creator, &seller);
+    assert_eq!(client.get_key_balance(&creator, &seller), 0);
+    assert_eq!(client.get_total_key_supply(&creator), 0);
+
+    // Snapshot state before the failing sell.
+    let balance_before = client.get_key_balance(&creator, &seller);
+    let supply_before = client.get_total_key_supply(&creator);
+
+    // Seller attempts to sell again — should revert with InsufficientBalance.
+    let result = client.try_sell_key(&creator, &seller);
+    assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
+
+    // Holder balance and total supply must be unchanged.
+    assert_eq!(client.get_key_balance(&creator, &seller), balance_before);
+    assert_eq!(client.get_total_key_supply(&creator), supply_before);
+}
+
+#[test]
 fn test_sell_full_exit_then_rebuy_updates_state() {
     let env = test_env_with_auths();
     set_test_timestamp(&env, DEFAULT_TEST_TIMESTAMP);

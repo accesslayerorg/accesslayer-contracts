@@ -7,7 +7,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
+    compute_expected_sell_price, register_creator_keys, register_test_creator,
+    set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::fee;
 use creator_keys::CreatorKeysContractClient;
@@ -41,7 +42,12 @@ fn assert_sell_quote(
         .expect("payout sub");
 
     let q = client.get_sell_quote(creator, holder);
-    assert_eq!(q.price, key_price, "price");
+    let supply = client.get_creator_supply(creator);
+    assert_eq!(
+        q.price,
+        compute_expected_sell_price(supply, key_price),
+        "price"
+    );
     assert_eq!(q.creator_fee, exp_creator, "creator_fee");
     assert_eq!(q.protocol_fee, exp_protocol, "protocol_fee");
     assert_eq!(q.total_amount, exp_total, "total_amount (net to seller)");

@@ -78,3 +78,25 @@ fn test_get_protocol_admin_overwrite_returns_latest() {
     client.set_protocol_admin(&admin, &second_admin);
     assert_eq!(client.get_protocol_admin(), Some(second_admin));
 }
+
+#[test]
+fn test_protocol_admin_unchanged_after_fee_config_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let protocol_admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &protocol_admin);
+
+    let before = client.get_protocol_admin();
+    client.set_fee_config(&admin, &8000u32, &2000u32);
+    let after = client.get_protocol_admin();
+
+    assert_eq!(before, Some(protocol_admin));
+    assert_eq!(
+        after, before,
+        "fee config update must not overwrite protocol admin storage"
+    );
+}
