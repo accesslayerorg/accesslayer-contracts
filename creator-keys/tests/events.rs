@@ -42,7 +42,7 @@ impl<'a> EventFixture<'a> {
 
     fn register_creator(&self, env: &Env, handle: &str) {
         self.client
-            .register_creator(&self.creator, &String::from_str(env, handle));
+            .register_creator(&self.creator, &String::from_str(env, handle), &None);
     }
 
     fn buy_key(&self, buyer: &Address, payment: i128) {
@@ -204,7 +204,7 @@ fn test_register_creator_emits_event() {
     env.mock_all_auths();
     let fixture = EventFixture::new(&env);
 
-    fixture.register_creator(&env, "alice");
+    fixture.register_creator(&env, "alice", &None);
 
     let events = env.events().all();
     assert!(!events.is_empty(), "should emit at least one event");
@@ -227,7 +227,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
     let fixture = EventFixture::new(&env);
     let handle = String::from_str(&env, "alice");
 
-    fixture.client.register_creator(&fixture.creator, &handle);
+    fixture.client.register_creator(&fixture.creator, &handle, &None);
 
     let events = env.events().all();
     let last = events.last().unwrap();
@@ -267,7 +267,7 @@ fn test_register_creator_event_fires_once() {
     let fixture = EventFixture::new(&env);
 
     let before = env.events().all().len();
-    fixture.register_creator(&env, "bob");
+    fixture.register_creator(&env, "bob", &None);
     let after = env.events().all().len();
 
     assert_eq!(after - before, 1, "register should emit exactly one event");
@@ -280,7 +280,7 @@ fn test_assert_event_topic_matches_rejects_unexpected_identifier() {
     env.mock_all_auths();
     let fixture = EventFixture::new(&env);
 
-    fixture.register_creator(&env, "alice");
+    fixture.register_creator(&env, "alice", &None);
 
     let events = env.events().all();
     let last = events.last().unwrap();
@@ -295,7 +295,7 @@ fn test_buy_key_event_payload_fields_are_validated_from_fixture() {
     let fixture = EventFixture::new(&env);
     let buyer = Address::generate(&env);
 
-    fixture.register_creator(&env, "alice");
+    fixture.register_creator(&env, "alice", &None);
     fixture.buy_key(&buyer, 150);
 
     let topics = fixture.last_trade_topics(&env);
@@ -319,7 +319,7 @@ fn test_buy_key_event_payload_tracks_new_supply_across_purchases() {
     let buyer1 = Address::generate(&env);
     let buyer2 = Address::generate(&env);
 
-    fixture.register_creator(&env, "alice");
+    fixture.register_creator(&env, "alice", &None);
 
     fixture.buy_key(&buyer1, KEY_PRICE);
     let first_payload = fixture.last_buy_payload(&env);
@@ -344,7 +344,7 @@ fn test_buy_key_event_present_after_purchase() {
     let fixture = EventFixture::new(&env);
     let buyer = Address::generate(&env);
 
-    fixture.register_creator(&env, "alice");
+    fixture.register_creator(&env, "alice", &None);
     fixture.buy_key(&buyer, KEY_PRICE);
 
     let has_buy_event = env.events().all().iter().any(|(_, topics, _)| {
@@ -367,7 +367,7 @@ fn test_sell_key_event_payload_fields_are_validated_from_fixture() {
     let fixture = EventFixture::new(&env);
     let seller = Address::generate(&env);
 
-    fixture.register_creator(&env, "alice");
+    fixture.register_creator(&env, "alice", &None);
     fixture.buy_key(&seller, KEY_PRICE);
     fixture.buy_key(&seller, KEY_PRICE);
     fixture.sell_key(&seller);
@@ -388,7 +388,7 @@ fn test_sell_key_event_payload_tracks_zero_supply_after_last_sale() {
     let fixture = EventFixture::new(&env);
     let seller = Address::generate(&env);
 
-    fixture.register_creator(&env, "alice");
+    fixture.register_creator(&env, "alice", &None);
     fixture.buy_key(&seller, KEY_PRICE);
     fixture.sell_key(&seller);
 
