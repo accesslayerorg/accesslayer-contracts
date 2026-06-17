@@ -40,9 +40,14 @@ impl<'a> EventFixture<'a> {
         Self { client, creator }
     }
 
-    fn register_creator(&self, env: &Env, handle: &str) {
+    fn register_creator(
+        &self,
+        env: &Env,
+        handle: &str,
+        max_supply: &Option<u32>,
+    ) {
         self.client
-            .register_creator(&self.creator, &String::from_str(env, handle), &None);
+            .register_creator(&self.creator, &String::from_str(env, handle), max_supply);
     }
 
     fn buy_key(&self, buyer: &Address, payment: i128) {
