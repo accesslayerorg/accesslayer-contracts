@@ -38,7 +38,7 @@ fn test_register_creator_emits_event() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None);
 
     let events = env.events().all();
     assert!(!events.is_empty(), "should emit at least one event");
@@ -63,7 +63,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None);
 
     let events = env.events().all();
     let last = events.last().unwrap();
@@ -102,7 +102,7 @@ fn test_register_creator_event_fires_once() {
 
     // Count events before and after
     let before = env.events().all().len();
-    client.register_creator(&creator, &String::from_str(&env, "bob"));
+    client.register_creator(&creator, &String::from_str(&env, "bob"), &None);
     let after = env.events().all().len();
 
     assert_eq!(after - before, 1, "register should emit exactly one event");
@@ -116,7 +116,7 @@ fn test_assert_event_topic_matches_rejects_unexpected_identifier() {
     let (client, _) = setup(&env);
 
     let creator = Address::generate(&env);
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None);
 
     let events = env.events().all();
     let last = events.last().unwrap();
@@ -135,7 +135,7 @@ fn test_buy_key_emits_event_with_correct_topics() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None);
     client.buy_key(&creator, &buyer, &100_i128);
 
     let events = env.events().all();
@@ -167,7 +167,7 @@ fn test_buy_key_event_data_is_new_supply() {
     let buyer1 = Address::generate(&env);
     let buyer2 = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None);
 
     // First buy → supply = 1, payment = 100
     client.buy_key(&creator, &buyer1, &100_i128);
@@ -200,7 +200,7 @@ fn test_buy_key_event_present_after_purchase() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None);
     client.buy_key(&creator, &buyer, &100_i128);
 
     // Verify the buy event is present in the event log

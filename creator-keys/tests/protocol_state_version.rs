@@ -38,7 +38,7 @@ fn test_get_protocol_state_version_stable_after_state_changes() {
 
     client.set_fee_config(&admin, &9000u32, &1000u32);
     client.set_key_price(&admin, &100i128);
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None);
     client.buy_key(&creator, &buyer, &100i128);
     client.set_treasury_address(&admin, &Address::generate(&env));
 

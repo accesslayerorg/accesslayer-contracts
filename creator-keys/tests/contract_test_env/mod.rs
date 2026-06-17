@@ -81,7 +81,7 @@ pub fn register_test_creator(
     handle: &str,
 ) -> Address {
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle));
+    client.register_creator(&creator, &String::from_str(env, handle), &None);
     creator
 }
 

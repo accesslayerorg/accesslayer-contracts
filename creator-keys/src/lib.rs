@@ -23,6 +23,8 @@ pub enum ContractError {
     HandleTooShort = 12,
     HandleTooLong = 13,
     InvalidHandleCharacter = 14,
+    SupplyCapExceeded = 15,
+    InvalidMaxSupply = 16,
 }
 
 pub mod fee {
@@ -181,6 +183,10 @@ pub mod constants {
         pub fn key_balance(creator: &Address, holder: &Address) -> DataKey {
             key_balance_key(creator, holder)
         }
+
+        pub fn max_supply(creator: &Address) -> DataKey {
+            DataKey::MaxSupply(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -298,6 +304,7 @@ pub enum DataKey {
     TreasuryAddress,
     AdminAddress,
     ProtocolFeeRecipient,
+    MaxSupply(Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -477,10 +484,17 @@ impl CreatorKeysContract {
         env: Env,
         creator: Address,
         handle: String,
+        max_supply: Option<u32>,
     ) -> Result<(), ContractError> {
         creator.require_auth();
 
         validate_creator_handle(&handle)?;
+
+        if let Some(cap) = max_supply {
+            if cap == 0 {
+                return Err(ContractError::InvalidMaxSupply);
+            }
+        }
 
         let key = constants::storage::creator(&creator);
         // Creator profile storage is a single source of truth keyed by creator address.
@@ -505,6 +519,13 @@ impl CreatorKeysContract {
         // Persist profile before event publication so indexers reading contract state
         // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
+
+        if let Some(cap) = max_supply {
+            env.storage()
+                .persistent()
+                .set(&constants::storage::max_supply(&creator), &cap);
+        }
+
         env.events().publish(
             events::register_event_topics(&profile.creator),
             events::CreatorRegisteredEvent {
@@ -543,6 +564,18 @@ impl CreatorKeysContract {
         }
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+        // Enforce supply cap if one was set at registration.
+        let cap_key = constants::storage::max_supply(&creator);
+        if let Some(cap) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u32>(&cap_key)
+        {
+            if profile.supply >= cap {
+                return Err(ContractError::SupplyCapExceeded);
+            }
+        }
 
         let balance_key = constants::storage::key_balance(&creator, &buyer);
         // Missing balance entries are treated as zero to keep storage sparse.
@@ -720,6 +753,15 @@ impl CreatorKeysContract {
     pub fn get_creator_supply(env: Env, creator: Address) -> Result<u32, ContractError> {
         let profile = read_registered_creator_profile(&env, &creator)?;
         Ok(profile.supply)
+    }
+
+    /// Read-only view: returns the max supply cap for a creator, or `None` if uncapped.
+    ///
+    /// The cap is immutable after registration. Returns `None` for unregistered creators.
+    pub fn get_max_supply(env: Env, creator: Address) -> Option<u32> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::max_supply(&creator))
     }
 
     /// Read-only view: returns the number of unique holders for a creator.
