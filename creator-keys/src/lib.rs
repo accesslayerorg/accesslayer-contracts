@@ -62,6 +62,8 @@ pub enum ContractError {
     HandleTooLong = 13,
     InvalidHandleCharacter = 14,
     ZeroAddress = 15,
+    InvalidMaxSupply = 16,
+    SupplyCapExceeded = 17,
 }
 
 pub mod fee {
@@ -367,6 +369,7 @@ pub enum DataKey {
     ProtocolFeeRecipientBalance,
     CreatorFeeBalance(Address),
     ProtocolStateVersion,
+    MaxSupply(Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -734,11 +737,7 @@ impl CreatorKeysContract {
 
         // Enforce supply cap if one was set at registration.
         let cap_key = constants::storage::max_supply(&creator);
-        if let Some(cap) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, u32>(&cap_key)
-        {
+        if let Some(cap) = env.storage().persistent().get::<DataKey, u32>(&cap_key) {
             if profile.supply >= cap {
                 return Err(ContractError::SupplyCapExceeded);
             }

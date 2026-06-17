@@ -160,7 +160,8 @@ fn test_register_creator_rejects_handle_shorter_than_min() {
 
     let creator = Address::generate(&env);
     let short_handle = "a".repeat((HANDLE_LEN_MIN - 1) as usize);
-    let result = client.try_register_creator(&creator, &String::from_str(&env, &short_handle), &None);
+    let result =
+        client.try_register_creator(&creator, &String::from_str(&env, &short_handle), &None);
     assert_eq!(result, Err(Ok(ContractError::HandleTooShort)));
 }
 
@@ -174,7 +175,8 @@ fn test_register_creator_rejects_handle_longer_than_max() {
 
     let creator = Address::generate(&env);
     let long_handle = "a".repeat((HANDLE_LEN_MAX + 1) as usize);
-    let result = client.try_register_creator(&creator, &String::from_str(&env, &long_handle), &None);
+    let result =
+        client.try_register_creator(&creator, &String::from_str(&env, &long_handle), &None);
     assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
 }
 
