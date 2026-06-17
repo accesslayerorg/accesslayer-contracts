@@ -19,7 +19,8 @@
                 },
                 {
                   "string": "test_creator"
-                }
+                },
+                "void"
               ]
             }
           },
