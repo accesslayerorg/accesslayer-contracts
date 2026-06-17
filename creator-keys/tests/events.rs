@@ -40,12 +40,7 @@ impl<'a> EventFixture<'a> {
         Self { client, creator }
     }
 
-    fn register_creator(
-        &self,
-        env: &Env,
-        handle: &str,
-        max_supply: &Option<u32>,
-    ) {
+    fn register_creator(&self, env: &Env, handle: &str, max_supply: &Option<u32>) {
         self.client
             .register_creator(&self.creator, &String::from_str(env, handle), max_supply);
     }
