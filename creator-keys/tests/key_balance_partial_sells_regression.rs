@@ -20,20 +20,20 @@ fn test_key_balance_decrements_correctly_after_each_partial_sell() {
 
     // Buy 5 keys to establish the initial balance.
     for _ in 0..5 {
-        client.buy_key(&creator, &holder, &100_i128);
+        client.buy_key(&creator, &holder, &100_i128, &None);
     }
     assert_eq!(client.get_key_balance(&creator, &holder), 5);
 
     // Partial sell 1: sell 1 key → balance should be 4.
-    client.sell_key(&creator, &holder);
+    client.sell_key(&creator, &holder, &None);
     assert_eq!(client.get_key_balance(&creator, &holder), 4);
 
     // Partial sell 2: sell 1 key → balance should be 3.
-    client.sell_key(&creator, &holder);
+    client.sell_key(&creator, &holder, &None);
     assert_eq!(client.get_key_balance(&creator, &holder), 3);
 
     // Partial sell 3: sell 1 key → balance should be 2.
-    client.sell_key(&creator, &holder);
+    client.sell_key(&creator, &holder, &None);
     assert_eq!(client.get_key_balance(&creator, &holder), 2);
 
     // Final balance: 5 bought − 3 sold = 2.

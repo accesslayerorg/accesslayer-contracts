@@ -46,11 +46,11 @@ impl<'a> EventFixture<'a> {
     }
 
     fn buy_key(&self, buyer: &Address, payment: i128) {
-        self.client.buy_key(&self.creator, buyer, &payment);
+        self.client.buy_key(&self.creator, buyer, &payment, &None);
     }
 
     fn sell_key(&self, seller: &Address) {
-        self.client.sell_key(&self.creator, seller);
+        self.client.sell_key(&self.creator, seller, &None);
     }
 
     fn last_trade_topics(&self, env: &Env) -> TradeTopics {

@@ -21,7 +21,7 @@ fn register_holder_with_one_key(
 ) -> Address {
     let holder = Address::generate(env);
     let price = client.get_buy_quote(creator).price;
-    client.buy_key(creator, &holder, &price);
+    client.buy_key(creator, &holder, &price, &None);
     holder
 }
 

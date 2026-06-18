@@ -42,7 +42,7 @@ fn test_zero_creator_bps_full_payment_to_creator_after_protocol_fee() {
 
     // Perform a buy with payment of 1000
     let payment_amount = 1000i128;
-    let supply = client.buy_key(&creator, &buyer, &payment_amount);
+    let supply = client.buy_key(&creator, &buyer, &payment_amount, &None);
     assert_eq!(supply, 1, "Supply should increment to 1");
 
     // Compute expected fees
@@ -89,7 +89,7 @@ fn test_zero_creator_bps_with_partial_protocol_fee() {
 
     // Perform a buy
     let payment_amount = 1000i128;
-    client.buy_key(&creator, &buyer, &payment_amount);
+    client.buy_key(&creator, &buyer, &payment_amount, &None);
 
     // Compute fees
     let (creator_fee, protocol_fee) = client.compute_fees_for_payment(&payment_amount);
@@ -131,7 +131,7 @@ fn test_zero_protocol_bps_full_payment_to_creator() {
 
     // Perform a buy
     let payment_amount = 1000i128;
-    client.buy_key(&creator, &buyer, &payment_amount);
+    client.buy_key(&creator, &buyer, &payment_amount, &None);
 
     // Compute fees
     let (creator_fee, protocol_fee) = client.compute_fees_for_payment(&payment_amount);
@@ -168,7 +168,7 @@ fn test_zero_creator_bps_no_rounding_errors_with_odd_amounts() {
 
     // Perform a buy with an odd payment amount
     let payment_amount = 999i128;
-    client.buy_key(&creator, &buyer, &payment_amount);
+    client.buy_key(&creator, &buyer, &payment_amount, &None);
 
     // Compute fees
     let (creator_fee, protocol_fee) = client.compute_fees_for_payment(&payment_amount);

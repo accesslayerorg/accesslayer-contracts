@@ -30,7 +30,7 @@ fn test_sell_quote_zero_amount_returns_zero_quote() {
     client.set_key_price(&admin, &100);
     set_protocol_fee_bps(&env, &client, 9000, 1000);
     let creator = register_test_creator(&env, &client, "alice");
-    client.buy_key(&creator, &holder, &100);
+    client.buy_key(&creator, &holder, &100, &None);
 
     // Zero out the key price — produces a zero sell amount input
     set_stored_key_price(&env, &contract_id, 0);
@@ -97,7 +97,7 @@ fn test_sell_quote_zero_amount_no_state_modification() {
     client.set_key_price(&admin, &100);
     set_protocol_fee_bps(&env, &client, 9000, 1000);
     let creator = register_test_creator(&env, &client, "charlie");
-    client.buy_key(&creator, &holder, &100);
+    client.buy_key(&creator, &holder, &100, &None);
 
     // Zero the price and capture state before the read-only calls.
     set_stored_key_price(&env, &contract_id, 0);

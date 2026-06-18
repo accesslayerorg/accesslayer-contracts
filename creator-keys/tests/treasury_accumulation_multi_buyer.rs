@@ -46,7 +46,7 @@ fn test_treasury_accumulates_protocol_fees_across_distinct_buyers() {
 
         let treasury_before = client.get_protocol_recipient_balance();
 
-        client.buy_key(&creator, buyer, &quote.total_amount);
+        client.buy_key(&creator, buyer, &quote.total_amount, &None);
 
         let treasury_after = client.get_protocol_recipient_balance();
         assert_eq!(

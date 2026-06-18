@@ -65,8 +65,8 @@ fn test_registered_at_is_immutable_after_buy_and_sell() {
     let admin = Address::generate(&env);
     client.set_key_price(&admin, &500_i128);
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &500_i128);
-    client.sell_key(&creator, &buyer);
+    client.buy_key(&creator, &buyer, &500_i128, &None);
+    client.sell_key(&creator, &buyer, &None);
 
     // registered_at must still reflect the original registration sequence.
     let details = client.get_creator_details(&creator);

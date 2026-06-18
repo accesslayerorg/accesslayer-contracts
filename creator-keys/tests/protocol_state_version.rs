@@ -103,7 +103,7 @@ fn test_get_protocol_state_version_increments_only_on_config_updates() {
     // Other state changes should not increment version
     client.set_key_price(&admin, &100i128);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
-    client.buy_key(&creator, &buyer, &100i128);
+    client.buy_key(&creator, &buyer, &100i128, &None);
     client.set_treasury_address(&admin, &Address::generate(&env));
 
     // Version should still be 2 (only incremented by fee config update)

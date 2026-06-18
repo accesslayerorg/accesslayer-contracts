@@ -23,7 +23,7 @@ fn setup_holder_with_key(
     let holder = Address::generate(env);
     let buy_quote = client.get_buy_quote(creator);
     assert_eq!(buy_quote.price, key_price);
-    client.buy_key(creator, &holder, &buy_quote.total_amount);
+    client.buy_key(creator, &holder, &buy_quote.total_amount, &None);
     holder
 }
 

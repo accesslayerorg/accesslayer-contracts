@@ -47,11 +47,11 @@ fn test_get_total_key_supply_increments_after_buy() {
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
 
-    client.buy_key(&creator, &buyer, &100_i128);
+    client.buy_key(&creator, &buyer, &100_i128, &None);
     assert_eq!(client.get_total_key_supply(&creator), 1);
 
     let buyer2 = Address::generate(&env);
-    client.buy_key(&creator, &buyer2, &100_i128);
+    client.buy_key(&creator, &buyer2, &100_i128, &None);
     assert_eq!(client.get_total_key_supply(&creator), 2);
 }
 
@@ -84,7 +84,7 @@ fn test_buy_key_zero_payment_fails() {
     let buyer = Address::generate(&env);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
 
-    let result = client.try_buy_key(&creator, &buyer, &0_i128);
+    let result = client.try_buy_key(&creator, &buyer, &0_i128, &None);
     assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 
@@ -98,7 +98,7 @@ fn test_buy_key_negative_payment_fails() {
     let buyer = Address::generate(&env);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
 
-    let result = client.try_buy_key(&creator, &buyer, &-50_i128);
+    let result = client.try_buy_key(&creator, &buyer, &-50_i128, &None);
     assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 
@@ -112,7 +112,7 @@ fn test_buy_key_positive_payment_succeeds() {
     let buyer = Address::generate(&env);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
 
-    let supply = client.buy_key(&creator, &buyer, &100_i128);
+    let supply = client.buy_key(&creator, &buyer, &100_i128, &None);
     assert_eq!(supply, 1);
 }
 

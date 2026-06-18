@@ -19,7 +19,7 @@ fn test_buy_key_unregistered_creator_fails() {
     let buyer = Address::generate(&env);
 
     let expected_price = compute_expected_buy_price(0, base_price);
-    let result = client.try_buy_key(&creator, &buyer, &expected_price);
+    let result = client.try_buy_key(&creator, &buyer, &expected_price, &None);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
@@ -33,7 +33,7 @@ fn test_buy_key_insufficient_payment_fails() {
     let buyer = Address::generate(&env);
 
     let expected_price = compute_expected_buy_price(0, base_price);
-    let result = client.try_buy_key(&creator, &buyer, &(expected_price - 1));
+    let result = client.try_buy_key(&creator, &buyer, &(expected_price - 1), &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
 }
 
@@ -47,7 +47,7 @@ fn test_buy_key_sufficient_payment_succeeds() {
     let buyer = Address::generate(&env);
 
     let expected_price = compute_expected_buy_price(0, base_price);
-    let supply = client.buy_key(&creator, &buyer, &expected_price);
+    let supply = client.buy_key(&creator, &buyer, &expected_price, &None);
     assert_eq!(supply, 1);
 
     let profile = client.get_creator(&creator);

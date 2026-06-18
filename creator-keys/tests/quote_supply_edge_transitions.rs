@@ -22,10 +22,10 @@ fn test_buy_quote_deterministic_across_zero_supply_transition() {
         q_before.total_amount >= 0,
         "buy quote total must be bounded"
     );
-    client.buy_key(&creator, &buyer, &q_before.total_amount);
+    client.buy_key(&creator, &buyer, &q_before.total_amount, &None);
 
     // Transition back to zero supply.
-    client.sell_key(&creator, &buyer);
+    client.sell_key(&creator, &buyer, &None);
     assert_eq!(client.get_total_key_supply(&creator), 0);
 
     let q_after = client.get_buy_quote(&creator);
@@ -61,8 +61,8 @@ fn test_buy_quote_recomputed_after_sell_reduces_supply() {
     let creator = register_test_creator(&env, &client, "edge3");
     let holder = Address::generate(&env);
     let quote_at_zero = client.get_buy_quote(&creator);
-    client.buy_key(&creator, &holder, &quote_at_zero.total_amount);
-    client.buy_key(&creator, &holder, &quote_at_zero.total_amount);
+    client.buy_key(&creator, &holder, &quote_at_zero.total_amount, &None);
+    client.buy_key(&creator, &holder, &quote_at_zero.total_amount, &None);
 
     let supply_before_sell = client.get_total_key_supply(&creator);
     let quote_before_sell = client.get_buy_quote(&creator);
@@ -73,7 +73,7 @@ fn test_buy_quote_recomputed_after_sell_reduces_supply() {
         "pre-sell quote must match bonding curve helper"
     );
 
-    client.sell_key(&creator, &holder);
+    client.sell_key(&creator, &holder, &None);
 
     let supply_after_sell = client.get_total_key_supply(&creator);
     let quote_after_sell = client.get_buy_quote(&creator);

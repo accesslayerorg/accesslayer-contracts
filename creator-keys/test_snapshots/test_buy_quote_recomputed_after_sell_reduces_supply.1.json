@@ -98,7 +98,8 @@
                     "hi": 0,
                     "lo": 500
                   }
-                }
+                },
+                "void"
               ]
             }
           },
@@ -126,7 +127,8 @@
                     "hi": 0,
                     "lo": 500
                   }
-                }
+                },
+                "void"
               ]
             }
           },
@@ -150,7 +152,8 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                }
+                },
+                "void"
               ]
             }
           },

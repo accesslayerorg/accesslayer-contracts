@@ -98,7 +98,8 @@
                     "hi": 0,
                     "lo": 2000
                   }
-                }
+                },
+                "void"
               ]
             }
           },
@@ -124,7 +125,8 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                }
+                },
+                "void"
               ]
             }
           },

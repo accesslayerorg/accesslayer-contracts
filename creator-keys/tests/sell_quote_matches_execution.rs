@@ -55,7 +55,7 @@ fn assert_sell_quote_matches_execution(
         "difference between quoted and actual proceeds must be zero before sell"
     );
 
-    let supply_after = client.sell_key(creator, holder);
+    let supply_after = client.sell_key(creator, holder, &None);
     assert_eq!(
         supply_after,
         supply_before_sell - 1,
@@ -83,7 +83,7 @@ fn setup_holder_with_supply(
     let holder = Address::generate(env);
     let buy_quote = client.get_buy_quote(creator);
     for _ in 0..key_count {
-        client.buy_key(creator, &holder, &buy_quote.total_amount);
+        client.buy_key(creator, &holder, &buy_quote.total_amount, &None);
     }
     holder
 }
@@ -124,7 +124,7 @@ fn test_buy_then_sell_has_symmetric_price_impact_after_fees() {
     let starting_supply = client.get_total_key_supply(&creator);
     let initial_buy_quote = client.get_buy_quote(&creator);
 
-    client.buy_key(&creator, &trader, &initial_buy_quote.total_amount);
+    client.buy_key(&creator, &trader, &initial_buy_quote.total_amount, &None);
     let sell_quote = client.get_sell_quote(&creator, &trader);
     let supply_after_buy = client.get_total_key_supply(&creator);
     assert_eq!(supply_after_buy, starting_supply + 1);
@@ -137,7 +137,7 @@ fn test_buy_then_sell_has_symmetric_price_impact_after_fees() {
     assert_eq!(sell_quote.price, expected_sell_price);
     assert_eq!(sell_quote.total_amount, expected_sell_proceeds);
 
-    client.sell_key(&creator, &trader);
+    client.sell_key(&creator, &trader, &None);
     let final_buy_quote = client.get_buy_quote(&creator);
     assert_eq!(client.get_total_key_supply(&creator), starting_supply);
     assert_eq!(final_buy_quote.price, initial_buy_quote.price);

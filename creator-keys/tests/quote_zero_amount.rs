@@ -30,7 +30,7 @@ fn test_get_sell_quote_zero_amount_returns_noop_quote() {
 
     client.set_key_price(&admin, &100);
     let creator = register_test_creator(&env, &client, "alice");
-    client.buy_key(&creator, &holder, &100);
+    client.buy_key(&creator, &holder, &100, &None);
     set_stored_key_price(&env, &contract_id, 0);
 
     let quote = client.get_sell_quote(&creator, &holder);
@@ -49,7 +49,7 @@ fn test_repeated_zero_amount_quote_calls_no_state_drift() {
 
     client.set_key_price(&admin, &100);
     let creator = register_test_creator(&env, &client, "alice");
-    client.buy_key(&creator, &holder, &100);
+    client.buy_key(&creator, &holder, &100, &None);
     set_stored_key_price(&env, &contract_id, 0);
 
     // Test repeated buy quote calls with zero amount

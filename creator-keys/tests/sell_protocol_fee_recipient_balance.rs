@@ -28,7 +28,7 @@ fn test_sell_increases_protocol_fee_recipient_balance_by_bps_fee() {
     let creator = register_test_creator(&env, &client, "alice");
     let holder = soroban_sdk::Address::generate(&env);
 
-    client.buy_key(&creator, &holder, &KEY_PRICE);
+    client.buy_key(&creator, &holder, &KEY_PRICE, &None);
 
     let balance_before = client.get_protocol_recipient_balance();
     let quote = client.get_sell_quote(&creator, &holder);
@@ -38,7 +38,7 @@ fn test_sell_increases_protocol_fee_recipient_balance_by_bps_fee() {
         "sell quote protocol fee should match bps calculation"
     );
 
-    client.sell_key(&creator, &holder);
+    client.sell_key(&creator, &holder, &None);
 
     let balance_after = client.get_protocol_recipient_balance();
     assert_eq!(
@@ -65,13 +65,13 @@ fn test_sell_protocol_fee_recipient_balance_accumulates_across_two_sells() {
     let creator = register_test_creator(&env, &client, "bob");
     let holder = soroban_sdk::Address::generate(&env);
 
-    client.buy_key(&creator, &holder, &KEY_PRICE);
-    client.buy_key(&creator, &holder, &KEY_PRICE);
+    client.buy_key(&creator, &holder, &KEY_PRICE, &None);
+    client.buy_key(&creator, &holder, &KEY_PRICE, &None);
 
     let expected_protocol_fee = compute_expected_protocol_fee(KEY_PRICE, PROTOCOL_BPS);
     let balance_before = client.get_protocol_recipient_balance();
 
-    client.sell_key(&creator, &holder);
+    client.sell_key(&creator, &holder, &None);
     let balance_after_first_sell = client.get_protocol_recipient_balance();
     assert_eq!(
         balance_after_first_sell - balance_before,
@@ -79,7 +79,7 @@ fn test_sell_protocol_fee_recipient_balance_accumulates_across_two_sells() {
         "first sell should credit one protocol fee"
     );
 
-    client.sell_key(&creator, &holder);
+    client.sell_key(&creator, &holder, &None);
     let balance_after_second_sell = client.get_protocol_recipient_balance();
     assert_eq!(
         balance_after_second_sell - balance_after_first_sell,

@@ -37,7 +37,7 @@ fn test_treasury_balance_unchanged_after_failed_buy_insufficient_payment() {
     let treasury_before = client.get_protocol_recipient_balance();
 
     // Pay one stroop below the key price — should fail with InsufficientPayment.
-    let result = client.try_buy_key(&creator, &buyer, &(KEY_PRICE - 1));
+    let result = client.try_buy_key(&creator, &buyer, &(KEY_PRICE - 1), &None);
     assert_eq!(
         result,
         Err(Ok(ContractError::InsufficientPayment)),
@@ -67,7 +67,7 @@ fn test_treasury_balance_unchanged_after_failed_buy_unregistered_creator() {
     // assertion proves the balance is held steady rather than merely staying 0.
     let registered = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
-    client.buy_key(&registered, &buyer, &KEY_PRICE);
+    client.buy_key(&registered, &buyer, &KEY_PRICE, &None);
 
     let treasury_before = client.get_protocol_recipient_balance();
     assert!(
@@ -77,7 +77,7 @@ fn test_treasury_balance_unchanged_after_failed_buy_unregistered_creator() {
 
     // Buying keys for a creator that was never registered must fail.
     let unregistered = Address::generate(&env);
-    let result = client.try_buy_key(&unregistered, &buyer, &KEY_PRICE);
+    let result = client.try_buy_key(&unregistered, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         result,
         Err(Ok(ContractError::NotRegistered)),
@@ -105,7 +105,7 @@ fn test_treasury_balance_unchanged_after_failed_sell_insufficient_balance() {
     // Seed a non-zero treasury balance with one successful buy.
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &KEY_PRICE);
+    client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
 
     let treasury_before = client.get_protocol_recipient_balance();
     assert!(
@@ -115,7 +115,7 @@ fn test_treasury_balance_unchanged_after_failed_sell_insufficient_balance() {
 
     // A different address holding zero keys cannot sell.
     let non_holder = Address::generate(&env);
-    let result = client.try_sell_key(&creator, &non_holder);
+    let result = client.try_sell_key(&creator, &non_holder, &None);
     assert_eq!(
         result,
         Err(Ok(ContractError::InsufficientBalance)),

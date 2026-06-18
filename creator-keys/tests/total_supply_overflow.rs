@@ -30,7 +30,7 @@ fn buy_at_max_supply_is_rejected_with_overflow_and_no_state_corruption() {
     });
 
     let buyer = Address::generate(&env);
-    let result = client.try_buy_key(&creator, &buyer, &100i128);
+    let result = client.try_buy_key(&creator, &buyer, &100i128, &None);
 
     // The buy that would push supply past the ceiling is rejected with Overflow.
     assert!(matches!(result, Err(Ok(ContractError::Overflow))));
