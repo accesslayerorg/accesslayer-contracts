@@ -20,6 +20,17 @@ pub enum ContractError {
     InsufficientBalance = 9,
 }
 
+pub mod config {
+    /// Storage lifetime extension target for creator-scoped persistent keys.
+    ///
+    /// The value is measured in ledgers. Keeping this as a named constant makes
+    /// future TTL policy changes possible without touching buy/sell trade logic.
+    pub const CREATOR_TTL_LEDGERS: u32 = 518_400;
+
+    /// Soroban extends a key only when its remaining TTL is below this threshold.
+    pub const CREATOR_TTL_THRESHOLD: u32 = 17_280;
+}
+
 pub mod fee {
     use soroban_sdk::contracttype;
 
@@ -152,6 +163,7 @@ pub struct CreatorDetailsView {
     pub supply: u32,
     pub is_registered: bool,
 }
+
 /// Stable, non-optional view of a creator's fee configuration.
 ///
 /// Returned by [`CreatorKeysContract::get_creator_fee_config`] for indexer-friendly consumption.
@@ -287,6 +299,28 @@ fn read_required_protocol_fee_config(env: &Env) -> Result<fee::FeeConfig, Contra
     read_protocol_fee_config(env).ok_or(ContractError::FeeConfigNotSet)
 }
 
+fn extend_creator_key_ttl(env: &Env, key: &DataKey) {
+    if env.storage().persistent().has(key) {
+        env.storage().persistent().extend_ttl(
+            key,
+            config::CREATOR_TTL_THRESHOLD,
+            config::CREATOR_TTL_LEDGERS,
+        );
+    }
+}
+
+fn extend_creator_storage_ttl(env: &Env, creator: &Address, holder: Option<&Address>) {
+    let creator_key = constants::storage::creator(creator);
+    extend_creator_key_ttl(env, &creator_key);
+
+    if let Some(holder) = holder {
+        let holder_key = constants::storage::key_balance(creator, holder);
+        extend_creator_key_ttl(env, &holder_key);
+    }
+
+    extend_creator_key_ttl(env, &constants::storage::FEE_CONFIG);
+}
+
 /// Resolves and validates the shared inputs required by read-only quote methods.
 ///
 /// Reads the key price from storage and confirms the creator is registered.
@@ -358,6 +392,7 @@ impl CreatorKeysContract {
         };
 
         env.storage().persistent().set(&key, &profile);
+        extend_creator_storage_ttl(&env, &creator, None);
         env.events().publish(
             (events::REGISTER_EVENT_NAME, profile.creator.clone()),
             events::CreatorRegisteredEvent {
@@ -417,6 +452,7 @@ impl CreatorKeysContract {
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
         env.storage().persistent().set(&balance_key, &new_balance);
+        extend_creator_storage_ttl(&env, &creator, Some(&buyer));
 
         env.events().publish(
             (events::BUY_EVENT_NAME, creator, buyer),
@@ -455,6 +491,7 @@ impl CreatorKeysContract {
         let key = constants::storage::creator(&creator);
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
+        extend_creator_storage_ttl(&env, &creator, Some(&seller));
 
         Ok(profile.supply)
     }
@@ -517,6 +554,18 @@ impl CreatorKeysContract {
             },
         }
     }
+
+    /// Read-only view: returns remaining ledger TTL for the creator's primary storage key.
+    ///
+    /// Returns `0` when the creator is not registered or the key is not live.
+    pub fn get_creator_ttl_remaining(env: Env, creator: Address) -> u32 {
+        let key = constants::storage::creator(&creator);
+        if !env.storage().persistent().has(&key) {
+            return 0;
+        }
+        env.storage().persistent().get_ttl(&key)
+    }
+
     /// Read-only view: returns the protocol state version.
     ///
     /// Returns a stable scalar value for clients and indexers to detect
