@@ -49,9 +49,21 @@ fn test_buy_key_event_topics_include_creator_and_buyer() {
     let buy_event = events.last().unwrap();
 
     // Topics: (symbol "buy", creator address, buyer address)
-    let topic_symbol: soroban_sdk::Symbol = buy_event.1.get(0).unwrap().into_val(&env);
-    let topic_creator: soroban_sdk::Address = buy_event.1.get(1).unwrap().into_val(&env);
-    let topic_buyer: soroban_sdk::Address = buy_event.1.get(2).unwrap().into_val(&env);
+    let topic_symbol: soroban_sdk::Symbol = buy_event
+        .1
+        .get(events::TOPIC_EVENT_NAME_INDEX)
+        .unwrap()
+        .into_val(&env);
+    let topic_creator: soroban_sdk::Address = buy_event
+        .1
+        .get(events::TOPIC_CREATOR_INDEX)
+        .unwrap()
+        .into_val(&env);
+    let topic_buyer: soroban_sdk::Address = buy_event
+        .1
+        .get(events::TOPIC_BUYER_INDEX)
+        .unwrap()
+        .into_val(&env);
 
     assert_eq!(topic_symbol, events::BUY_EVENT_NAME);
     assert_eq!(topic_creator, creator);

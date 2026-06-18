@@ -6,6 +6,7 @@ This document describes the assumptions, behavior, and integration points for cr
 
 - **Basis points (bps)**: Fee shares are expressed in basis points, where 10,000 = 100%.
 - **Validation**: `creator_bps + protocol_bps` must equal 10,000. Any other sum is rejected.
+- **Protocol cap**: `protocol_bps` is capped at 5,000 (50%) and `set_fee_config` rejects values above the cap with `ContractError::ProtocolFeeExceedsCap`.
 - **Example**: 9,000 creator_bps + 1,000 protocol_bps = 90% creator, 10% protocol.
 
 ## Rounding and Remainder Handling

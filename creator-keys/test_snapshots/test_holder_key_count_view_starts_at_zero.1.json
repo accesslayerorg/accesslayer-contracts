@@ -135,6 +135,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "registered_at"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "supply"
                       },
                       "val": {

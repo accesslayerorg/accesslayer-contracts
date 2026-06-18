@@ -64,6 +64,8 @@ Expected artifact:
 target/wasm32v1-none/release/creator_keys.wasm
 ```
 
+This path is a **local build output** only. After you build, copy the wasm to team-controlled storage with a clear name and recorded metadata; see [deploy-artifacts.md](./deploy-artifacts.md).
+
 ## Deploy to Stellar testnet
 
 Deploy the built wasm and save a local alias for follow-up calls:
@@ -113,14 +115,10 @@ If the second command returns a populated profile with `supply: 0`, the deployme
 
 ## Lightweight release checklist
 
-Use this checklist for any contract update that is intended for shared review or a testnet rollout.
+Use the short actionable checklist in [testnet-release-checklist.md](./testnet-release-checklist.md) for shared review or testnet rollout validation.
 
-- Confirm the branch includes the intended contract changes only.
-- Run `cargo fmt --all -- --check`.
-- Run `cargo clippy --workspace --all-targets -- -D warnings`.
-- Run `cargo test --workspace`.
-- Rebuild the wasm with `stellar contract build --package creator-keys`.
-- Deploy the new wasm to Stellar testnet from a funded identity.
-- Run the register and read smoke tests against the deployed contract.
-- Capture the deployed contract ID and relevant CLI output in the PR description, issue, or release notes.
-- Call out any storage layout, event schema, or authorization changes explicitly for reviewers.
+At minimum, always capture:
+
+- built wasm artifact path and checksum,
+- deployed contract ID,
+- smoke-test results for register/read calls.

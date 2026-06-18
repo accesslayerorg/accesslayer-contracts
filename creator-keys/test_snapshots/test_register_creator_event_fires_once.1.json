@@ -134,6 +134,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "registered_at"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "supply"
                       },
                       "val": {
@@ -340,6 +348,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "creator_bps"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "handle"
                   },
                   "val": {
@@ -349,6 +365,14 @@
                 {
                   "key": {
                     "symbol": "holder_count"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "protocol_bps"
                   },
                   "val": {
                     "u32": 0

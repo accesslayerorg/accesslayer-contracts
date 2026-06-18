@@ -66,6 +66,34 @@ fn test_set_fee_config_max_protocol_bps_succeeds() {
 }
 
 #[test]
+fn test_set_fee_config_max_creator_bps_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+
+    client.set_fee_config(&admin, &10000u32, &0u32);
+    let config = client.get_fee_config().unwrap();
+    assert_eq!(config.creator_bps, 10000);
+    assert_eq!(config.protocol_bps, 0);
+}
+
+#[test]
+fn test_set_fee_config_creator_bps_above_max_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+
+    let result = client.try_set_fee_config(&admin, &10001u32, &0u32);
+    assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
+}
+
+#[test]
 fn test_set_fee_config_protocol_bps_above_max_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -75,7 +103,7 @@ fn test_set_fee_config_protocol_bps_above_max_fails() {
     let admin = soroban_sdk::Address::generate(&env);
 
     let result = client.try_set_fee_config(&admin, &4999u32, &5001u32);
-    assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
+    assert_eq!(result, Err(Ok(ContractError::ProtocolFeeExceedsCap)));
 }
 
 #[test]
