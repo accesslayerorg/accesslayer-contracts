@@ -62,6 +62,7 @@ pub enum ContractError {
     HandleTooLong = 13,
     InvalidHandleCharacter = 14,
     ZeroAddress = 15,
+    SlippageExceeded = 16,
 }
 
 pub mod config {
@@ -683,6 +684,7 @@ impl CreatorKeysContract {
         creator: Address,
         buyer: Address,
         payment: i128,
+        max_price: Option<i128>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
 
@@ -695,6 +697,8 @@ impl CreatorKeysContract {
             .persistent()
             .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
+
+        assert_buy_price_slippage(price, max_price)?;
 
         if payment < price {
             return Err(ContractError::InsufficientPayment);
@@ -745,7 +749,12 @@ impl CreatorKeysContract {
         Ok(profile.supply)
     }
 
-    pub fn sell_key(env: Env, creator: Address, seller: Address) -> Result<u32, ContractError> {
+    pub fn sell_key(
+        env: Env,
+        creator: Address,
+        seller: Address,
+        min_proceeds: Option<i128>,
+    ) -> Result<u32, ContractError> {
         seller.require_auth();
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
@@ -756,6 +765,8 @@ impl CreatorKeysContract {
         if current_balance == 0 {
             return Err(ContractError::InsufficientBalance);
         }
+
+        assert_sell_proceeds_slippage(&env, min_proceeds)?;
 
         let new_balance = current_balance
             .checked_sub(1)

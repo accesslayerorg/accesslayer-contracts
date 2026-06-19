@@ -45,8 +45,8 @@ fn test_identical_fee_configs_apply_independently() {
     assert_eq!(quote1.total_amount, quote2.total_amount);
 
     // Execute buys
-    client.buy_key(&creator1, &buyer1, &quote1.total_amount);
-    client.buy_key(&creator2, &buyer2, &quote2.total_amount);
+    client.buy_key(&creator1, &buyer1, &quote1.total_amount, &None);
+    client.buy_key(&creator2, &buyer2, &quote2.total_amount, &None);
 
     // Verify fee balances are tracked independently
     let fee_balance1 = client.get_creator_fee_balance(&creator1);

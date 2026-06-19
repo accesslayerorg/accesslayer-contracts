@@ -72,7 +72,8 @@
                     "hi": 0,
                     "lo": 100
                   }
-                }
+                },
+                "void"
               ]
             }
           },
@@ -94,7 +95,8 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                }
+                },
+                "void"
               ]
             }
           },

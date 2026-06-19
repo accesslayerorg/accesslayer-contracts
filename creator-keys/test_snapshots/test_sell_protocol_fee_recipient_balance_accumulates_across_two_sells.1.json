@@ -119,7 +119,8 @@
                     "hi": 0,
                     "lo": 1000
                   }
-                }
+                },
+                "void"
               ]
             }
           },
@@ -147,7 +148,8 @@
                     "hi": 0,
                     "lo": 1000
                   }
-                }
+                },
+                "void"
               ]
             }
           },
@@ -170,7 +172,8 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                }
+                },
+                "void"
               ]
             }
           },
@@ -193,7 +196,8 @@
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                }
+                },
+                "void"
               ]
             }
           },

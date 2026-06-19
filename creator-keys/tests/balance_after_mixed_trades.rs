@@ -35,12 +35,12 @@ fn test_balance_after_sequence_of_buys_and_sells() {
     assert_eq!(expected, 0);
 
     // Execute trades
-    client.buy_key(&creator, &buyer, &100i128);
-    client.buy_key(&creator, &buyer, &100i128);
-    client.sell_key(&creator, &buyer);
-    client.buy_key(&creator, &buyer, &100i128);
-    client.sell_key(&creator, &buyer);
-    client.sell_key(&creator, &buyer);
+    client.buy_key(&creator, &buyer, &100i128, &None);
+    client.buy_key(&creator, &buyer, &100i128, &None);
+    client.sell_key(&creator, &buyer, &None);
+    client.buy_key(&creator, &buyer, &100i128, &None);
+    client.sell_key(&creator, &buyer, &None);
+    client.sell_key(&creator, &buyer, &None);
 
     // Verify actual balance matches expected
     let actual = client.get_key_balance(&creator, &buyer);
@@ -70,10 +70,10 @@ fn test_balance_after_buys_then_sells() {
     assert_eq!(expected, 3);
 
     for _ in 0..5 {
-        client.buy_key(&creator, &buyer, &100i128);
+        client.buy_key(&creator, &buyer, &100i128, &None);
     }
     for _ in 0..2 {
-        client.sell_key(&creator, &buyer);
+        client.sell_key(&creator, &buyer, &None);
     }
 
     let actual = client.get_key_balance(&creator, &buyer);
@@ -90,7 +90,7 @@ fn test_balance_with_non_zero_initial() {
 
     // Buy 4 keys first (initial balance = 4)
     for _ in 0..4 {
-        client.buy_key(&creator, &buyer, &100i128);
+        client.buy_key(&creator, &buyer, &100i128, &None);
     }
 
     // Then apply additional trades: buy, sell, sell, buy, buy
@@ -106,11 +106,11 @@ fn test_balance_with_non_zero_initial() {
     let expected = compute_expected_balance_after_trades(4, &additional_trades);
     assert_eq!(expected, 5);
 
-    client.buy_key(&creator, &buyer, &100i128);
-    client.sell_key(&creator, &buyer);
-    client.sell_key(&creator, &buyer);
-    client.buy_key(&creator, &buyer, &100i128);
-    client.buy_key(&creator, &buyer, &100i128);
+    client.buy_key(&creator, &buyer, &100i128, &None);
+    client.sell_key(&creator, &buyer, &None);
+    client.sell_key(&creator, &buyer, &None);
+    client.buy_key(&creator, &buyer, &100i128, &None);
+    client.buy_key(&creator, &buyer, &100i128, &None);
 
     let actual = client.get_key_balance(&creator, &buyer);
     assert_eq!(actual, expected);

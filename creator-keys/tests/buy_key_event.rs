@@ -17,7 +17,7 @@ fn test_buy_key_event_includes_payment_amount() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
-    let supply = client.buy_key(&creator, &buyer, &150i128);
+    let supply = client.buy_key(&creator, &buyer, &150i128, &None);
     assert_eq!(supply, 1);
 
     let events = env.events().all();
@@ -43,7 +43,7 @@ fn test_buy_key_event_topics_include_creator_and_buyer() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
-    client.buy_key(&creator, &buyer, &200i128);
+    client.buy_key(&creator, &buyer, &200i128, &None);
 
     let events = env.events().all();
     let buy_event = events.last().unwrap();

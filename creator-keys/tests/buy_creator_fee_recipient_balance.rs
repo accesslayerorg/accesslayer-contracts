@@ -43,7 +43,7 @@ fn test_buy_credits_creator_fee_recipient_balance_by_bps_amount() {
     let balance_before = client.get_creator_fee_balance(&creator);
     assert_eq!(balance_before, 0, "recipient balance should start at zero");
 
-    client.buy_key(&creator, &buyer, &quote.total_amount);
+    client.buy_key(&creator, &buyer, &quote.total_amount, &None);
 
     let balance_after = client.get_creator_fee_balance(&creator);
     assert_eq!(

@@ -23,22 +23,22 @@ fn holder_count_tracks_distinct_buyers_and_decrements_on_exit() {
     let buyer_b = Address::generate(&env);
     let buyer_c = Address::generate(&env);
 
-    client.buy_key(&creator, &buyer_a, &100i128);
-    client.buy_key(&creator, &buyer_b, &100i128);
-    client.buy_key(&creator, &buyer_c, &100i128);
+    client.buy_key(&creator, &buyer_a, &100i128, &None);
+    client.buy_key(&creator, &buyer_b, &100i128, &None);
+    client.buy_key(&creator, &buyer_c, &100i128, &None);
 
     // Three distinct holders, each with one key.
     assert_eq!(client.get_creator_holder_count(&creator), 3);
     assert_eq!(client.get_creator_supply(&creator), 3);
 
     // Count decrements by one as each buyer fully exits.
-    client.sell_key(&creator, &buyer_a);
+    client.sell_key(&creator, &buyer_a, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 2);
 
-    client.sell_key(&creator, &buyer_b);
+    client.sell_key(&creator, &buyer_b, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
-    client.sell_key(&creator, &buyer_c);
+    client.sell_key(&creator, &buyer_c, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 0);
     assert_eq!(client.get_creator_supply(&creator), 0);
 }

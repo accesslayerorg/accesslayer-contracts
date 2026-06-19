@@ -29,7 +29,7 @@ fn test_buy_execution_applies_updated_protocol_fee() {
     // Update fee config before executing buy
     client.set_fee_config(&admin, &8000, &2000); // updated: 80/20 split
 
-    let supply = client.buy_key(&creator, &buyer, &1000);
+    let supply = client.buy_key(&creator, &buyer, &1000, &None);
     assert_eq!(supply, 1, "supply should increment to 1 after buy");
 
     // Buyer receives the correct key balance
@@ -75,7 +75,7 @@ fn test_buy_execution_fee_matches_quote_after_fee_config_update() {
     let quote = client.get_buy_quote(&creator);
 
     // Execute the buy
-    let supply = client.buy_key(&creator, &buyer, &500);
+    let supply = client.buy_key(&creator, &buyer, &500, &None);
     assert_eq!(supply, 1, "supply should be 1 after buy");
     assert_eq!(
         client.get_key_balance(&creator, &buyer),

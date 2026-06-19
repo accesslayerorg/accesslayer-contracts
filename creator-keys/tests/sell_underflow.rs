@@ -51,7 +51,7 @@ fn test_sell_with_no_keys_returns_insufficient_balance() {
     let seller = Address::generate(&env);
 
     // seller never bought — balance is 0
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
 }
 
@@ -61,11 +61,11 @@ fn test_sell_second_key_after_selling_last_returns_insufficient_balance() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    client.sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    client.sell_key(&creator, &seller, &None);
 
     // No keys left — should be InsufficientBalance, not SellUnderflow
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
 }
 
@@ -91,7 +91,7 @@ fn test_sell_registered_zero_supply_creator_returns_sell_underflow_without_state
         "setup: seller balance must be nonzero"
     );
 
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
 
     assert_eq!(result, Err(Ok(ContractError::SellUnderflow)));
     let after = capture_snapshot(&client, &creator, &seller);
@@ -104,8 +104,8 @@ fn test_sell_after_buy_succeeds_without_underflow_error() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    let result = client.try_sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    let result = client.try_sell_key(&creator, &seller, &None);
 
     assert!(result.is_ok(), "expected Ok but got {:?}", result);
 }
@@ -116,11 +116,11 @@ fn test_sell_two_keys_succeeds_without_underflow_error() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    client.buy_key(&creator, &seller, &100);
-    client.sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    client.buy_key(&creator, &seller, &100, &None);
+    client.sell_key(&creator, &seller, &None);
 
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     assert!(
         result.is_ok(),
         "second sell should succeed, got {:?}",
@@ -136,9 +136,9 @@ fn test_supply_and_balance_decremented_correctly_after_sell() {
     let (client, creator) = setup(&env, 100);
     let seller = Address::generate(&env);
 
-    client.buy_key(&creator, &seller, &100);
-    client.buy_key(&creator, &seller, &100);
-    client.sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &100, &None);
+    client.buy_key(&creator, &seller, &100, &None);
+    client.sell_key(&creator, &seller, &None);
 
     assert_eq!(client.get_total_key_supply(&creator), 1);
     assert_eq!(client.get_key_balance(&creator, &seller), 1);

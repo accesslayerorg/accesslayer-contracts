@@ -19,7 +19,7 @@ fn register_holder_with_one_key(
 ) -> Address {
     let holder = Address::generate(env);
     let price = client.get_buy_quote(creator).price;
-    client.buy_key(creator, &holder, &price);
+    client.buy_key(creator, &holder, &price, &None);
     holder
 }
 
@@ -32,7 +32,7 @@ fn test_buy_key_with_large_safe_amount_succeeds() {
     let creator = register_test_creator(&env, &client, "creator1");
     let buyer = Address::generate(&env);
 
-    let supply = client.buy_key(&creator, &buyer, &large_price);
+    let supply = client.buy_key(&creator, &buyer, &large_price, &None);
     assert_eq!(supply, 1, "buy should succeed with large amount");
 }
 
@@ -45,7 +45,7 @@ fn test_buy_key_with_maximum_safe_i128_succeeds() {
     let creator = register_test_creator(&env, &client, "creator2");
     let buyer = Address::generate(&env);
 
-    let supply = client.buy_key(&creator, &buyer, &max_safe_amount);
+    let supply = client.buy_key(&creator, &buyer, &max_safe_amount, &None);
     assert_eq!(supply, 1, "buy should succeed at safe maximum");
 }
 

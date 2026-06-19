@@ -45,7 +45,7 @@ fn test_buy_quote_price_unchanged_after_one_buy() {
     let buyer = Address::generate(&env);
 
     let before = client.get_buy_quote(&creator);
-    client.buy_key(&creator, &buyer, &100);
+    client.buy_key(&creator, &buyer, &100, &None);
     let after = client.get_buy_quote(&creator);
 
     assert_eq!(before.price, after.price);
@@ -78,7 +78,7 @@ fn test_buy_quote_price_unchanged_across_multiple_buyers_small_range() {
 
     for _ in 0..10 {
         let buyer = Address::generate(&env);
-        client.buy_key(&creator, &buyer, &price);
+        client.buy_key(&creator, &buyer, &price, &None);
         let q = client.get_buy_quote(&creator);
         assert_eq!(
             q.price, q0.price,
@@ -137,7 +137,7 @@ fn test_buy_quote_stable_over_medium_volume_20_buys() {
 
     for i in 0..20_u32 {
         let buyer = Address::generate(&env);
-        client.buy_key(&creator, &buyer, &price);
+        client.buy_key(&creator, &buyer, &price, &None);
         let q = client.get_buy_quote(&creator);
         assert_eq!(
             q.price,
@@ -180,7 +180,7 @@ fn test_buy_quote_price_point_1_is_stable() {
 
     let q1 = client.get_buy_quote(&creator);
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &1);
+    client.buy_key(&creator, &buyer, &1, &None);
     let q2 = client.get_buy_quote(&creator);
 
     assert_eq!(q1.price, q2.price);
@@ -194,7 +194,7 @@ fn test_buy_quote_price_point_large_is_stable() {
 
     let q_before = client.get_buy_quote(&creator);
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &large_price);
+    client.buy_key(&creator, &buyer, &large_price, &None);
     let q_after = client.get_buy_quote(&creator);
 
     assert_eq!(q_before.price, q_after.price);
@@ -212,7 +212,7 @@ fn test_buy_quote_monotonic_with_zero_creator_fee() {
 
     let q1 = client.get_buy_quote(&creator);
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &q1.total_amount);
+    client.buy_key(&creator, &buyer, &q1.total_amount, &None);
     let q2 = client.get_buy_quote(&creator);
 
     assert_eq!(q1.price, q2.price, "price must remain constant");
@@ -238,7 +238,7 @@ fn test_buy_quote_monotonic_with_zero_protocol_fee() {
 
     let q1 = client.get_buy_quote(&creator);
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &q1.total_amount);
+    client.buy_key(&creator, &buyer, &q1.total_amount, &None);
     let q2 = client.get_buy_quote(&creator);
 
     assert_eq!(q1.price, q2.price, "price must remain constant");
@@ -260,7 +260,7 @@ fn test_buy_quote_stable_across_50_sequential_purchases() {
 
     for i in 0..50_u32 {
         let buyer = Address::generate(&env);
-        client.buy_key(&creator, &buyer, &price);
+        client.buy_key(&creator, &buyer, &price, &None);
 
         let current_quote = client.get_buy_quote(&creator);
         assert_eq!(
@@ -321,8 +321,8 @@ fn test_buy_quote_multiple_creators_independent_monotonicity() {
     let buyer1 = Address::generate(&env);
     let buyer2 = Address::generate(&env);
 
-    client.buy_key(&creator_alice, &buyer1, &q_alice_1.total_amount);
-    client.buy_key(&creator_bob, &buyer2, &q_bob_1.total_amount);
+    client.buy_key(&creator_alice, &buyer1, &q_alice_1.total_amount, &None);
+    client.buy_key(&creator_bob, &buyer2, &q_bob_1.total_amount, &None);
 
     // Get quotes after purchases
     let q_alice_2 = client.get_buy_quote(&creator_alice);

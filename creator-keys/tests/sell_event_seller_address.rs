@@ -29,11 +29,11 @@ fn test_sell_event_seller_address_matches_caller() {
     client.register_creator(&creator, &String::from_str(&env, "alice"));
 
     // Buyer purchases keys
-    client.buy_key(&creator, &seller, &KEY_PRICE);
+    client.buy_key(&creator, &seller, &KEY_PRICE, &None);
 
     // Clear event log and then perform the sell
     env.events().all(); // Clear existing events
-    client.sell_key(&creator, &seller);
+    client.sell_key(&creator, &seller, &None);
 
     // Extract and verify the sell event
     let event_log = env.events().all();
@@ -81,8 +81,8 @@ fn test_sell_event_seller_address_field_is_non_zero() {
     // Configure and execute
     client.set_key_price(&admin, &KEY_PRICE);
     client.register_creator(&creator, &String::from_str(&env, "alice"));
-    client.buy_key(&creator, &seller, &KEY_PRICE);
-    client.sell_key(&creator, &seller);
+    client.buy_key(&creator, &seller, &KEY_PRICE, &None);
+    client.sell_key(&creator, &seller, &None);
 
     // Verify the seller address field is present and non-zero
     let event_log = env.events().all();

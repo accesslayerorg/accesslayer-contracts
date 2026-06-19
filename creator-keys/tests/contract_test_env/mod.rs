@@ -191,7 +191,7 @@ pub fn perform_incrementing_buys(
 ) -> ContractStateSnapshot {
     for buy_index in 0..count {
         let payment = starting_amount + i128::from(buy_index) * amount_step;
-        client.buy_key(creator, buyer, &payment);
+        client.buy_key(creator, buyer, &payment, &None);
     }
 
     capture_snapshot(client, creator, buyer)

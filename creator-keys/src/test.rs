@@ -208,7 +208,7 @@ fn test_buy_key_fails_if_not_registered() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    let result = client.try_buy_key(&creator, &buyer, &100);
+    let result = client.try_buy_key(&creator, &buyer, &100, &None);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
     assert_no_events(&env);
 }
@@ -228,7 +228,7 @@ fn test_buy_key_success() {
     client.register_creator(&creator, &handle);
 
     let buyer = Address::generate(&env);
-    let supply = client.buy_key(&creator, &buyer, &100);
+    let supply = client.buy_key(&creator, &buyer, &100, &None);
     assert_eq!(supply, 1);
 
     let profile = client.get_creator(&creator);
@@ -253,9 +253,9 @@ fn test_get_creator_holder_count_counts_unique_holders() {
     let holder_one = Address::generate(&env);
     let holder_two = Address::generate(&env);
 
-    client.buy_key(&creator, &holder_one, &100);
-    client.buy_key(&creator, &holder_one, &100);
-    client.buy_key(&creator, &holder_two, &100);
+    client.buy_key(&creator, &holder_one, &100, &None);
+    client.buy_key(&creator, &holder_one, &100, &None);
+    client.buy_key(&creator, &holder_two, &100, &None);
 
     let first_read = client.get_creator_holder_count(&creator);
     let second_read = client.get_creator_holder_count(&creator);
@@ -292,7 +292,7 @@ fn test_buy_key_insufficient_payment() {
     client.register_creator(&creator, &handle);
 
     let buyer = Address::generate(&env);
-    let result = client.try_buy_key(&creator, &buyer, &99);
+    let result = client.try_buy_key(&creator, &buyer, &99, &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
     assert_no_events(&env);
 }
@@ -484,7 +484,7 @@ fn test_get_sell_quote_success() {
     client.register_creator(&creator, &handle);
 
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &1000);
+    client.buy_key(&creator, &buyer, &1000, &None);
 
     let quote = client.get_sell_quote(&creator, &buyer);
     assert_eq!(quote.price, 1000);
@@ -745,7 +745,7 @@ fn test_buy_event_topic_and_data_order_is_stable() {
     client.register_creator(&creator, &handle);
 
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &500);
+    client.buy_key(&creator, &buyer, &500, &None);
 
     let all_events = env.events().all();
     // Each client call is a separate invocation; env.events().all() returns events

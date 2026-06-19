@@ -23,7 +23,7 @@ fn test_total_supply_unchanged_after_failed_sell_insufficient_balance() {
 
     // Buy one key so there is a non-zero supply to observe.
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &100_i128);
+    client.buy_key(&creator, &buyer, &100_i128, &None);
 
     // A different address that holds zero keys.
     let non_holder = Address::generate(&env);
@@ -33,7 +33,7 @@ fn test_total_supply_unchanged_after_failed_sell_insufficient_balance() {
     assert_eq!(supply_before, 1, "setup: supply should be 1 after one buy");
 
     // Attempt to sell — should fail because non_holder has no keys.
-    let result = client.try_sell_key(&creator, &non_holder);
+    let result = client.try_sell_key(&creator, &non_holder, &None);
     assert_eq!(
         result,
         Err(Ok(ContractError::InsufficientBalance)),
@@ -59,13 +59,13 @@ fn test_total_supply_unchanged_after_failed_sell_not_registered() {
     // Register one creator and buy a key so there is observable state.
     let creator = register_test_creator(&env, &client, "bob");
     let buyer = Address::generate(&env);
-    client.buy_key(&creator, &buyer, &100_i128);
+    client.buy_key(&creator, &buyer, &100_i128, &None);
 
     let supply_before = client.get_total_key_supply(&creator);
 
     // A completely different unregistered creator address.
     let unregistered = Address::generate(&env);
-    let result = client.try_sell_key(&unregistered, &buyer);
+    let result = client.try_sell_key(&unregistered, &buyer, &None);
     assert_eq!(
         result,
         Err(Ok(ContractError::NotRegistered)),

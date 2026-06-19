@@ -86,7 +86,7 @@ fn test_creator_details_identical_across_five_consecutive_reads_after_buy() {
 
     // Perform a buy to establish non-zero state
     contract_test_env::set_key_price_for_tests(&env, &client, 100i128);
-    client.buy_key(&creator, &buyer, &100i128);
+    client.buy_key(&creator, &buyer, &100i128, &None);
 
     // Perform five consecutive reads with NO state changes between them
     let read1 = client.get_creator_details(&creator);

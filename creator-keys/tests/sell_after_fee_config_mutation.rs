@@ -26,7 +26,7 @@ fn test_sell_execution_applies_updated_protocol_fee() {
     let holder = soroban_sdk::Address::generate(&env);
 
     // Holder buys a key at the original fee config
-    client.buy_key(&creator, &holder, &1000);
+    client.buy_key(&creator, &holder, &1000, &None);
     assert_eq!(
         client.get_key_balance(&creator, &holder),
         1,
@@ -36,7 +36,7 @@ fn test_sell_execution_applies_updated_protocol_fee() {
     // Update fee config before executing sell
     client.set_fee_config(&admin, &8000, &2000); // updated: 80/20 split
 
-    let supply = client.sell_key(&creator, &holder);
+    let supply = client.sell_key(&creator, &holder, &None);
     assert_eq!(supply, 0, "supply should decrement to 0 after sell");
 
     // Holder balance should be zero after selling
@@ -76,7 +76,7 @@ fn test_sell_execution_fee_matches_quote_after_fee_config_update() {
     let holder = soroban_sdk::Address::generate(&env);
 
     // Holder buys a key at the original fee config
-    client.buy_key(&creator, &holder, &500);
+    client.buy_key(&creator, &holder, &500, &None);
     assert_eq!(
         client.get_key_balance(&creator, &holder),
         1,
@@ -90,7 +90,7 @@ fn test_sell_execution_fee_matches_quote_after_fee_config_update() {
     let quote = client.get_sell_quote(&creator, &holder);
 
     // Execute the sell
-    let supply = client.sell_key(&creator, &holder);
+    let supply = client.sell_key(&creator, &holder, &None);
     assert_eq!(supply, 0, "supply should be 0 after sell");
     assert_eq!(
         client.get_key_balance(&creator, &holder),
