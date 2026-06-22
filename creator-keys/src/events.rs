@@ -85,6 +85,27 @@ pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
     (REGISTER_EVENT_NAME, creator.clone())
 }
 
+/// Event name for protocol fee recipient rotation.
+pub const PROTO_FEE_ROTATE: Symbol = symbol_short!("pfr_upd");
+
+/// Event name for creator fee recipient rotation.
+pub const CREATOR_FEE_ROTATE: Symbol = symbol_short!("cfr_upd");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProtocolFeeRecipientUpdated {
+    pub old_recipient: Address,
+    pub new_recipient: Address,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CreatorFeeRecipientUpdated {
+    pub creator: Address,
+    pub old_recipient: Address,
+    pub new_recipient: Address,
+}
+
 /// Shared buy event topics tuple.
 pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())

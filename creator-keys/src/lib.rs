@@ -63,6 +63,7 @@ pub enum ContractError {
     InvalidHandleCharacter = 14,
     ZeroAddress = 15,
     SlippageExceeded = 16,
+    Unauthorized = 17,
 }
 
 pub mod fee {
@@ -1259,6 +1260,79 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &recipient);
+        Ok(())
+    }
+
+    pub fn update_protocol_fee_recipient(
+        env: Env,
+        admin: Address,
+        new_recipient: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::ADMIN_ADDRESS)
+            .ok_or(ContractError::Unauthorized)?;
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        validate_non_zero_address(&env, &new_recipient)?;
+
+        let old_recipient: Address = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_FEE_RECIPIENT)
+            .ok_or(ContractError::Unauthorized)?;
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &new_recipient);
+
+        env.events().publish(
+            (events::PROTO_FEE_ROTATE,),
+            events::ProtocolFeeRecipientUpdated {
+                old_recipient,
+                new_recipient,
+            },
+        );
+
+        Ok(())
+    }
+
+    pub fn update_creator_fee_recipient(
+        env: Env,
+        creator: Address,
+        caller: Address,
+        new_recipient: Address,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let mut profile = read_registered_creator_profile(&env, &creator)?;
+
+        if caller != profile.fee_recipient {
+            return Err(ContractError::Unauthorized);
+        }
+
+        validate_non_zero_address(&env, &new_recipient)?;
+
+        let old_recipient = profile.fee_recipient.clone();
+
+        profile.fee_recipient = new_recipient.clone();
+        let key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&key, &profile);
+
+        env.events().publish(
+            (events::CREATOR_FEE_ROTATE, creator.clone()),
+            events::CreatorFeeRecipientUpdated {
+                creator,
+                old_recipient,
+                new_recipient,
+            },
+        );
+
         Ok(())
     }
 
