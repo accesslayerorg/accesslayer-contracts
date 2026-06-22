@@ -37,8 +37,7 @@ fn test_update_creator_fee_recipient_rejects_non_current_recipient() {
     let not_recipient = Address::generate(&env);
     let new_recipient = Address::generate(&env);
 
-    let result =
-        client.try_update_creator_fee_recipient(&creator, &not_recipient, &new_recipient);
+    let result = client.try_update_creator_fee_recipient(&creator, &not_recipient, &new_recipient);
     assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
 
     let current = client.get_creator_fee_recipient(&creator);
@@ -82,8 +81,7 @@ fn test_update_creator_fee_recipient_rejects_unregistered_creator() {
     let caller = Address::generate(&env);
     let new_recipient = Address::generate(&env);
 
-    let result =
-        client.try_update_creator_fee_recipient(&unregistered, &caller, &new_recipient);
+    let result = client.try_update_creator_fee_recipient(&unregistered, &caller, &new_recipient);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
