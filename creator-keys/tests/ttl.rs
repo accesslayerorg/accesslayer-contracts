@@ -1,4 +1,6 @@
-use creator_keys::{config, constants, ContractError, CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{
+    config, constants, ContractError, CreatorKeysContract, CreatorKeysContractClient,
+};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Env, String,
