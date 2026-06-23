@@ -76,7 +76,7 @@ fn buy_extends_creator_holder_and_fee_config_ttls() {
     let creator_before = creator_ttl(&env, &contract_id, &creator);
     let fee_before = fee_config_ttl(&env, &contract_id);
 
-    client.buy_key(&creator, &buyer, &100);
+    client.buy_key(&creator, &buyer, &100, &None);
 
     let creator_after = creator_ttl(&env, &contract_id, &creator);
     let holder_after = holder_ttl(&env, &contract_id, &creator, &buyer);
@@ -98,7 +98,7 @@ fn sell_extends_creator_holder_and_fee_config_ttls() {
     let seller = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
     client.register_creator(&creator, &handle);
-    client.buy_key(&creator, &seller, &100);
+    client.buy_key(&creator, &seller, &100, &None);
 
     advance_ledgers(
         &env,
@@ -108,7 +108,7 @@ fn sell_extends_creator_holder_and_fee_config_ttls() {
     let holder_before = holder_ttl(&env, &contract_id, &creator, &seller);
     let fee_before = fee_config_ttl(&env, &contract_id);
 
-    client.sell_key(&creator, &seller);
+    client.sell_key(&creator, &seller, &None);
 
     let creator_after = creator_ttl(&env, &contract_id, &creator);
     let holder_after = holder_ttl(&env, &contract_id, &creator, &seller);
@@ -131,7 +131,7 @@ fn failed_buy_does_not_extend_creator_ttl() {
     client.register_creator(&creator, &handle);
 
     let before = creator_ttl(&env, &contract_id, &creator);
-    let result = client.try_buy_key(&creator, &buyer, &99);
+    let result = client.try_buy_key(&creator, &buyer, &99, &None);
     let after = creator_ttl(&env, &contract_id, &creator);
 
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
@@ -147,7 +147,7 @@ fn failed_sell_does_not_extend_creator_ttl() {
     client.register_creator(&creator, &handle);
 
     let before = creator_ttl(&env, &contract_id, &creator);
-    let result = client.try_sell_key(&creator, &seller);
+    let result = client.try_sell_key(&creator, &seller, &None);
     let after = creator_ttl(&env, &contract_id, &creator);
 
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
