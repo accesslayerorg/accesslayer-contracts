@@ -1,5 +1,8 @@
 use creator_keys::{config, constants, ContractError, CreatorKeysContract, CreatorKeysContractClient};
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, String,
+};
 
 fn setup() -> (Env, CreatorKeysContractClient<'static>, Address) {
     let env = Env::default();
