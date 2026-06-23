@@ -6,12 +6,15 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
-fn setup() -> (Env, CreatorKeysContractClient<'static>, Address) {
+fn setup() -> (Env, Address) {
     let env = Env::default();
     env.mock_all_auths();
     let contract_id = env.register(CreatorKeysContract, ());
-    let client = CreatorKeysContractClient::new(&env, &contract_id);
-    (env, client, contract_id)
+    (env, contract_id)
+}
+
+fn client(env: &Env, contract_id: &Address) -> CreatorKeysContractClient<'_> {
+    CreatorKeysContractClient::new(env, contract_id)
 }
 
 fn advance_ledgers(env: &Env, ledgers: u32) {
@@ -46,7 +49,8 @@ fn fee_config_ttl(env: &Env, contract_id: &Address) -> u32 {
 
 #[test]
 fn registration_sets_initial_creator_ttl() {
-    let (env, client, contract_id) = setup();
+    let (env, contract_id) = setup();
+    let client = client(&env, &contract_id);
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
@@ -59,7 +63,8 @@ fn registration_sets_initial_creator_ttl() {
 
 #[test]
 fn buy_extends_creator_holder_and_fee_config_ttls() {
-    let (env, client, contract_id) = setup();
+    let (env, contract_id) = setup();
+    let client = client(&env, &contract_id);
     let admin = Address::generate(&env);
     client.set_key_price(&admin, &100);
     client.set_fee_config(&admin, &9000, &1000);
@@ -89,7 +94,8 @@ fn buy_extends_creator_holder_and_fee_config_ttls() {
 
 #[test]
 fn sell_extends_creator_holder_and_fee_config_ttls() {
-    let (env, client, contract_id) = setup();
+    let (env, contract_id) = setup();
+    let client = client(&env, &contract_id);
     let admin = Address::generate(&env);
     client.set_key_price(&admin, &100);
     client.set_fee_config(&admin, &9000, &1000);
@@ -121,7 +127,8 @@ fn sell_extends_creator_holder_and_fee_config_ttls() {
 
 #[test]
 fn failed_buy_does_not_extend_creator_ttl() {
-    let (env, client, contract_id) = setup();
+    let (env, contract_id) = setup();
+    let client = client(&env, &contract_id);
     let admin = Address::generate(&env);
     client.set_key_price(&admin, &100);
 
@@ -140,7 +147,8 @@ fn failed_buy_does_not_extend_creator_ttl() {
 
 #[test]
 fn failed_sell_does_not_extend_creator_ttl() {
-    let (env, client, contract_id) = setup();
+    let (env, contract_id) = setup();
+    let client = client(&env, &contract_id);
     let creator = Address::generate(&env);
     let seller = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
