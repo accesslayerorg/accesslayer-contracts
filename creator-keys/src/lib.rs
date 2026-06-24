@@ -1683,30 +1683,30 @@ fn read_holders_list(env: &Env, creator: &Address) -> Vec<Address> {
     .persistent()
     .get(&key)
     .unwrap_or(Vec::new(env));
+}
 
-  fn write_holders_list(env: &Env, creator: &Address, holders: &Vec<Address>) {
-    let key = DataKey::HoldersList(creator.clone());
-    env.storage().persistent().set(&key, holders);
-  }
+fn write_holders_list(env: &Env, creator: &Address, holders: &Vec<Address>) {
+  let key = DataKey::HoldersList(creator.clone());
+  env.storage().persistent().set(&key, holders);
+}
 
-  fn read_claimable_dividend(
-    env: &Env,
-    creator: &Address,
-    holder: &Address,
-  ) -> i128 {
-    let key = DataKey::DividendClaimable(creator.clone(), holder.clone());
-    env.storage().persistent().get(&key).unwrap_or(0)
-  }
+fn read_claimable_dividend(
+  env: &Env,
+  creator: &Address,
+  holder: &Address,
+) -> i128 {
+  let key = DataKey::DividendClaimable(creator.clone(), holder.clone());
+  env.storage().persistent().get(&key).unwrap_or(0)
+}
 
-  fn write_claimable_dividend(
-    env: &Env,
-    creator: &Address,
-    holder: &Address,
-    amount: i128,
-  ) {
-    let key = DataKey::DividendClaimable(creator.clone(), holder.clone());
-    env.storage().persistent().set(&key, &amount);
-  }
+fn write_claimable_dividend(
+  env: &Env,
+  creator: &Address,
+  holder: &Address,
+  amount: i128,
+) {
+  let key = DataKey::DividendClaimable(creator.clone(), holder.clone());
+  env.storage().persistent().set(&key, &amount);
 }
 
 #[cfg(test)]
