@@ -984,15 +984,19 @@ impl CreatorKeysContract {
         }
     }
 
-    pub fn distribute_dividend(
-        env: Env,
-        creator: Address,
-        amount: i128,
-    ) -> Result<(), ContractError> {
-        let caller = env.invoker();
-        let native_address = env.ledger().get_native_token();
+   pub fn distribute_dividend(
+       env: Env,
+       creator: Address,
+       amount: i128,
+   ) -> Result<(), ContractError> {
+        let caller = env.caller();  // use caller() instead of invoker()
+        let native_address = Address::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
         let native_token = soroban_sdk::token::TokenClient::new(&env, &native_address);
         native_token.transfer(&caller, &env.current_contract_address(), &amount);
+       
 
         // Load creator profile and validate
         let profile = read_registered_creator_profile(&env, &creator)?;
@@ -1055,7 +1059,7 @@ impl CreatorKeysContract {
     /// Resets the claimable balance to zero.
     /// Emits a `DividendClaimed` event.
     pub fn claim_dividend(env: Env, creator: Address) -> Result<(), ContractError> {
-        let caller = env.invoker();
+        let caller = env.caller();
 
         // 1. Read claimable balance
         let claimable = read_claimable_dividend(&env, &creator, &caller);
@@ -1067,7 +1071,10 @@ impl CreatorKeysContract {
         write_claimable_dividend(&env, &creator, &caller, 0);
 
         // 3. Transfer XLM from contract to caller
-        let native_address = env.ledger().get_native_token();
+        let native_address = Address::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
         let native_token = soroban_sdk::token::TokenClient::new(&env, &native_address);
         native_token.transfer(&env.current_contract_address(), &caller, &claimable);
 
