@@ -1039,8 +1039,9 @@ impl CreatorKeysContract {
 
     /// Read-only view: returns the display name for a creator's key.
     ///
-    /// Returns the creator's handle for registered creators. Fails with
-    /// [`ContractError::NotRegistered`] if the creator is not registered.
+    /// Does not mutate the contract state. Returns the creator's handle for
+    /// registered creators. Fails with [`ContractError::NotRegistered`] if
+    /// the creator is not registered.
     pub fn get_key_name(env: Env, creator: Address) -> Result<String, ContractError> {
         let profile = read_registered_creator_profile(&env, &creator)?;
         Ok(profile.handle)
