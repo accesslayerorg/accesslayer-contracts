@@ -20,7 +20,7 @@
 //! - `supply`: Number of keys in circulation after the trade (for buy/sell events)
 //! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
-use soroban_sdk::{Address, String, Symbol, contracttype, symbol_short};
+use soroban_sdk::{Address, String, Symbol, contracttype, symbol_short}; 
 
 /// Event name for protocol pause.
 pub const PAUSE_EVENT_NAME: Symbol = symbol_short!("pause");
