@@ -67,10 +67,7 @@ fn test_get_creator_succeeds_after_supply_returns_to_zero() {
 
     // The creator profile must still exist even with supply == 0.
     let profile = client.get_creator(&creator);
-    assert_eq!(
-        profile.supply, 0,
-        "supply must be 0 after a full sell-back"
-    );
+    assert_eq!(profile.supply, 0, "supply must be 0 after a full sell-back");
     assert_eq!(
         profile.creator, creator,
         "creator address in profile must match"
