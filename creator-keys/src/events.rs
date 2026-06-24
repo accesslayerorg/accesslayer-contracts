@@ -22,6 +22,12 @@
 
 use soroban_sdk::{contracttype, symbol_short, Address, String, Symbol};
 
+/// Event name for protocol pause.
+pub const PAUSE_EVENT_NAME: Symbol = symbol_short!("pause");
+
+/// Event name for protocol unpause.
+pub const UNPAUSE_EVENT_NAME: Symbol = symbol_short!("unpause");
+
 /// Event name for creator registration.
 pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
 

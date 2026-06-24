@@ -63,6 +63,8 @@ pub enum ContractError {
     InvalidHandleCharacter = 14,
     ZeroAddress = 15,
     SlippageExceeded = 16,
+    ProtocolPaused = 17,
+    Unauthorized = 18,
 }
 
 pub mod fee {
@@ -215,6 +217,7 @@ pub mod constants {
         pub const PROTOCOL_FEE_RECIPIENT: DataKey = DataKey::ProtocolFeeRecipient;
         pub const PROTOCOL_FEE_RECIPIENT_BALANCE: DataKey = DataKey::ProtocolFeeRecipientBalance;
         pub const PROTOCOL_STATE_VERSION: DataKey = DataKey::ProtocolStateVersion;
+        pub const PAUSED: DataKey = DataKey::Paused;
 
         pub fn creator_fee_balance(creator: &Address) -> DataKey {
             DataKey::CreatorFeeBalance(creator.clone())
@@ -364,6 +367,7 @@ pub enum DataKey {
     ProtocolFeeRecipientBalance,
     CreatorFeeBalance(Address),
     ProtocolStateVersion,
+    Paused,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -476,6 +480,32 @@ fn validate_creator_handle(handle: &String) -> Result<(), ContractError> {
         return Err(ContractError::InvalidHandleCharacter);
     }
 
+    Ok(())
+}
+
+fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .get::<DataKey, bool>(&constants::storage::PAUSED)
+        .unwrap_or(false)
+}
+
+fn assert_not_paused(env: &Env) -> Result<(), ContractError> {
+    if is_paused(env) {
+        return Err(ContractError::ProtocolPaused);
+    }
+    Ok(())
+}
+
+fn assert_is_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
+    let admin: Address = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::ADMIN_ADDRESS)
+        .ok_or(ContractError::Unauthorized)?;
+    if *caller != admin {
+        return Err(ContractError::Unauthorized);
+    }
     Ok(())
 }
 
@@ -683,6 +713,7 @@ impl CreatorKeysContract {
         handle: String,
     ) -> Result<(), ContractError> {
         creator.require_auth();
+        assert_not_paused(&env)?;
 
         validate_creator_handle(&handle)?;
 
@@ -733,6 +764,7 @@ impl CreatorKeysContract {
         max_price: Option<i128>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
+        assert_not_paused(&env)?;
 
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -801,6 +833,7 @@ impl CreatorKeysContract {
         min_proceeds: Option<i128>,
     ) -> Result<u32, ContractError> {
         seller.require_auth();
+        assert_not_paused(&env)?;
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
@@ -839,6 +872,39 @@ impl CreatorKeysContract {
             .publish((events::SELL_EVENT_NAME, creator, seller), profile.supply);
 
         Ok(profile.supply)
+    }
+
+    /// Halts all state-changing operations (buy, sell, register_creator).
+    ///
+    /// Only the protocol admin may call this. Emits a `ProtocolPaused` event.
+    /// Read-only view functions are unaffected and continue to work while paused.
+    pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PAUSED, &true);
+        env.events().publish((events::PAUSE_EVENT_NAME, admin), ());
+        Ok(())
+    }
+
+    /// Resumes all state-changing operations after an emergency pause.
+    ///
+    /// Only the protocol admin may call this. Emits a `ProtocolUnpaused` event.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PAUSED, &false);
+        env.events()
+            .publish((events::UNPAUSE_EVENT_NAME, admin), ());
+        Ok(())
+    }
+
+    /// Read-only view: returns whether the protocol is currently paused.
+    pub fn get_is_paused(env: Env) -> bool {
+        is_paused(&env)
     }
 
     pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
