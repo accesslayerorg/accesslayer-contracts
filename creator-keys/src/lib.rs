@@ -2,7 +2,7 @@
 pub mod quote_view_errors;
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, String, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec,
 };
 
 pub mod events;
