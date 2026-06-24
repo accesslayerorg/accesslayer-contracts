@@ -1682,7 +1682,7 @@ fn read_holders_list(env: &Env, creator: &Address) -> Vec<Address> {
     .storage()
     .persistent()
     .get(&key)
-    .unwrap_or(Vec::new(env));
+    .unwrap_or(Vec::new(env))
 }
 
 fn write_holders_list(env: &Env, creator: &Address, holders: &Vec<Address>) {
