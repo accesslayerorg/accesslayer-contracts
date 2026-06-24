@@ -1,7 +1,7 @@
 #![no_std]
 pub mod quote_view_errors;
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
 
 pub mod events;
 
@@ -65,6 +65,9 @@ pub enum ContractError {
     SlippageExceeded = 16,
     ProtocolPaused = 17,
     Unauthorized = 18,
+     ZeroClaimable = 19,
+    NoHolders = 20,
+    DividendAmountZero = 21,
 }
 
 pub mod fee {
@@ -368,6 +371,8 @@ pub enum DataKey {
     CreatorFeeBalance(Address),
     ProtocolStateVersion,
     Paused,
+    HoldersList(Address), 
+     DividendClaimable(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -794,6 +799,11 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
         }
+        let mut holders = read_holders_list(&env, &creator);
+        if !holders.iter().any(|h| h == &buyer) {
+        holders.push_back(buyer.clone());
+        write_holders_list(&env, &creator, &holders);
+    }
 
         profile.supply = profile
             .supply
@@ -859,6 +869,11 @@ impl CreatorKeysContract {
                 .holder_count
                 .checked_sub(1)
                 .ok_or(ContractError::SellUnderflow)?;
+            let mut holders = read_holders_list(&env, &creator);
+    if let Some(pos) = holders.iter().position(|h| h == &seller) {
+        holders.remove(pos);
+        write_holders_list(&env, &creator, &holders);
+    }
         }
 
         let key = constants::storage::creator(&creator);
@@ -968,6 +983,111 @@ impl CreatorKeysContract {
             },
         }
     }
+
+    pub fn distribute_dividend(
+    env: Env,
+    creator: Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    let caller = env.invoker();
+
+    // Transfer XLM from caller to contract
+    let native = env.native_token();
+    native.transfer(&caller, &env.current_contract_address(), &amount);
+
+    // Load creator profile and validate
+    let profile = read_registered_creator_profile(&env, &creator)?;
+    let total_supply = profile.supply as i128;
+    if total_supply == 0 {
+        return Err(ContractError::NoHolders);
+    }
+
+    // Load fee config and compute protocol fee
+    let config = read_required_protocol_fee_config(&env)?;
+    let protocol_fee = fee::apply_percentage_fee(amount, config.protocol_bps)
+        .ok_or(ContractError::Overflow)?;
+    let distribute_amount = amount
+        .checked_sub(protocol_fee)
+        .ok_or(ContractError::Overflow)?;
+    if distribute_amount <= 0 {
+        return Err(ContractError::DividendAmountZero);
+    }
+
+    // Credit protocol fee to the protocol fee recipient balance
+    credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+
+    // Iterate over all holders and distribute proportionally
+    let holders = read_holders_list(&env, &creator);
+    let ledger = env.ledger().sequence();
+
+    for holder in holders.iter() {
+        let balance = Self::get_key_balance(env.clone(), creator.clone(), holder.clone()) as i128;
+        if balance == 0 {
+            continue;
+        }
+        let share = (balance * distribute_amount) / total_supply;
+        if share > 0 {
+            let current = read_claimable_dividend(&env, &creator, &holder);
+            let new_claim = current
+                .checked_add(share)
+                .ok_or(ContractError::Overflow)?;
+            write_claimable_dividend(&env, &creator, &holder, new_claim);
+        }
+    }
+
+    // Emit event
+    env.events().publish(
+        events::dividend_distributed_topics(&creator),
+        events::DividendDistributedEvent {
+            creator_id: creator,
+            total_amount: amount,
+            snapshot_supply: total_supply,
+            ledger,
+            protocol_fee,
+            distributed_amount: distribute_amount,
+        },
+    );
+
+    Ok(())
+}
+
+/// Claims accrued dividends for the caller.
+///
+/// Transfers the claimable amount from the contract to the caller's wallet.
+/// Resets the claimable balance to zero.
+/// Emits a `DividendClaimed` event.
+pub fn claim_dividend(env: Env, creator: Address) -> Result<(), ContractError> {
+    let caller = env.invoker();
+
+    let claimable = read_claimable_dividend(&env, &creator, &caller);
+    if claimable == 0 {
+        return Err(ContractError::ZeroClaimable);
+    }
+
+    // Reset claimable to zero before transfer (reentrancy-safe)
+    write_claimable_dividend(&env, &creator, &caller, 0);
+
+    // Transfer XLM from contract to caller
+    let native = env.native_token();
+    native.transfer(&env.current_contract_address(), &caller, &claimable);
+
+    // Emit event
+    env.events().publish(
+        events::dividend_claimed_topics(&creator, &caller),
+        events::DividendClaimedEvent {
+            creator_id: creator,
+            claimant: caller,
+            amount: claimable,
+        },
+    );
+
+    Ok(())
+}
+
+/// Returns the unclaimed dividend balance for a specific (creator, holder) pair.
+pub fn get_claimable_dividend(env: Env, creator: Address, wallet: Address) -> i128 {
+    read_claimable_dividend(&env, &creator, &wallet)
+}
 
     /// Read-only batch view: returns [`CreatorDetailsView`] for each address in `creators`.
     ///
@@ -1435,6 +1555,25 @@ impl CreatorKeysContract {
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
         checked_format_quote_response(price, creator_fee, protocol_fee, false)
     }
+    fn read_holders_list(env: &Env, creator: &Address) -> Vec<Address> {
+    let key = DataKey::HoldersList(creator.clone());
+    env.storage().persistent().get(&key).unwrap_or(Vec::new(env))
+}
+
+fn write_holders_list(env: &Env, creator: &Address, holders: &Vec<Address>) {
+    let key = DataKey::HoldersList(creator.clone());
+    env.storage().persistent().set(&key, holders);
+}
+
+fn read_claimable_dividend(env: &Env, creator: &Address, holder: &Address) -> i128 {
+    let key = DataKey::DividendClaimable(creator.clone(), holder.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+fn write_claimable_dividend(env: &Env, creator: &Address, holder: &Address, amount: i128) {
+    let key = DataKey::DividendClaimable(creator.clone(), holder.clone());
+    env.storage().persistent().set(&key, &amount);
+}
 }
 
 #[cfg(test)]
