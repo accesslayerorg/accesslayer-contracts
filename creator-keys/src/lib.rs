@@ -4,6 +4,8 @@ pub mod quote_view_errors;
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
 
 pub mod events;
+pub mod bonding_curve;
+use bonding_curve::CurvePreset;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -293,6 +295,9 @@ pub struct CreatorDetailsView {
     /// Clients can use this field to sort a marketplace grid chronologically without
     /// maintaining a separate off-chain index.
     pub registered_at: u32,
+    /// The bonding curve preset for this creator. Only meaningful when `is_registered` is `true`.
+    /// Returns `CurvePreset::Linear` for unregistered creators.
+    pub curve_preset: CurvePreset,
 }
 /// Stable, non-optional view of a creator's fee configuration.
 ///
@@ -384,6 +389,9 @@ pub struct CreatorProfile {
     /// field was added deserialise correctly — the Soroban persistent storage layer
     /// reads structs by field index, so appending is the only safe extension pattern.
     pub registered_at: u32,
+    /// Bonding curve preset selected at registration. Immutable after creation.
+    /// Appended as the last field for backward-compatible deserialization.
+    pub curve_preset: CurvePreset,
 }
 
 /// Reads a creator profile from storage, returning `None` for unregistered creators.
@@ -711,6 +719,7 @@ impl CreatorKeysContract {
         env: Env,
         creator: Address,
         handle: String,
+        curve_preset: Option<CurvePreset>,
     ) -> Result<(), ContractError> {
         creator.require_auth();
         assert_not_paused(&env)?;
@@ -724,6 +733,8 @@ impl CreatorKeysContract {
             return Err(ContractError::AlreadyRegistered);
         }
 
+        let preset = curve_preset.unwrap_or_default(); // Linear if omitted
+
         let profile = CreatorProfile {
             creator: creator.clone(),
             handle,
@@ -731,6 +742,7 @@ impl CreatorKeysContract {
             holder_count: 0,
             fee_recipient: creator.clone(),
             registered_at: env.ledger().sequence(),
+            curve_preset: preset,
         };
 
         let fee_config = read_protocol_fee_config(&env).unwrap_or(fee::FeeConfig {
@@ -750,6 +762,7 @@ impl CreatorKeysContract {
                 holder_count: profile.holder_count,
                 creator_bps: fee_config.creator_bps,
                 protocol_bps: fee_config.protocol_bps,
+                curve_preset: preset,
             },
         );
 
@@ -783,6 +796,19 @@ impl CreatorKeysContract {
         }
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+        // NEW: compute price based on current supply and curve preset
+    let price = bonding_curve::compute_price(profile.supply, 1, profile.curve_preset)
+        .ok_or(ContractError::Overflow)?;
+
+    assert_buy_price_slippage(price, max_price)?;
+
+    if payment < price {
+        return Err(ContractError::InsufficientPayment);
+    }
+
+    let balance_key = constants::storage::key_balance(&creator, &buyer);
+    let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
         let balance_key = constants::storage::key_balance(&creator, &buyer);
         // Missing balance entries are treated as zero to keep storage sparse.
@@ -846,6 +872,24 @@ impl CreatorKeysContract {
 
         assert_sell_proceeds_slippage(&env, min_proceeds)?;
 
+
+        // NEW: compute sell price based on current supply (before decrement) and curve preset
+    // Symmetry: sell price at supply S for 1 key == buy price at supply S-1 for 1 key
+    let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
+        .ok_or(ContractError::Overflow)?;
+
+    // Update slippage check to use computed price
+    let (creator_fee, protocol_fee) =
+        Self::compute_fees_for_payment(env.clone(), price)?;
+    let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
+    let proceeds = fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?;
+
+    if let Some(min) = min_proceeds {
+        if proceeds < min {
+            return Err(ContractError::SlippageExceeded);
+        }
+    }
+
         let new_balance = current_balance
             .checked_sub(1)
             .ok_or(ContractError::SellUnderflow)?;
@@ -866,8 +910,15 @@ impl CreatorKeysContract {
         // supply/holder_count invariants for subsequent reads.
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
-        accrue_sell_protocol_fee(&env)?;
 
+// Accrue fees based on computed price
+    if let Some(config) = read_protocol_fee_config(&env) {
+        let (creator_fee, protocol_fee) =
+            fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
+                .ok_or(ContractError::Overflow)?;
+        credit_creator_fee_recipient_balance(&env, &creator, creator_fee)?;
+        credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+    }
         env.events()
             .publish((events::SELL_EVENT_NAME, creator, seller), profile.supply);
 
@@ -958,6 +1009,7 @@ impl CreatorKeysContract {
                 supply: profile.supply,
                 is_registered: true,
                 registered_at: profile.registered_at,
+                curve_preset: profile.curve_preset,
             },
             None => CreatorDetailsView {
                 creator,
@@ -965,6 +1017,7 @@ impl CreatorKeysContract {
                 supply: 0,
                 is_registered: false,
                 registered_at: 0,
+                curve_preset: CurvePreset::Linear, // Default for unregistered
             },
         }
     }
@@ -1005,6 +1058,7 @@ impl CreatorKeysContract {
                     supply: profile.supply,
                     is_registered: true,
                     registered_at: profile.registered_at,
+                    curve_preset: profile.curve_preset,
                 },
                 None => CreatorDetailsView {
                     creator,
@@ -1012,6 +1066,7 @@ impl CreatorKeysContract {
                     supply: 0,
                     is_registered: false,
                     registered_at: 0,
+                    curve_preset: CurvePreset::Linear, // Default for unregistered
                 },
             };
             results.push_back(view);
@@ -1125,6 +1180,14 @@ impl CreatorKeysContract {
     pub fn get_creator_treasury_share(env: Env, creator: Address) -> Result<u32, ContractError> {
         Self::get_creator_fee_bps(env, creator)
     }
+
+    /// Read-only view: returns the curve preset for a registered creator.
+///
+/// Fails with [`ContractError::NotRegistered`] if the creator does not exist.
+pub fn get_curve_preset(env: Env, creator: Address) -> Result<CurvePreset, ContractError> {
+    let profile = read_registered_creator_profile(&env, &creator)?;
+    Ok(profile.curve_preset)
+}
 
     /// Read-only view: returns the configured protocol treasury share in basis points.
     ///
@@ -1406,35 +1469,53 @@ impl CreatorKeysContract {
     /// Returns a [`QuoteResponse`] containing the current price and fee breakdown.
     /// Fees are calculated based on the fixed key price.
     pub fn get_buy_quote(env: Env, creator: Address) -> Result<QuoteResponse, ContractError> {
-        let Some(price) = resolve_quote_inputs(&env, &creator)? else {
-            return Ok(zero_quote_response());
-        };
-        let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-        checked_format_quote_response(price, creator_fee, protocol_fee, true)
+    let profile = read_registered_creator_profile(&env, &creator)?;
+
+    let price = bonding_curve::compute_price(profile.supply, 1, profile.curve_preset)
+        .ok_or(ContractError::Overflow)?;
+
+    if price == 0 {
+        return Ok(zero_quote_response());
     }
+
+    if price > fee::MAX_SAFE_AMOUNT {
+        return Err(ContractError::Overflow);
+    }
+
+    let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
+    checked_format_quote_response(price, creator_fee, protocol_fee, true)
+}
 
     /// Read-only view: returns a quote for selling a key.
     ///
     /// Returns a [`QuoteResponse`] containing the current price and fee breakdown.
     /// Fees are calculated based on the fixed key price.
     /// Rejects with [`ContractError::InsufficientBalance`] if the holder has no keys.
-    pub fn get_sell_quote(
-        env: Env,
-        creator: Address,
-        holder: Address,
-    ) -> Result<QuoteResponse, ContractError> {
-        let Some(price) = resolve_quote_inputs(&env, &creator)? else {
-            return Ok(zero_quote_response());
-        };
+   pub fn get_sell_quote(
+    env: Env,
+    creator: Address,
+    holder: Address,
+) -> Result<QuoteResponse, ContractError> {
+    let profile = read_registered_creator_profile(&env, &creator)?;
 
-        let balance = Self::get_key_balance(env.clone(), creator, holder);
-        if balance == 0 {
-            return Err(ContractError::InsufficientBalance);
-        }
-
-        let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-        checked_format_quote_response(price, creator_fee, protocol_fee, false)
+    let balance = Self::get_key_balance(env.clone(), creator.clone(), holder);
+    if balance == 0 {
+        return Err(ContractError::InsufficientBalance);
     }
+
+    let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
+        .ok_or(ContractError::Overflow)?;
+
+    if price == 0 {
+        return Ok(zero_quote_response());
+    }
+
+    if price > fee::MAX_SAFE_AMOUNT {
+        return Err(ContractError::Overflow);
+    }
+
+    let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
+    checked_format_quote_response(price, creator_fee, protocol_fee, false)
 }
 
 #[cfg(test)]
