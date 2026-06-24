@@ -67,6 +67,12 @@ pub const SELL_EVENT_DATA_FIELDS: [&str; 1] = ["supply"];
 /// Number of fields in the sell event data payload.
 pub const SELL_EVENT_FIELD_COUNT: usize = SELL_EVENT_DATA_FIELDS.len();
 
+/// Event name for dividend distribution.
+pub const DIVIDEND_DISTRIBUTED: Symbol = symbol_short!("divdist");
+
+/// Event name for dividend claim.
+pub const DIVIDEND_CLAIMED: Symbol = symbol_short!("divclm");
+
 /// Stable registration event payload for downstream indexers.
 ///
 /// Event shape:
@@ -86,6 +92,26 @@ pub struct CreatorRegisteredEvent {
     pub protocol_bps: u32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DividendDistributedEvent {
+    pub creator_id: Address,
+    pub total_amount: i128,
+    pub snapshot_supply: i128,
+    pub ledger: u32,
+    pub protocol_fee: i128,
+    pub distributed_amount: i128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DividendClaimedEvent {
+    pub creator_id: Address,
+    pub claimant: Address,
+    pub amount: i128,
+}
+
+
 /// Shared registration event topics tuple.
 pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
     (REGISTER_EVENT_NAME, creator.clone())
@@ -94,4 +120,12 @@ pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
 /// Shared buy event topics tuple.
 pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+pub fn dividend_distributed_topics(creator: &Address) -> (Symbol, Address) {
+    (DIVIDEND_DISTRIBUTED, creator.clone())
+}
+
+pub fn dividend_claimed_topics(creator: &Address, claimant: &Address) -> (Symbol, Address, Address) {
+    (DIVIDEND_CLAIMED, creator.clone(), claimant.clone())
 }
