@@ -20,7 +20,7 @@
 //! - `supply`: Number of keys in circulation after the trade (for buy/sell events)
 //! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
-use soroban_sdk::{contracttype, symbol_short, Address, String, Symbol};
+use soroban_sdk::{Address, String, Symbol, contracttype, symbol_short};
 
 /// Event name for protocol pause.
 pub const PAUSE_EVENT_NAME: Symbol = symbol_short!("pause");
@@ -111,7 +111,6 @@ pub struct DividendClaimedEvent {
     pub amount: i128,
 }
 
-
 /// Shared registration event topics tuple.
 pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
     (REGISTER_EVENT_NAME, creator.clone())
@@ -126,6 +125,9 @@ pub fn dividend_distributed_topics(creator: &Address) -> (Symbol, Address) {
     (DIVIDEND_DISTRIBUTED, creator.clone())
 }
 
-pub fn dividend_claimed_topics(creator: &Address, claimant: &Address) -> (Symbol, Address, Address) {
+pub fn dividend_claimed_topics(
+    creator: &Address,
+    claimant: &Address,
+) -> (Symbol, Address, Address) {
     (DIVIDEND_CLAIMED, creator.clone(), claimant.clone())
 }
