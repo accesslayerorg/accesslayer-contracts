@@ -190,7 +190,7 @@ fn test_duplicate_registration_fails() {
     client.register_creator(&creator, &handle, &None);
 
     // Second registration should fail with AlreadyRegistered error
-    let result = client.try_register_creator(&creator, &handle);
+    let result = client.try_register_creator(&creator, &handle, &None);
     assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
     assert_no_events(&env);
 }
