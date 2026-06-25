@@ -68,6 +68,7 @@ pub enum ContractError {
     NoDividendClaimable = 19,
     ZeroDistributionAmount = 20,
     NoKeyHolders = 21,
+    InvalidAmount = 22,
 }
 
 pub mod fee {
