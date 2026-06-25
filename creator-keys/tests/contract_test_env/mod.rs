@@ -152,7 +152,10 @@ pub fn set_stored_key_price(env: &Env, contract_id: &Address, price: i128) {
 /// This helper ensures that test fixtures stay aligned with the contract's
 /// pricing logic and makes magic numbers in assertions more descriptive.
 /// Computes the expected buy price for a given supply value and curve preset.
-pub fn compute_expected_buy_price(supply: u32, preset: creator_keys::bonding_curve::CurvePreset) -> i128 {
+pub fn compute_expected_buy_price(
+    supply: u32,
+    preset: creator_keys::bonding_curve::CurvePreset,
+) -> i128 {
     creator_keys::bonding_curve::compute_price(supply, 1, preset).unwrap()
 }
 
@@ -230,7 +233,10 @@ impl ContractStateSnapshot {
 /// `price - creator_fee - protocol_fee`, computed via the `fee` helpers, so this
 /// returns the gross figure that `get_sell_quote().price` is asserted against.
 /// Computes the expected (gross) sell price for a given supply value and curve preset.
-pub fn compute_expected_sell_price(supply: u32, preset: creator_keys::bonding_curve::CurvePreset) -> i128 {
+pub fn compute_expected_sell_price(
+    supply: u32,
+    preset: creator_keys::bonding_curve::CurvePreset,
+) -> i128 {
     // Sell price at supply S is the buy price at supply S-1
     if supply == 0 {
         0
