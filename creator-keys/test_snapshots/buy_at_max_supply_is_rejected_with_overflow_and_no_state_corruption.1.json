@@ -44,7 +44,9 @@
                 },
                 {
                   "string": "maxed"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

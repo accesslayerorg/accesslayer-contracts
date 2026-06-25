@@ -70,6 +70,9 @@ pub enum ContractError {
     NoDividendClaimable = 19,
     ZeroDistributionAmount = 20,
     NoKeyHolders = 21,
+    AllocationLocked = 22,
+    AlreadyClaimed = 23,
+    SupplyCapExceeded = 24,
 }
 
 pub mod fee {
@@ -247,6 +250,14 @@ pub mod constants {
         pub fn holder_dividend_pending(creator: &Address, holder: &Address) -> DataKey {
             DataKey::HolderDividendPending(creator.clone(), holder.clone())
         }
+
+        pub fn locked_allocation(creator: &Address) -> DataKey {
+            DataKey::LockedAllocation(creator.clone())
+        }
+
+        pub fn max_supply(creator: &Address) -> DataKey {
+            DataKey::MaxSupply(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -380,6 +391,13 @@ pub const PROTOCOL_STATE_VERSION_INITIAL: u32 = 1;
 ///
 /// Matches the standard Soroban token decimal convention (7 decimal places).
 pub const KEY_DECIMALS: u32 = 7;
+
+/// TTL extension for creator storage entries on each trade.
+///
+/// This value is added to the TTL of all creator-related storage keys
+/// (creator config, supply, holder map, fee config) after every successful
+/// buy or sell operation to prevent active creator state from expiring.
+pub const CREATOR_TTL_LEDGERS: u32 = 6311520; // ~2 years at 5s per ledger
 pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
 
@@ -404,6 +422,20 @@ pub enum DataKey {
     DividendPerKeyAccumulated(Address),
     HolderDividendCheckpoint(Address, Address),
     HolderDividendPending(Address, Address),
+    LockedAllocation(Address),
+    MaxSupply(Address),
+}
+
+/// Time-locked key allocation for creator self-vesting.
+///
+/// When a creator registers, they may optionally lock a portion of keys
+/// that cannot be claimed until a specified ledger height is reached.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct LockedAllocation {
+    pub amount: u32,
+    pub unlock_ledger: u32,
+    pub claimed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -798,6 +830,50 @@ fn compute_claimable_dividend(env: &Env, creator: &Address, holder: &Address) ->
     pending.saturating_add(earned)
 }
 
+/// Extends TTL for all creator-related storage keys.
+///
+/// This function extends the TTL of the creator's primary storage entries
+/// to prevent active creator state from expiring. Called after successful
+/// buy and sell operations.
+fn extend_creator_ttl(env: &Env, creator: &Address) {
+    let current_ledger = env.ledger().sequence();
+    let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
+    let threshold = current_ledger;
+
+    let creator_key = constants::storage::creator(creator);
+    env.storage()
+        .persistent()
+        .extend_ttl(&creator_key, threshold, extend_to);
+
+    let fee_balance_key = constants::storage::creator_fee_balance(creator);
+    if env.storage().persistent().has(&fee_balance_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&fee_balance_key, threshold, extend_to);
+    }
+
+    let dividend_key = constants::storage::dividend_accumulator(creator);
+    if env.storage().persistent().has(&dividend_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&dividend_key, threshold, extend_to);
+    }
+
+    let locked_key = constants::storage::locked_allocation(creator);
+    if env.storage().persistent().has(&locked_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&locked_key, threshold, extend_to);
+    }
+
+    let max_supply_key = constants::storage::max_supply(creator);
+    if env.storage().persistent().has(&max_supply_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&max_supply_key, threshold, extend_to);
+    }
+}
+
 #[contract]
 pub struct CreatorKeysContract;
 
@@ -815,6 +891,9 @@ impl CreatorKeysContract {
     ///   length returns [`ContractError::HandleTooShort`], above the maximum
     ///   returns [`ContractError::HandleTooLong`], and any disallowed byte
     ///   returns [`ContractError::InvalidHandleCharacter`].
+    /// - `locked_allocation`: optional time-locked key allocation for creator self-vesting.
+    ///   If provided, `unlock_ledger` must be strictly greater than current ledger.
+    /// - `max_supply`: optional maximum supply cap. If provided, must be greater than zero.
     pub fn register_creator(
         env: Env,
         creator: Address,
@@ -838,7 +917,7 @@ impl CreatorKeysContract {
         let profile = CreatorProfile {
             creator: creator.clone(),
             handle,
-            supply: 0,
+            supply,
             holder_count: 0,
             fee_recipient: creator.clone(),
             registered_at: env.ledger().sequence(),
@@ -853,6 +932,12 @@ impl CreatorKeysContract {
         // Persist profile before event publication so indexers reading contract state
         // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
+        // Set initial TTL for creator storage
+        let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, current_ledger, extend_to);
+
         env.events().publish(
             events::register_event_topics(&profile.creator),
             events::CreatorRegisteredEvent {
@@ -934,6 +1019,9 @@ impl CreatorKeysContract {
             (profile.supply, payment),
         );
 
+        // Extend TTL for creator storage after successful buy
+        extend_creator_ttl(&env, &creator);
+
         Ok(profile.supply)
     }
 
@@ -1001,8 +1089,13 @@ impl CreatorKeysContract {
             credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
         }
 
-        env.events()
-            .publish((events::SELL_EVENT_NAME, creator, seller), profile.supply);
+        env.events().publish(
+            (events::SELL_EVENT_NAME, creator.clone(), seller),
+            profile.supply,
+        );
+
+        // Extend TTL for creator storage after successful sell
+        extend_creator_ttl(&env, &creator);
 
         Ok(profile.supply)
     }
@@ -1698,6 +1791,157 @@ impl CreatorKeysContract {
     /// Never mutates state.
     pub fn get_claimable_dividend(env: Env, creator: Address, wallet: Address) -> i128 {
         compute_claimable_dividend(&env, &creator, &wallet)
+    }
+
+    /// Claims time-locked key allocation for a creator.
+    ///
+    /// Only callable by the creator after the unlock_ledger has been reached.
+    /// Transfers the locked keys to the creator's wallet and can only be called once.
+    pub fn claim_locked_allocation(env: Env, creator: Address) -> Result<(), ContractError> {
+        creator.require_auth();
+        assert_not_paused(&env)?;
+
+        let locked_key = constants::storage::locked_allocation(&creator);
+        let mut locked: LockedAllocation = env
+            .storage()
+            .persistent()
+            .get(&locked_key)
+            .ok_or(ContractError::NotRegistered)?;
+
+        if locked.claimed {
+            return Err(ContractError::AlreadyClaimed);
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger < locked.unlock_ledger {
+            return Err(ContractError::AllocationLocked);
+        }
+
+        // Mark as claimed
+        locked.claimed = true;
+        env.storage().persistent().set(&locked_key, &locked);
+
+        // Transfer keys to creator's balance
+        let balance_key = constants::storage::key_balance(&creator, &creator);
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let new_balance = current_balance
+            .checked_add(locked.amount)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&balance_key, &new_balance);
+
+        // Update holder count if this is the creator's first key
+        if current_balance == 0 {
+            let mut profile = read_registered_creator_profile(&env, &creator)?;
+            profile.holder_count = profile
+                .holder_count
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+            let profile_key = constants::storage::creator(&creator);
+            env.storage().persistent().set(&profile_key, &profile);
+        }
+
+        env.events().publish(
+            (events::ALLOCATION_CLAIMED_EVENT_NAME, creator.clone()),
+            events::AllocationClaimedEvent {
+                creator_id: creator.clone(),
+                amount: locked.amount,
+                ledger: current_ledger,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns the locked allocation for a creator.
+    ///
+    /// Returns `None` if no locked allocation exists.
+    pub fn get_locked_allocation(env: Env, creator: Address) -> Option<LockedAllocation> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::locked_allocation(&creator))
+    }
+
+    /// Updates the protocol fee recipient address.
+    ///
+    /// Only callable by the current protocol admin. Emits an event with old and new addresses.
+    pub fn update_protocol_fee_recipient(
+        env: Env,
+        admin: Address,
+        new_recipient: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        validate_non_zero_address(&env, &new_recipient)?;
+
+        let old_recipient: Address = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_FEE_RECIPIENT)
+            .ok_or(ContractError::Unauthorized)?;
+
+        if old_recipient == new_recipient {
+            return Ok(());
+        }
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &new_recipient);
+
+        env.events().publish(
+            (events::PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME, admin),
+            events::ProtocolFeeRecipientUpdatedEvent {
+                old_recipient,
+                new_recipient,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Updates the creator fee recipient address.
+    ///
+    /// Only callable by the current fee recipient for that creator (self-rotation).
+    pub fn update_creator_fee_recipient(
+        env: Env,
+        creator: Address,
+        new_recipient: Address,
+    ) -> Result<(), ContractError> {
+        let profile = read_registered_creator_profile(&env, &creator)?;
+        let current_recipient = profile.fee_recipient.clone();
+        current_recipient.require_auth();
+        validate_non_zero_address(&env, &new_recipient)?;
+
+        if current_recipient == new_recipient {
+            return Ok(());
+        }
+
+        let mut profile = profile;
+        profile.fee_recipient = new_recipient.clone();
+        let key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&key, &profile);
+
+        env.events().publish(
+            (
+                events::CREATOR_FEE_RECIPIENT_UPDATED_EVENT_NAME,
+                creator.clone(),
+            ),
+            events::CreatorFeeRecipientUpdatedEvent {
+                creator_id: creator,
+                old_recipient: current_recipient,
+                new_recipient,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns the max supply cap for a creator.
+    ///
+    /// Returns `None` if no max supply cap is set (uncapped).
+    pub fn get_max_supply(env: Env, creator: Address) -> Option<u32> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::max_supply(&creator))
     }
 }
 

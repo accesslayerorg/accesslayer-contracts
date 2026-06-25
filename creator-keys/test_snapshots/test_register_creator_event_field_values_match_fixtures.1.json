@@ -44,7 +44,9 @@
                 },
                 {
                   "string": "fixture_handle"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

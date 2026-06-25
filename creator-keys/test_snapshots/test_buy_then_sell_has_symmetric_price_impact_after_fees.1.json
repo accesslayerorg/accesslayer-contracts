@@ -69,7 +69,9 @@
                 },
                 {
                   "string": "carol"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

@@ -45,7 +45,9 @@
                 },
                 {
                   "string": "creator6"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

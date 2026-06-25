@@ -69,7 +69,9 @@
                 },
                 {
                   "string": "edge1"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

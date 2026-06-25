@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "dave"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

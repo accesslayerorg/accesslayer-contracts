@@ -20,7 +20,9 @@
                 },
                 {
                   "string": "creator2"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

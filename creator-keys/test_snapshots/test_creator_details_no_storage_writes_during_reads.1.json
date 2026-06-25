@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "charlie"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

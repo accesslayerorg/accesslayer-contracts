@@ -69,7 +69,9 @@
                 },
                 {
                   "string": "dave"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

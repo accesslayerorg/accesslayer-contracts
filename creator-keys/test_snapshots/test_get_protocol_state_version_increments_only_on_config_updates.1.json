@@ -71,7 +71,9 @@
                 },
                 {
                   "string": "alice"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

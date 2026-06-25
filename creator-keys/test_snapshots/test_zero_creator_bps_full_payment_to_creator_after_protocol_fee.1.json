@@ -70,7 +70,9 @@
                 },
                 {
                   "string": "alice"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

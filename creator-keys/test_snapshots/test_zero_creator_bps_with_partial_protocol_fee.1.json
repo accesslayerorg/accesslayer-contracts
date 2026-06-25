@@ -70,7 +70,9 @@
                 },
                 {
                   "string": "bob"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

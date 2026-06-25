@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "creator0"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -123,7 +125,9 @@
                 },
                 {
                   "string": "creator1"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -227,7 +231,9 @@
                 },
                 {
                   "string": "creator2"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -331,7 +337,9 @@
                 },
                 {
                   "string": "creator3"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

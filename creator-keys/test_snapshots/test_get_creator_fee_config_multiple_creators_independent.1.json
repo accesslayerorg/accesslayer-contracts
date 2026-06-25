@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "creator_one"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -41,7 +43,9 @@
                 },
                 {
                   "string": "creator_two"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
