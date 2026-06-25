@@ -3,8 +3,8 @@ pub mod quote_view_errors;
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
 
-pub mod events;
 pub mod bonding_curve;
+pub mod events;
 use bonding_curve::CurvePreset;
 
 #[contracterror]
@@ -1441,7 +1441,6 @@ pub fn get_curve_preset(env: Env, creator: Address) -> Result<CurvePreset, Contr
     }
 
       /// Read-only view: returns a quote for buying a key.
-    ///
     /// Returns a [`QuoteResponse`] containing the current price and fee breakdown.
     /// Fees are calculated based on the fixed key price.
     pub fn get_buy_quote(env: Env, creator: Address) -> Result<QuoteResponse, ContractError> {
@@ -1493,7 +1492,7 @@ pub fn get_curve_preset(env: Env, creator: Address) -> Result<CurvePreset, Contr
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
         checked_format_quote_response(price, creator_fee, protocol_fee, false)
     }
-}   // <-- THIS } closes impl CreatorKeysContract
+}
 
 #[cfg(test)]
 mod tests {
