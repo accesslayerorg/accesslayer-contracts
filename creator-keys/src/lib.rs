@@ -67,6 +67,9 @@ pub enum ContractError {
     SlippageExceeded = 16,
     ProtocolPaused = 17,
     Unauthorized = 18,
+    NoDividendClaimable = 19,
+    ZeroDistributionAmount = 20,
+    NoKeyHolders = 21,
 }
 
 pub mod fee {
@@ -232,6 +235,18 @@ pub mod constants {
         pub fn key_balance(creator: &Address, holder: &Address) -> DataKey {
             key_balance_key(creator, holder)
         }
+
+        pub fn dividend_accumulator(creator: &Address) -> DataKey {
+            DataKey::DividendPerKeyAccumulated(creator.clone())
+        }
+
+        pub fn holder_dividend_checkpoint(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::HolderDividendCheckpoint(creator.clone(), holder.clone())
+        }
+
+        pub fn holder_dividend_pending(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::HolderDividendPending(creator.clone(), holder.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -254,6 +269,19 @@ pub mod constants {
         pub const TREASURY_SHARE: &str = "get_creator_treasury_share";
         pub const NAME: &str = "get_key_name";
         pub const SYMBOL: &str = "get_key_symbol";
+    }
+
+    /// Default values for fee bounds used across validation paths and test fixtures.
+    ///
+    /// These constants represent the canonical starting point for a fee configuration.
+    /// Keeping them here ensures a single source of truth: any adjustment to the
+    /// default split only needs to happen in one place.
+    pub mod fee_bounds {
+        /// Default creator share in basis points (90%).
+        pub const DEFAULT_CREATOR_BPS: u32 = 9_000;
+
+        /// Default protocol share in basis points (10%).
+        pub const DEFAULT_PROTOCOL_BPS: u32 = 1_000;
     }
 }
 
@@ -373,6 +401,9 @@ pub enum DataKey {
     CreatorFeeBalance(Address),
     ProtocolStateVersion,
     Paused,
+    DividendPerKeyAccumulated(Address),
+    HolderDividendCheckpoint(Address, Address),
+    HolderDividendPending(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -703,6 +734,70 @@ fn checked_format_quote_response(
     })
 }
 
+fn read_dividend_accumulator(env: &Env, creator: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::dividend_accumulator(creator))
+        .unwrap_or(0)
+}
+
+/// Settles pending dividends for a holder before their balance changes.
+///
+/// On a holder's first settlement the checkpoint is initialised to the current
+/// accumulator so they earn nothing retroactively. Earned and pending amounts
+/// use checked arithmetic to avoid overflow.
+fn settle_holder_dividends(
+    env: &Env,
+    creator: &Address,
+    holder: &Address,
+    current_balance: u32,
+) -> Result<(), ContractError> {
+    let accumulator = read_dividend_accumulator(env, creator);
+    let checkpoint_key = constants::storage::holder_dividend_checkpoint(creator, holder);
+    // Default to current accumulator on first settlement so no retroactive earnings.
+    let checkpoint: i128 = env
+        .storage()
+        .persistent()
+        .get(&checkpoint_key)
+        .unwrap_or(accumulator);
+
+    let pending_key = constants::storage::holder_dividend_pending(creator, holder);
+    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+
+    let diff = accumulator
+        .checked_sub(checkpoint)
+        .ok_or(ContractError::Overflow)?;
+    let earned = (current_balance as i128)
+        .checked_mul(diff)
+        .ok_or(ContractError::Overflow)?;
+    let new_pending = pending.checked_add(earned).ok_or(ContractError::Overflow)?;
+
+    env.storage().persistent().set(&pending_key, &new_pending);
+    env.storage()
+        .persistent()
+        .set(&checkpoint_key, &accumulator);
+    Ok(())
+}
+
+fn compute_claimable_dividend(env: &Env, creator: &Address, holder: &Address) -> i128 {
+    let accumulator = read_dividend_accumulator(env, creator);
+    let checkpoint_key = constants::storage::holder_dividend_checkpoint(creator, holder);
+    let checkpoint: i128 = env
+        .storage()
+        .persistent()
+        .get(&checkpoint_key)
+        .unwrap_or(accumulator);
+    let pending_key = constants::storage::holder_dividend_pending(creator, holder);
+    let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+
+    let balance_key = constants::storage::key_balance(creator, holder);
+    let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+    let diff = accumulator.saturating_sub(checkpoint);
+    let earned = (balance as i128).saturating_mul(diff);
+    pending.saturating_add(earned)
+}
+
 #[contract]
 pub struct CreatorKeysContract;
 
@@ -803,6 +898,9 @@ impl CreatorKeysContract {
         let balance_key = constants::storage::key_balance(&creator, &buyer);
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
+        // Settle dividends before balance changes so earnings are captured at old balance.
+        settle_holder_dividends(&env, &creator, &buyer, current_balance)?;
+
         if current_balance == 0 {
             profile.holder_count = profile
                 .holder_count
@@ -856,21 +954,10 @@ impl CreatorKeysContract {
             return Err(ContractError::InsufficientBalance);
         }
 
-        // NEW: compute sell price based on current supply (before decrement) and curve preset
-        let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
-            .ok_or(ContractError::Overflow)?;
+        // Settle dividends before balance changes so earnings are captured at old balance.
+        settle_holder_dividends(&env, &creator, &seller, current_balance)?;
 
-        // Compute proceeds for slippage check
-        let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-        let fees =
-            fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
-        let proceeds = fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?;
-
-        if let Some(min) = min_proceeds {
-            if proceeds < min {
-                return Err(ContractError::SlippageExceeded);
-            }
-        }
+        assert_sell_proceeds_slippage(&env, min_proceeds)?;
 
         let new_balance = current_balance
             .checked_sub(1)
@@ -1075,8 +1162,9 @@ impl CreatorKeysContract {
 
     /// Read-only view: returns the display name for a creator's key.
     ///
-    /// Returns the creator's handle for registered creators. Fails with
-    /// [`ContractError::NotRegistered`] if the creator is not registered.
+    /// Does not mutate the contract state. Returns the creator's handle for
+    /// registered creators. Fails with [`ContractError::NotRegistered`] if
+    /// the creator is not registered.
     pub fn get_key_name(env: Env, creator: Address) -> Result<String, ContractError> {
         let profile = read_registered_creator_profile(&env, &creator)?;
         Ok(profile.handle)
@@ -1496,6 +1584,106 @@ impl CreatorKeysContract {
 
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
         checked_format_quote_response(price, creator_fee, protocol_fee, false)
+    }
+
+    /// Deposits `amount` as a dividend for all current key holders of `creator`.
+    ///
+    /// The protocol fee is deducted first; the remainder is distributed proportionally
+    /// by dividing net / total_supply (integer floor). Dust from the division is
+    /// lost in v1. The per-key accumulator grows by net / supply with each call.
+    pub fn distribute_dividend(
+        env: Env,
+        creator: Address,
+        distributor: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        distributor.require_auth();
+        assert_not_paused(&env)?;
+
+        if amount <= 0 {
+            return Err(ContractError::ZeroDistributionAmount);
+        }
+
+        let profile = read_registered_creator_profile(&env, &creator)?;
+
+        if profile.supply == 0 {
+            return Err(ContractError::NoKeyHolders);
+        }
+
+        let config = read_required_protocol_fee_config(&env)?;
+        let (net_amount, protocol_amount) =
+            fee::compute_fee_split(amount, config.creator_bps, config.protocol_bps);
+
+        credit_protocol_fee_recipient_balance(&env, protocol_amount)?;
+
+        let per_key_net = net_amount / profile.supply as i128;
+
+        let acc_key = constants::storage::dividend_accumulator(&creator);
+        let accumulator: i128 = env.storage().persistent().get(&acc_key).unwrap_or(0);
+        let new_accumulator = accumulator
+            .checked_add(per_key_net)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&acc_key, &new_accumulator);
+
+        env.events().publish(
+            events::dividend_distributed_topics(&creator),
+            events::DividendDistributedEvent {
+                creator: creator.clone(),
+                total_amount: amount,
+                snapshot_supply: profile.supply,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Claims all accrued dividends for `holder` on `creator`'s keys.
+    ///
+    /// Reads the current claimable amount (pending + earned since last checkpoint),
+    /// resets both pending and checkpoint, and returns the total claimed amount.
+    /// Errors with `NoDividendClaimable` when nothing is due.
+    pub fn claim_dividend(
+        env: Env,
+        creator: Address,
+        holder: Address,
+    ) -> Result<i128, ContractError> {
+        holder.require_auth();
+        assert_not_paused(&env)?;
+
+        let claimable = compute_claimable_dividend(&env, &creator, &holder);
+        if claimable == 0 {
+            return Err(ContractError::NoDividendClaimable);
+        }
+
+        let accumulator = read_dividend_accumulator(&env, &creator);
+        env.storage().persistent().set(
+            &constants::storage::holder_dividend_pending(&creator, &holder),
+            &0i128,
+        );
+        env.storage().persistent().set(
+            &constants::storage::holder_dividend_checkpoint(&creator, &holder),
+            &accumulator,
+        );
+
+        env.events().publish(
+            events::dividend_claimed_topics(&creator, &holder),
+            events::DividendClaimedEvent {
+                creator: creator.clone(),
+                claimant: holder.clone(),
+                amount: claimable,
+            },
+        );
+
+        Ok(claimable)
+    }
+
+    /// Read-only view: returns the total unclaimed dividend amount for `wallet` on `creator`.
+    ///
+    /// Returns `0` when no dividends have accumulated or wallet holds no keys.
+    /// Never mutates state.
+    pub fn get_claimable_dividend(env: Env, creator: Address, wallet: Address) -> i128 {
+        compute_claimable_dividend(&env, &creator, &wallet)
     }
 }
 

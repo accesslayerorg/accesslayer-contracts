@@ -97,3 +97,48 @@ pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
 pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())
 }
+
+/// Event name for dividend distribution.
+pub const DIVIDEND_DISTRIBUTED_EVENT_NAME: Symbol = symbol_short!("div_dist");
+
+/// Event name for dividend claim.
+pub const DIVIDEND_CLAIMED_EVENT_NAME: Symbol = symbol_short!("div_claim");
+
+/// Stable field order for dividend distributed event payloads.
+pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
+    ["creator", "total_amount", "snapshot_supply", "ledger"];
+
+/// Stable field order for dividend claimed event payloads.
+pub const DIVIDEND_CLAIMED_DATA_FIELDS: [&str; 3] = ["creator", "claimant", "amount"];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DividendDistributedEvent {
+    pub creator: Address,
+    pub total_amount: i128,
+    pub snapshot_supply: u32,
+    pub ledger: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DividendClaimedEvent {
+    pub creator: Address,
+    pub claimant: Address,
+    pub amount: i128,
+}
+
+pub fn dividend_distributed_topics(creator: &Address) -> (Symbol, Address) {
+    (DIVIDEND_DISTRIBUTED_EVENT_NAME, creator.clone())
+}
+
+pub fn dividend_claimed_topics(
+    creator: &Address,
+    claimant: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        DIVIDEND_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        claimant.clone(),
+    )
+}
