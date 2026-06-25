@@ -25,7 +25,7 @@ const CREATOR_BPS: u32 = 9_000;
 const PROTOCOL_BPS: u32 = 1_000;
 
 /// Computes the expected QuoteResponse using the pre-preset flat formula.
-fn expected_buy_quote(key_price: i128, creator_bps: u32, protocol_bps: u32) -> QuoteResponse {
+fn expected_buy_quote(key_price: i128, _creator_bps: u32, protocol_bps: u32) -> QuoteResponse {
     let protocol_fee = key_price * protocol_bps as i128 / 10_000;
     let creator_fee = key_price - protocol_fee;
     QuoteResponse {
@@ -37,7 +37,7 @@ fn expected_buy_quote(key_price: i128, creator_bps: u32, protocol_bps: u32) -> Q
 }
 
 /// Computes the expected sell QuoteResponse using the pre-preset flat formula.
-fn expected_sell_quote(key_price: i128, creator_bps: u32, protocol_bps: u32) -> QuoteResponse {
+fn expected_sell_quote(key_price: i128, _creator_bps: u32, protocol_bps: u32) -> QuoteResponse {
     let protocol_fee = key_price * protocol_bps as i128 / 10_000;
     let creator_fee = key_price - protocol_fee;
     QuoteResponse {
