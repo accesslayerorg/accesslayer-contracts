@@ -188,9 +188,9 @@ mod tests {
     fn test_all_equal_at_zero_supply() {
         let l = compute_linear_price(0, 1).unwrap();
         let q = compute_quadratic_price(0, 1).unwrap();
-let f = compute_flat_price(0, 1).unwrap();
-assert_eq!(q, BASE_PRICE / QUADRATIC_DIVISOR); // or whatever expected value
-assert_eq!(f, BASE_PRICE);
+        let f = compute_flat_price(0, 1).unwrap();
+        assert_eq!(q, BASE_PRICE / QUADRATIC_DIVISOR); // or whatever expected value
+        assert_eq!(f, BASE_PRICE);
         // At supply=0, all curves should start at BASE_PRICE
         assert_eq!(l, BASE_PRICE);
         // Quadratic: BASE_PRICE * 1 / 10 — this is actually lower, so we adjust
