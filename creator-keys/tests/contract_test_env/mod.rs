@@ -94,7 +94,7 @@ pub fn register_test_creator(
     handle: &str,
 ) -> Address {
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle));
+    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
     creator
 }
 
@@ -119,7 +119,7 @@ pub fn register_test_creator_with_fee_config(
     let admin = Address::generate(env);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle));
+    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
     creator
 }
 
@@ -266,4 +266,33 @@ pub fn compute_expected_balance_after_trades(
         }
     }
     balance as u32
+}
+
+/// Distributes a dividend from `distributor` to holders of `creator`'s keys.
+pub fn distribute_test_dividend(
+    client: &CreatorKeysContractClient<'_>,
+    creator: &Address,
+    distributor: &Address,
+    amount: i128,
+) {
+    client.distribute_dividend(creator, distributor, &amount);
+}
+
+/// Computes the expected claimable dividend for a holder given distribution parameters.
+///
+/// Mirrors the contract's per-key accumulator model:
+/// `net = creator_amount / total_supply`; `claimable = holder_balance * net`.
+pub fn compute_expected_holder_dividend(
+    amount: i128,
+    holder_balance: u32,
+    total_supply: u32,
+    protocol_bps: u32,
+) -> i128 {
+    if total_supply == 0 || holder_balance == 0 {
+        return 0;
+    }
+    let protocol_amount = (amount * protocol_bps as i128) / 10_000;
+    let net_amount = amount - protocol_amount;
+    let per_key = net_amount / total_supply as i128;
+    per_key * holder_balance as i128
 }

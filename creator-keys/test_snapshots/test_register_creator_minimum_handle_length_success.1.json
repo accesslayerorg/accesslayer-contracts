@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "aaa"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

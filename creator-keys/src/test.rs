@@ -1,7 +1,406 @@
 use super::*;
-use soroban_sdk::testutils::Events;
+use soroban_sdk::testutils::{Address as _, Events, Ledger};
 use soroban_sdk::TryIntoVal;
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{Address, Env, String};
+
+// --- Time-locked key allocation tests (#404) ---
+
+#[test]
+fn test_register_creator_with_locked_allocation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    let locked = LockedAllocation {
+        amount: 100,
+        unlock_ledger: 1000,
+        claimed: false,
+    };
+
+    client.register_creator(&creator, &handle, &Some(locked), &None);
+
+    let stored = client.get_locked_allocation(&creator).unwrap();
+    assert_eq!(stored.amount, 100);
+    assert_eq!(stored.unlock_ledger, 1000);
+    assert!(!stored.claimed);
+
+    let profile = client.get_creator(&creator);
+    assert_eq!(profile.supply, 100);
+}
+
+#[test]
+fn test_register_creator_locked_allocation_reverts_past_ledger() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let mut ledger_info = env.ledger().get();
+    ledger_info.sequence_number = 500;
+    env.ledger().set(ledger_info.clone());
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    let locked = LockedAllocation {
+        amount: 100,
+        unlock_ledger: 400,
+        claimed: false,
+    };
+
+    let result = client.try_register_creator(&creator, &handle, &Some(locked), &None);
+    assert_eq!(result, Err(Ok(ContractError::AllocationLocked)));
+}
+
+#[test]
+fn test_claim_locked_allocation_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let mut ledger_info = env.ledger().get();
+    ledger_info.sequence_number = 100;
+    env.ledger().set(ledger_info.clone());
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    let locked = LockedAllocation {
+        amount: 50,
+        unlock_ledger: 200,
+        claimed: false,
+    };
+
+    client.register_creator(&creator, &handle, &Some(locked), &None);
+
+    // Advance ledger past unlock
+    ledger_info.sequence_number = 250;
+    env.ledger().set(ledger_info);
+
+    client.claim_locked_allocation(&creator);
+
+    let stored = client.get_locked_allocation(&creator).unwrap();
+    assert!(stored.claimed);
+
+    let balance = client.get_key_balance(&creator, &creator);
+    assert_eq!(balance, 50);
+}
+
+#[test]
+fn test_claim_locked_allocation_reverts_early() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let mut ledger_info = env.ledger().get();
+    ledger_info.sequence_number = 100;
+    env.ledger().set(ledger_info.clone());
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    let locked = LockedAllocation {
+        amount: 50,
+        unlock_ledger: 200,
+        claimed: false,
+    };
+
+    client.register_creator(&creator, &handle, &Some(locked), &None);
+
+    // Try to claim before unlock
+    let result = client.try_claim_locked_allocation(&creator);
+    assert_eq!(result, Err(Ok(ContractError::AllocationLocked)));
+}
+
+#[test]
+fn test_claim_locked_allocation_reverts_double_claim() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let mut ledger_info = env.ledger().get();
+    ledger_info.sequence_number = 100;
+    env.ledger().set(ledger_info.clone());
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    let locked = LockedAllocation {
+        amount: 50,
+        unlock_ledger: 200,
+        claimed: false,
+    };
+
+    client.register_creator(&creator, &handle, &Some(locked), &None);
+
+    // Advance ledger past unlock
+    ledger_info.sequence_number = 250;
+    env.ledger().set(ledger_info);
+
+    client.claim_locked_allocation(&creator);
+
+    // Try to claim again
+    let result = client.try_claim_locked_allocation(&creator);
+    assert_eq!(result, Err(Ok(ContractError::AlreadyClaimed)));
+}
+
+#[test]
+fn test_get_locked_allocation_returns_none_when_not_set() {
+    let env = Env::default();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+
+    let result = client.get_locked_allocation(&creator);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_get_locked_allocation_returns_allocation_when_set() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    let locked = LockedAllocation {
+        amount: 100,
+        unlock_ledger: 1000,
+        claimed: false,
+    };
+
+    client.register_creator(&creator, &handle, &Some(locked), &None);
+
+    let result = client.get_locked_allocation(&creator).unwrap();
+    assert_eq!(result.amount, 100);
+    assert_eq!(result.unlock_ledger, 1000);
+    assert!(!result.claimed);
+}
+
+// --- Max supply cap tests (#394) ---
+
+#[test]
+fn test_register_creator_with_max_supply() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.register_creator(&creator, &handle, &None, &Some(1000));
+
+    let cap = client.get_max_supply(&creator).unwrap();
+    assert_eq!(cap, 1000);
+}
+
+#[test]
+fn test_register_creator_max_supply_zero_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    let result = client.try_register_creator(&creator, &handle, &None, &Some(0));
+    assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
+}
+
+#[test]
+fn test_buy_exceeds_max_supply_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.register_creator(&creator, &handle, &None, &Some(5));
+    client.set_key_price(&admin, &100);
+    client.set_fee_config(&admin, &9000, &1000);
+
+    // Buy 5 keys to reach cap
+    for _ in 0..5 {
+        client.buy_key(&creator, &buyer, &100, &None);
+    }
+
+    // Try to buy one more - should revert
+    let result = client.try_buy_key(&creator, &buyer, &100, &None);
+    assert_eq!(result, Err(Ok(ContractError::SupplyCapExceeded)));
+}
+
+#[test]
+fn test_buy_within_max_supply_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.register_creator(&creator, &handle, &None, &Some(10));
+    client.set_key_price(&admin, &100);
+    client.set_fee_config(&admin, &9000, &1000);
+
+    // Buy 5 keys (within cap)
+    for _ in 0..5 {
+        client.buy_key(&creator, &buyer, &100, &None);
+    }
+
+    let supply = client.get_creator_supply(&creator);
+    assert_eq!(supply, 5);
+}
+
+#[test]
+fn test_get_max_supply_returns_none_for_uncapped() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.register_creator(&creator, &handle, &None, &None);
+
+    let cap = client.get_max_supply(&creator);
+    assert_eq!(cap, None);
+}
+
+// --- Protocol fee recipient rotation tests (#395) ---
+
+#[test]
+fn test_update_protocol_fee_recipient_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let old_recipient = Address::generate(&env);
+    let new_recipient = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&constants::storage::ADMIN_ADDRESS, &admin);
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &old_recipient);
+    });
+
+    client.update_protocol_fee_recipient(&admin, &new_recipient);
+
+    let stored = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<DataKey, Address>(&constants::storage::PROTOCOL_FEE_RECIPIENT)
+            .unwrap()
+    });
+    assert_eq!(stored, new_recipient);
+}
+
+#[test]
+fn test_update_protocol_fee_recipient_unauthorized_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+    let old_recipient = Address::generate(&env);
+    let new_recipient = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&constants::storage::ADMIN_ADDRESS, &admin);
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &old_recipient);
+    });
+
+    let result = client.try_update_protocol_fee_recipient(&unauthorized, &new_recipient);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_update_protocol_fee_recipient_zero_address_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let old_recipient = Address::generate(&env);
+    let zero_str = String::from_str(
+        &env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    );
+    let zero_addr = Address::from_string(&zero_str);
+
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&constants::storage::ADMIN_ADDRESS, &admin);
+        env.storage()
+            .persistent()
+            .set(&constants::storage::PROTOCOL_FEE_RECIPIENT, &old_recipient);
+    });
+
+    let result = client.try_update_protocol_fee_recipient(&admin, &zero_addr);
+    assert_eq!(result, Err(Ok(ContractError::ZeroAddress)));
+}
+
+#[test]
+fn test_update_creator_fee_recipient_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let new_recipient = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.register_creator(&creator, &handle, &None, &None);
+    client.update_creator_fee_recipient(&creator, &new_recipient);
+
+    let profile = client.get_creator(&creator);
+    assert_eq!(profile.fee_recipient, new_recipient);
+}
+
+#[test]
+fn test_update_creator_fee_recipient_unauthorized_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+    let new_recipient = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.register_creator(&creator, &handle, &None, &None);
+
+    let result = client.try_update_creator_fee_recipient(&unauthorized, &new_recipient);
+    // This should fail because unauthorized is not the current fee recipient
+    assert!(result.is_err());
+}
+
+// --- TTL extension tests (#396) ---
+
+#[test]
+fn test_register_creator_without_optional_params_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    // Registration with None for both optional params should work (backwards compatible)
+    client.register_creator(&creator, &handle, &None, &None);
+
+    let profile = client.get_creator(&creator);
+    assert_eq!(profile.supply, 0);
+    assert_eq!(client.get_max_supply(&creator), None);
+    assert_eq!(client.get_locked_allocation(&creator), None);
+}
 
 #[test]
 fn test_read_key_balance_returns_registered_creator_supply() {
@@ -121,7 +520,7 @@ fn test_get_fee_config_persists_across_repeated_reads() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     // Repeatedly read the fee config and verify stability
     for _ in 0..5 {
@@ -147,7 +546,7 @@ fn test_register_creator() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let profile = client.get_creator(&creator);
     assert_eq!(profile.handle, handle);
@@ -167,7 +566,7 @@ fn test_register_creator_persists_registration_metadata() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let profile = client.get_creator(&creator);
     assert_eq!(profile.creator, creator);
@@ -187,10 +586,10 @@ fn test_duplicate_registration_fails() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     // Second registration should fail with AlreadyRegistered error
-    let result = client.try_register_creator(&creator, &handle);
+    let result = client.try_register_creator(&creator, &handle, &None, &None);
     assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
     assert_no_events(&env);
 }
@@ -225,7 +624,7 @@ fn test_buy_key_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let buyer = Address::generate(&env);
     let supply = client.buy_key(&creator, &buyer, &100, &None);
@@ -248,7 +647,7 @@ fn test_get_creator_holder_count_counts_unique_holders() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let holder_one = Address::generate(&env);
     let holder_two = Address::generate(&env);
@@ -289,7 +688,7 @@ fn test_buy_key_insufficient_payment() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let buyer = Address::generate(&env);
     let result = client.try_buy_key(&creator, &buyer, &99, &None);
@@ -360,7 +759,7 @@ fn test_get_key_balance_returns_zero_for_unregistered_wallet() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let unregistered_wallet = Address::generate(&env);
 
@@ -459,7 +858,7 @@ fn test_get_buy_quote_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let quote = client.get_buy_quote(&creator);
     assert_eq!(quote.price, 1000);
@@ -481,7 +880,7 @@ fn test_get_sell_quote_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &1000, &None);
@@ -506,7 +905,7 @@ fn test_get_sell_quote_fails_if_insufficient_balance() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let holder = Address::generate(&env); // Zero balance
     let result = client.try_get_sell_quote(&creator, &holder);
@@ -541,7 +940,7 @@ fn test_get_quote_fails_if_fee_not_set() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let result = client.try_get_buy_quote(&creator);
     assert_eq!(result, Err(Ok(ContractError::FeeConfigNotSet)));
@@ -571,7 +970,7 @@ fn test_get_creator_fee_recipient_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let recipient = client.get_creator_fee_recipient(&creator);
     assert_eq!(recipient, creator);
@@ -603,7 +1002,7 @@ fn test_quote_overflow_guards() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     // Buy quote: price + fees (will overflow)
     let result = client.try_get_buy_quote(&creator);
@@ -680,7 +1079,7 @@ fn test_register_event_field_order_is_stable() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let all_events = env.events().all();
     assert_eq!(
@@ -742,7 +1141,7 @@ fn test_buy_event_topic_and_data_order_is_stable() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "bob");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &500, &None);
@@ -808,7 +1207,7 @@ fn test_register_event_fee_adjacent_fields_are_zero_and_ordered_after_identity_f
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "carol");
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let all_events = env.events().all();
     let (_contract_id, _topics, data): (

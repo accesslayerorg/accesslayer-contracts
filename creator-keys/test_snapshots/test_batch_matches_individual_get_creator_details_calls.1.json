@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "alice"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -41,7 +43,9 @@
                 },
                 {
                   "string": "bob"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

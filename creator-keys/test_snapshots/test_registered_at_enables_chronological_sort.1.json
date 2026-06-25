@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "first"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -41,7 +43,9 @@
                 },
                 {
                   "string": "second"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -63,7 +67,9 @@
                 },
                 {
                   "string": "third"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

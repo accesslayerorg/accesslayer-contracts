@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "carol"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },

@@ -29,7 +29,7 @@ fn test_get_creator_details_registered_returns_correct_data() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle);
+    client.register_creator(&creator, &handle, &None, &None);
 
     let details = client.get_creator_details(&creator);
     assert!(details.is_registered);

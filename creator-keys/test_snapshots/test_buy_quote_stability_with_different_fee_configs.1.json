@@ -19,7 +19,9 @@
                 },
                 {
                   "string": "alice"
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
