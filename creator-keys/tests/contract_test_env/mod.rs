@@ -221,11 +221,7 @@ pub fn compute_expected_sell_price(_supply: u32, base_price: i128) -> i128 {
 }
 
 /// Sets the bonding curve slope parameter via an auto-generated admin address.
-pub fn set_curve_slope(
-    env: &Env,
-    client: &CreatorKeysContractClient<'_>,
-    slope: i128,
-) -> Address {
+pub fn set_curve_slope(env: &Env, client: &CreatorKeysContractClient<'_>, slope: i128) -> Address {
     let admin = Address::generate(env);
     client.set_curve_slope(&admin, &slope);
     admin

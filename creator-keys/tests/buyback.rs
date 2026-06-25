@@ -3,9 +3,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    compute_expected_bonding_curve_price, compute_expected_protocol_fee,
-    register_creator_keys, register_test_creator, set_curve_slope, set_pricing_and_fees,
-    test_env_with_auths,
+    compute_expected_bonding_curve_price, compute_expected_protocol_fee, register_creator_keys,
+    register_test_creator, set_curve_slope, set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::{events, ContractError};
 use soroban_sdk::{

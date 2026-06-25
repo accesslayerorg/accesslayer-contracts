@@ -1214,8 +1214,7 @@ impl CreatorKeysContract {
             .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
-        let curve_price =
-            compute_bonding_curve_price(&env, base_price_stored, profile.supply)?;
+        let curve_price = compute_bonding_curve_price(&env, base_price_stored, profile.supply)?;
         let base_price = compute_buyback_base_price(curve_price, amount)?;
         let protocol_fee = compute_buyback_protocol_fee(&env, base_price)?;
         let total_cost = base_price
