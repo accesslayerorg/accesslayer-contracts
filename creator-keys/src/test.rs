@@ -265,6 +265,91 @@ fn test_get_creator_holder_count_counts_unique_holders() {
 }
 
 #[test]
+fn test_holder_count_decrements_on_full_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    client.register_creator(&creator, &handle);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &recipient, &100, &None);
+
+    client.transfer_key(&creator, &sender, &recipient, &1);
+
+    let profile = client.get_creator(&creator);
+    assert_eq!(profile.holder_count, 1);
+    assert_eq!(client.get_key_balance(&creator, &sender), 0);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+}
+
+#[test]
+fn test_holder_count_increments_on_first_receive() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    client.register_creator(&creator, &handle);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &sender, &100, &None);
+
+    client.transfer_key(&creator, &sender, &recipient, &1);
+
+    let profile = client.get_creator(&creator);
+    assert_eq!(profile.holder_count, 2);
+    assert_eq!(client.get_key_balance(&creator, &sender), 1);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 1);
+}
+
+#[test]
+fn test_holder_count_unchanged_on_partial_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+    client.register_creator(&creator, &handle);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &recipient, &100, &None);
+
+    client.transfer_key(&creator, &sender, &recipient, &1);
+
+    let profile = client.get_creator(&creator);
+    assert_eq!(profile.holder_count, 2);
+    assert_eq!(client.get_key_balance(&creator, &sender), 1);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+}
+
+#[test]
 fn test_get_creator_fails_if_not_registered() {
     let env = Env::default();
     env.mock_all_auths();
