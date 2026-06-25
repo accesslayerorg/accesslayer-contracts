@@ -954,23 +954,24 @@ impl CreatorKeysContract {
             return Err(ContractError::InsufficientBalance);
         }
 
-            // Settle dividends before balance changes so earnings are captured at old balance.
-    settle_holder_dividends(&env, &creator, &seller, current_balance)?;
+        // Settle dividends before balance changes so earnings are captured at old balance.
+        settle_holder_dividends(&env, &creator, &seller, current_balance)?;
 
-    // NEW: compute sell price based on current supply (before decrement) and curve preset
-    let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
-        .ok_or(ContractError::Overflow)?;
+        // NEW: compute sell price based on current supply (before decrement) and curve preset
+        let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
+            .ok_or(ContractError::Overflow)?;
 
-    // Compute proceeds for slippage check
-    let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-    let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
-    let proceeds = fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?;
+        // Compute proceeds for slippage check
+        let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
+        let fees =
+            fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
+        let proceeds = fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?;
 
-    if let Some(min) = min_proceeds {
-        if proceeds < min {
-            return Err(ContractError::SlippageExceeded);
+        if let Some(min) = min_proceeds {
+            if proceeds < min {
+                return Err(ContractError::SlippageExceeded);
+            }
         }
-    }
 
         let new_balance = current_balance
             .checked_sub(1)
