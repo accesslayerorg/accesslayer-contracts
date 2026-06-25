@@ -70,6 +70,17 @@ pub enum ContractError {
     NoKeyHolders = 21,
 }
 
+pub mod config {
+    /// Storage lifetime extension target for creator-scoped persistent keys.
+    ///
+    /// The value is measured in ledgers. Keeping this as a named constant makes
+    /// future TTL policy changes possible without touching buy/sell trade logic.
+    pub const CREATOR_TTL_LEDGERS: u32 = 518_400;
+
+    /// Soroban extends a key only when its remaining TTL is below this threshold.
+    pub const CREATOR_TTL_THRESHOLD: u32 = 17_280;
+}
+
 pub mod fee {
     use crate::ContractError;
 
@@ -322,6 +333,7 @@ pub struct CreatorDetailsView {
     /// maintaining a separate off-chain index.
     pub registered_at: u32,
 }
+
 /// Stable, non-optional view of a creator's fee configuration.
 ///
 /// Returned by [`CreatorKeysContract::get_creator_fee_config`] for indexer-friendly consumption.
@@ -567,85 +579,26 @@ fn read_required_protocol_fee_config(env: &Env) -> Result<fee::FeeConfig, Contra
     read_protocol_fee_config(env).ok_or(ContractError::FeeConfigNotSet)
 }
 
-fn read_protocol_fee_recipient_balance(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&constants::storage::PROTOCOL_FEE_RECIPIENT_BALANCE)
-        .unwrap_or(0)
+fn extend_creator_key_ttl(env: &Env, key: &DataKey) {
+    if env.storage().persistent().has(key) {
+        env.storage().persistent().extend_ttl(
+            key,
+            config::CREATOR_TTL_THRESHOLD,
+            config::CREATOR_TTL_LEDGERS,
+        );
+    }
 }
 
-fn credit_protocol_fee_recipient_balance(env: &Env, amount: i128) -> Result<(), ContractError> {
-    if amount <= 0 {
-        return Ok(());
-    }
-    let updated = read_protocol_fee_recipient_balance(env)
-        .checked_add(amount)
-        .ok_or(ContractError::Overflow)?;
-    env.storage().persistent().set(
-        &constants::storage::PROTOCOL_FEE_RECIPIENT_BALANCE,
-        &updated,
-    );
-    Ok(())
-}
+fn extend_creator_storage_ttl(env: &Env, creator: &Address, holder: Option<&Address>) {
+    let creator_key = constants::storage::creator(creator);
+    extend_creator_key_ttl(env, &creator_key);
 
-fn assert_buy_price_slippage(price: i128, max_price: Option<i128>) -> Result<(), ContractError> {
-    if let Some(max) = max_price {
-        if price > max {
-            return Err(ContractError::SlippageExceeded);
-        }
-    }
-    Ok(())
-}
-
-fn compute_sell_proceeds(env: &Env, price: i128) -> Result<i128, ContractError> {
-    let (creator_fee, protocol_fee) =
-        CreatorKeysContract::compute_fees_for_payment(env.clone(), price)?;
-    let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
-    fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)
-}
-
-fn assert_sell_proceeds_slippage(
-    env: &Env,
-    min_proceeds: Option<i128>,
-) -> Result<(), ContractError> {
-    if let Some(min) = min_proceeds {
-        let price: i128 = env
-            .storage()
-            .persistent()
-            .get(&constants::storage::KEY_PRICE)
-            .ok_or(ContractError::KeyPriceNotSet)?;
-        let proceeds = compute_sell_proceeds(env, price)?;
-        if proceeds < min {
-            return Err(ContractError::SlippageExceeded);
-        }
-    }
-    Ok(())
-}
-
-fn accrue_sell_protocol_fee(env: &Env) -> Result<(), ContractError> {
-    if env
-        .storage()
-        .persistent()
-        .get::<DataKey, Address>(&constants::storage::PROTOCOL_FEE_RECIPIENT)
-        .is_none()
-    {
-        return Ok(());
+    if let Some(holder) = holder {
+        let holder_key = constants::storage::key_balance(creator, holder);
+        extend_creator_key_ttl(env, &holder_key);
     }
 
-    let Some(price) = env
-        .storage()
-        .persistent()
-        .get(&constants::storage::KEY_PRICE)
-    else {
-        return Ok(());
-    };
-
-    if read_protocol_fee_config(env).is_none() {
-        return Ok(());
-    }
-
-    let (_, protocol_fee) = CreatorKeysContract::compute_fees_for_payment(env.clone(), price)?;
-    credit_protocol_fee_recipient_balance(env, protocol_fee)
+    extend_creator_key_ttl(env, &constants::storage::FEE_CONFIG);
 }
 
 /// Resolves and validates the shared inputs required by read-only quote methods.
@@ -836,6 +789,7 @@ impl CreatorKeysContract {
         // Persist profile before event publication so indexers reading contract state
         // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
+        extend_creator_storage_ttl(&env, &creator, None);
         env.events().publish(
             events::register_event_topics(&profile.creator),
             events::CreatorRegisteredEvent {
@@ -907,6 +861,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
         // Balance key is scoped by (creator, holder) so creator positions cannot collide.
         env.storage().persistent().set(&balance_key, &new_balance);
+        extend_creator_storage_ttl(&env, &creator, Some(&buyer));
 
         if let Some(config) = read_protocol_fee_config(&env) {
             let (creator_fee, protocol_fee) =
@@ -967,10 +922,7 @@ impl CreatorKeysContract {
         // supply/holder_count invariants for subsequent reads.
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
-        accrue_sell_protocol_fee(&env)?;
-
-        env.events()
-            .publish((events::SELL_EVENT_NAME, creator, seller), profile.supply);
+        extend_creator_storage_ttl(&env, &creator, Some(&seller));
 
         Ok(profile.supply)
     }
@@ -1070,55 +1022,17 @@ impl CreatorKeysContract {
         }
     }
 
-    /// Read-only batch view: returns [`CreatorDetailsView`] for each address in `creators`.
+    /// Read-only view: returns remaining ledger TTL for the creator's primary storage key.
     ///
-    /// Iterates the provided addresses in order and fetches each creator's profile
-    /// from persistent storage. The output `Vec` is the same length as the input and
-    /// preserves input order, so clients can zip the two slices without an extra sort.
-    ///
-    /// Unregistered addresses never cause the call to fail: they produce a default
-    /// [`CreatorDetailsView`] with `is_registered: false` and `registered_at: 0`,
-    /// matching the single-address behaviour of [`get_creator_details`].
-    ///
-    /// # Usage
-    ///
-    /// ```text
-    /// let views = client.get_creators_batch(&vec![alice, bob, unknown]);
-    /// // views[0] → alice's details (is_registered: true)
-    /// // views[1] → bob's details   (is_registered: true)
-    /// // views[2] → default view    (is_registered: false, registered_at: 0)
-    /// ```
-    pub fn get_creators_batch(
-        env: Env,
-        creators: soroban_sdk::Vec<Address>,
-    ) -> soroban_sdk::Vec<CreatorDetailsView> {
-        let mut results = soroban_sdk::Vec::new(&env);
-        for creator in creators.iter() {
-            let key = constants::storage::creator(&creator);
-            let view = match env
-                .storage()
-                .persistent()
-                .get::<DataKey, CreatorProfile>(&key)
-            {
-                Some(profile) => CreatorDetailsView {
-                    creator: profile.creator,
-                    handle: profile.handle,
-                    supply: profile.supply,
-                    is_registered: true,
-                    registered_at: profile.registered_at,
-                },
-                None => CreatorDetailsView {
-                    creator,
-                    handle: read_none_string(&env),
-                    supply: 0,
-                    is_registered: false,
-                    registered_at: 0,
-                },
-            };
-            results.push_back(view);
+    /// Returns `0` when the creator is not registered or the key is not live.
+    pub fn get_creator_ttl_remaining(env: Env, creator: Address) -> u32 {
+        let key = constants::storage::creator(&creator);
+        if !env.storage().persistent().has(&key) {
+            return 0;
         }
-        results
+        env.storage().persistent().get_ttl(&key)
     }
+
     /// Read-only view: returns the protocol state version.
     ///
     /// Returns a stable scalar value for clients and indexers to detect
