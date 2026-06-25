@@ -15,21 +15,13 @@ use soroban_sdk::contracttype;
 /// - `Flat`: keeps keys accessible at scale with minimal price growth
 ///
 /// The preset is immutable after creator registration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[contracttype]
 pub enum CurvePreset {
-    /// Price grows proportionally with supply.
+    #[default]
     Linear = 0,
-    /// Price grows with the square of supply, rewarding early buyers heavily.
     Quadratic = 1,
-    /// Price grows slowly regardless of supply, keeping keys accessible at scale.
     Flat = 2,
-}
-
-impl Default for CurvePreset {
-    fn default() -> Self {
-        CurvePreset::Linear
-    }
 }
 
 /// Protocol-wide scaling constants for bonding curve formulas.
