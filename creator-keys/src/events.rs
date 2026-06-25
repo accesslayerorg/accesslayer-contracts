@@ -85,7 +85,7 @@ pub struct CreatorRegisteredEvent {
     pub holder_count: u32,
     pub creator_bps: u32,
     pub protocol_bps: u32,
-    pub curve_preset: bonding_curve::CurvePreset, // NEW: appended field
+pub curve_preset: crate::bonding_curve::CurvePreset,
 }
 
 /// Shared registration event topics tuple.
