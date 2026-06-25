@@ -574,6 +574,7 @@ fn assert_buy_price_slippage(price: i128, max_price: Option<i128>) -> Result<(),
     Ok(())
 }
 
+#[allow(dead_code)]
 fn compute_sell_proceeds(env: &Env, price: i128) -> Result<i128, ContractError> {
     let (creator_fee, protocol_fee) =
         CreatorKeysContract::compute_fees_for_payment(env.clone(), price)?;
@@ -581,6 +582,7 @@ fn compute_sell_proceeds(env: &Env, price: i128) -> Result<i128, ContractError> 
     fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)
 }
 
+#[allow(dead_code)]
 fn assert_sell_proceeds_slippage(
     env: &Env,
     min_proceeds: Option<i128>,
@@ -599,6 +601,7 @@ fn assert_sell_proceeds_slippage(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn accrue_sell_protocol_fee(env: &Env) -> Result<(), ContractError> {
     if env
         .storage()
@@ -629,6 +632,7 @@ fn accrue_sell_protocol_fee(env: &Env) -> Result<(), ContractError> {
 ///
 /// Reads the key price from storage and confirms the creator is registered.
 /// Returns `(price)` on success, or the appropriate [`ContractError`] on failure.
+#[allow(dead_code)]
 fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<Option<i128>, ContractError> {
     let price: i128 = env
         .storage()
@@ -648,6 +652,7 @@ fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<Option<i128>, Co
 /// Zero-value quote requests are treated as no-op quotes and return `None`.
 /// Negative quote amounts are rejected consistently across buy and sell paths.
 /// Amounts exceeding MAX_SAFE_AMOUNT are rejected to prevent overflow in fee calculations.
+#[allow(dead_code)]
 fn normalize_quote_amount(amount: i128) -> Result<Option<i128>, ContractError> {
     if amount < 0 {
         return Err(ContractError::NotPositiveAmount);
