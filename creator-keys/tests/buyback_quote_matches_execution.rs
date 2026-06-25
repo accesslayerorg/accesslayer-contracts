@@ -7,7 +7,9 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths};
+use contract_test_env::{
+    register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
+};
 use creator_keys::CreatorKeysContractClient;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -44,8 +46,7 @@ fn assert_buyback_quote_matches_execution(
         "quote fee split must conserve price"
     );
     assert_eq!(
-        quote.total_amount,
-        actual_cost,
+        quote.total_amount, actual_cost,
         "quoted buyback cost must match execution-path cost before trade"
     );
 
@@ -58,8 +59,7 @@ fn assert_buyback_quote_matches_execution(
 
     let post_trade_cost = actual_buyback_cost(client, quote.price);
     assert_eq!(
-        quote.total_amount,
-        post_trade_cost,
+        quote.total_amount, post_trade_cost,
         "quoted buyback cost must still match execution-path cost after trade"
     );
 }
