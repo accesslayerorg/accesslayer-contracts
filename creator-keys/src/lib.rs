@@ -1246,7 +1246,7 @@ impl CreatorKeysContract {
 
         extend_creator_ttl(&env, &creator);
 
-        Ok(profile.supply)
+        Ok(())
     }
 
     /// Creator-only buyback that burns keys from the creator's own held balance.
