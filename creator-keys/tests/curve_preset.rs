@@ -167,8 +167,8 @@ fn test_independent_curves_no_cross_contamination() {
     );
 
     // Verify supply tracking is independent
-    assert_eq!(client.get_creator_supply(&creator_a).unwrap(), 10);
-    assert_eq!(client.get_creator_supply(&creator_b).unwrap(), 10);
+    assert_eq!(client.get_creator_supply(&creator_a), 10);
+    assert_eq!(client.get_creator_supply(&creator_b), 10);
 }
 
 #[test]
