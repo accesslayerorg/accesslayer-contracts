@@ -228,7 +228,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
     let fixture = EventFixture::new(&env);
     let handle = String::from_str(&env, "alice");
 
-      fixture
+    fixture
         .client
         .register_creator(&fixture.creator, &handle, &None);
 
