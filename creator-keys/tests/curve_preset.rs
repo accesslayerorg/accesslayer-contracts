@@ -2,12 +2,12 @@
 
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
-use creator_keys::{ CreatorKeysContractClient, CurvePreset};
+use creator_keys::{CreatorKeysContractClient, CurvePreset};
 
 mod contract_test_env;
 use contract_test_env::{
-    register_test_creator_with_preset, set_protocol_fee_bps, setup_env,
-    DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
+        register_test_creator_with_preset, set_protocol_fee_bps, setup_env, DEFAULT_CREATOR_BPS,
+    DEFAULT_PROTOCOL_BPS,
 };
 
 fn setup_with_fees() -> (Env, Address, CreatorKeysContractClient<'static>, Address) {
