@@ -1440,60 +1440,60 @@ pub fn get_curve_preset(env: Env, creator: Address) -> Result<CurvePreset, Contr
         }
     }
 
-    /// Read-only view: returns a quote for buying a key.
+      /// Read-only view: returns a quote for buying a key.
     ///
     /// Returns a [`QuoteResponse`] containing the current price and fee breakdown.
     /// Fees are calculated based on the fixed key price.
     pub fn get_buy_quote(env: Env, creator: Address) -> Result<QuoteResponse, ContractError> {
-    let profile = read_registered_creator_profile(&env, &creator)?;
+        let profile = read_registered_creator_profile(&env, &creator)?;
 
-    let price = bonding_curve::compute_price(profile.supply, 1, profile.curve_preset)
-        .ok_or(ContractError::Overflow)?;
+        let price = bonding_curve::compute_price(profile.supply, 1, profile.curve_preset)
+            .ok_or(ContractError::Overflow)?;
 
-    if price == 0 {
-        return Ok(zero_quote_response());
+        if price == 0 {
+            return Ok(zero_quote_response());
+        }
+
+        if price > fee::MAX_SAFE_AMOUNT {
+            return Err(ContractError::Overflow);
+        }
+
+        let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
+        checked_format_quote_response(price, creator_fee, protocol_fee, true)
     }
-
-    if price > fee::MAX_SAFE_AMOUNT {
-        return Err(ContractError::Overflow);
-    }
-
-    let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-    checked_format_quote_response(price, creator_fee, protocol_fee, true)
-}
-}
 
     /// Read-only view: returns a quote for selling a key.
     ///
     /// Returns a [`QuoteResponse`] containing the current price and fee breakdown.
     /// Fees are calculated based on the fixed key price.
     /// Rejects with [`ContractError::InsufficientBalance`] if the holder has no keys.
-   pub fn get_sell_quote(
-    env: Env,
-    creator: Address,
-    holder: Address,
-) -> Result<QuoteResponse, ContractError> {
-    let profile = read_registered_creator_profile(&env, &creator)?;
+    pub fn get_sell_quote(
+        env: Env,
+        creator: Address,
+        holder: Address,
+    ) -> Result<QuoteResponse, ContractError> {
+        let profile = read_registered_creator_profile(&env, &creator)?;
 
-    let balance = Self::get_key_balance(env.clone(), creator.clone(), holder);
-    if balance == 0 {
-        return Err(ContractError::InsufficientBalance);
+        let balance = Self::get_key_balance(env.clone(), creator.clone(), holder);
+        if balance == 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
+            .ok_or(ContractError::Overflow)?;
+
+        if price == 0 {
+            return Ok(zero_quote_response());
+        }
+
+        if price > fee::MAX_SAFE_AMOUNT {
+            return Err(ContractError::Overflow);
+        }
+
+        let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
+        checked_format_quote_response(price, creator_fee, protocol_fee, false)
     }
-
-    let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
-        .ok_or(ContractError::Overflow)?;
-
-    if price == 0 {
-        return Ok(zero_quote_response());
-    }
-
-    if price > fee::MAX_SAFE_AMOUNT {
-        return Err(ContractError::Overflow);
-    }
-
-    let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
-    checked_format_quote_response(price, creator_fee, protocol_fee, false)
-}
+}   // <-- THIS } closes impl CreatorKeysContract
 
 #[cfg(test)]
 mod tests {
