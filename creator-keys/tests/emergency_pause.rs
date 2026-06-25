@@ -144,7 +144,7 @@ fn test_register_creator_reverts_when_paused() {
     client.pause(&admin);
 
     let creator = Address::generate(&env);
-        let result = client.try_register_creator(
+    let result = client.try_register_creator(
         &creator,
         &soroban_sdk::String::from_str(&env, "alice"),
         &None,
