@@ -770,34 +770,22 @@ impl CreatorKeysContract {
     }
 
     pub fn buy_key(
-        env: Env,
-        creator: Address,
-        buyer: Address,
-        payment: i128,
-        max_price: Option<i128>,
-    ) -> Result<u32, ContractError> {
-        buyer.require_auth();
-        assert_not_paused(&env)?;
+    env: Env,
+    creator: Address,
+    buyer: Address,
+    payment: i128,
+    max_price: Option<i128>,
+) -> Result<u32, ContractError> {
+    buyer.require_auth();
+    assert_not_paused(&env)?;
 
-        if payment <= 0 {
-            return Err(ContractError::NotPositiveAmount);
-        }
+    if payment <= 0 {
+        return Err(ContractError::NotPositiveAmount);
+    }
 
-        let price: i128 = env
-            .storage()
-            .persistent()
-            .get(&constants::storage::KEY_PRICE)
-            .ok_or(ContractError::KeyPriceNotSet)?;
+    let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
-        assert_buy_price_slippage(price, max_price)?;
-
-        if payment < price {
-            return Err(ContractError::InsufficientPayment);
-        }
-
-        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
-
-        // NEW: compute price based on current supply and curve preset
+    // NEW: compute price based on current supply and curve preset
     let price = bonding_curve::compute_price(profile.supply, 1, profile.curve_preset)
         .ok_or(ContractError::Overflow)?;
 
@@ -810,75 +798,64 @@ impl CreatorKeysContract {
     let balance_key = constants::storage::key_balance(&creator, &buyer);
     let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
-        let balance_key = constants::storage::key_balance(&creator, &buyer);
-        // Missing balance entries are treated as zero to keep storage sparse.
-        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-
-        if current_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_add(1)
-                .ok_or(ContractError::Overflow)?;
-        }
-
-        profile.supply = profile
-            .supply
+    if current_balance == 0 {
+        profile.holder_count = profile
+            .holder_count
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
-
-        let key = constants::storage::creator(&creator);
-        // Supply and holder_count must always move together with buyer balance writes.
-        env.storage().persistent().set(&key, &profile);
-
-        let new_balance = current_balance
-            .checked_add(1)
-            .ok_or(ContractError::Overflow)?;
-        // Balance key is scoped by (creator, holder) so creator positions cannot collide.
-        env.storage().persistent().set(&balance_key, &new_balance);
-
-        if let Some(config) = read_protocol_fee_config(&env) {
-            let (creator_fee, protocol_fee) =
-                fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
-                    .ok_or(ContractError::Overflow)?;
-            credit_creator_fee_recipient_balance(&env, &creator, creator_fee)?;
-            credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
-        }
-
-        env.events().publish(
-            events::buy_event_topics(&creator, &buyer),
-            (profile.supply, payment),
-        );
-
-        Ok(profile.supply)
     }
 
+    profile.supply = profile
+        .supply
+        .checked_add(1)
+        .ok_or(ContractError::Overflow)?;
+
+    let key = constants::storage::creator(&creator);
+    env.storage().persistent().set(&key, &profile);
+
+    let new_balance = current_balance
+        .checked_add(1)
+        .ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&balance_key, &new_balance);
+
+    if let Some(config) = read_protocol_fee_config(&env) {
+        let (creator_fee, protocol_fee) =
+            fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
+                .ok_or(ContractError::Overflow)?;
+        credit_creator_fee_recipient_balance(&env, &creator, creator_fee)?;
+        credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+    }
+
+    env.events().publish(
+        events::buy_event_topics(&creator, &buyer),
+        (profile.supply, payment),
+    );
+
+    Ok(profile.supply)
+}
+
     pub fn sell_key(
-        env: Env,
-        creator: Address,
-        seller: Address,
-        min_proceeds: Option<i128>,
-    ) -> Result<u32, ContractError> {
-        seller.require_auth();
-        assert_not_paused(&env)?;
+    env: Env,
+    creator: Address,
+    seller: Address,
+    min_proceeds: Option<i128>,
+) -> Result<u32, ContractError> {
+    seller.require_auth();
+    assert_not_paused(&env)?;
 
-        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+    let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
-        let balance_key = constants::storage::key_balance(&creator, &seller);
-        // Missing balance entries are interpreted as zero and rejected consistently.
-        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        if current_balance == 0 {
-            return Err(ContractError::InsufficientBalance);
-        }
+    let balance_key = constants::storage::key_balance(&creator, &seller);
+    let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+    if current_balance == 0 {
+        return Err(ContractError::InsufficientBalance);
+    }
 
-        assert_sell_proceeds_slippage(&env, min_proceeds)?;
-
-
-        // NEW: compute sell price based on current supply (before decrement) and curve preset
-    // Symmetry: sell price at supply S for 1 key == buy price at supply S-1 for 1 key
+    // NEW: compute sell price based on current supply (before decrement) and curve preset
     let price = bonding_curve::compute_price(profile.supply - 1, 1, profile.curve_preset)
         .ok_or(ContractError::Overflow)?;
 
-    // Update slippage check to use computed price
+    // Compute proceeds for slippage check
     let (creator_fee, protocol_fee) =
         Self::compute_fees_for_payment(env.clone(), price)?;
     let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
@@ -890,28 +867,26 @@ impl CreatorKeysContract {
         }
     }
 
-        let new_balance = current_balance
+    let new_balance = current_balance
+        .checked_sub(1)
+        .ok_or(ContractError::SellUnderflow)?;
+    profile.supply = profile
+        .supply
+        .checked_sub(1)
+        .ok_or(ContractError::SellUnderflow)?;
+
+    if new_balance == 0 {
+        profile.holder_count = profile
+            .holder_count
             .checked_sub(1)
             .ok_or(ContractError::SellUnderflow)?;
-        profile.supply = profile
-            .supply
-            .checked_sub(1)
-            .ok_or(ContractError::SellUnderflow)?;
+    }
 
-        if new_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_sub(1)
-                .ok_or(ContractError::SellUnderflow)?;
-        }
+    let key = constants::storage::creator(&creator);
+    env.storage().persistent().set(&key, &profile);
+    env.storage().persistent().set(&balance_key, &new_balance);
 
-        let key = constants::storage::creator(&creator);
-        // Profile and holder balance are updated in the same call to preserve
-        // supply/holder_count invariants for subsequent reads.
-        env.storage().persistent().set(&key, &profile);
-        env.storage().persistent().set(&balance_key, &new_balance);
-
-// Accrue fees based on computed price
+    // Accrue fees based on computed price
     if let Some(config) = read_protocol_fee_config(&env) {
         let (creator_fee, protocol_fee) =
             fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
@@ -919,11 +894,12 @@ impl CreatorKeysContract {
         credit_creator_fee_recipient_balance(&env, &creator, creator_fee)?;
         credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
     }
-        env.events()
-            .publish((events::SELL_EVENT_NAME, creator, seller), profile.supply);
 
-        Ok(profile.supply)
-    }
+    env.events()
+        .publish((events::SELL_EVENT_NAME, creator, seller), profile.supply);
+
+    Ok(profile.supply)
+}
 
     /// Halts all state-changing operations (buy, sell, register_creator).
     ///
@@ -1484,6 +1460,7 @@ pub fn get_curve_preset(env: Env, creator: Address) -> Result<CurvePreset, Contr
 
     let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
     checked_format_quote_response(price, creator_fee, protocol_fee, true)
+}
 }
 
     /// Read-only view: returns a quote for selling a key.
