@@ -199,7 +199,11 @@ mod tests {
 
     #[test]
     fn test_buy_sell_symmetry_all_presets() {
-        for preset in [CurvePreset::Linear, CurvePreset::Quadratic, CurvePreset::Flat] {
+        for preset in [
+            CurvePreset::Linear,
+            CurvePreset::Quadratic,
+            CurvePreset::Flat,
+        ] {
             for supply in [0u32, 1, 5, 10] {
                 for amount in [1u32, 2, 5] {
                     let buy_price = compute_price(supply, amount, preset).unwrap();
@@ -226,4 +230,3 @@ mod tests {
         assert!(q > 0);
     }
 }
-
