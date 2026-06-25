@@ -19,7 +19,7 @@ fn buy_at_max_supply_is_rejected_with_overflow_and_no_state_corruption() {
     let _admin = set_key_price_for_tests(&env, &client, 100);
 
     let creator = Address::generate(&env);
-    client.register_creator(&creator, &String::from_str(&env, "maxed"), &None, &None);
+    client.register_creator(&creator, &String::from_str(&env, "maxed"), &None);
 
     // Seed supply at the ceiling to simulate "many sequential buys" cheaply.
     env.as_contract(&contract_id, || {

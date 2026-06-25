@@ -94,7 +94,19 @@ pub fn register_test_creator(
     handle: &str,
 ) -> Address {
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
+    client.register_creator(&creator, &String::from_str(env, handle), &None);
+    creator
+}
+
+/// Register a new creator with a specific curve preset.
+pub fn register_test_creator_with_preset(
+    env: &Env,
+    client: &CreatorKeysContractClient<'_>,
+    handle: &str,
+    preset: creator_keys::bonding_curve::CurvePreset,
+) -> Address {
+    let creator = Address::generate(env);
+    client.register_creator(&creator, &String::from_str(env, handle), &Some(preset));
     creator
 }
 
@@ -119,7 +131,7 @@ pub fn register_test_creator_with_fee_config(
     let admin = Address::generate(env);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
+    client.register_creator(&creator, &String::from_str(env, handle), &None);
     creator
 }
 
@@ -139,8 +151,12 @@ pub fn set_stored_key_price(env: &Env, contract_id: &Address, price: i128) {
 ///
 /// This helper ensures that test fixtures stay aligned with the contract's
 /// pricing logic and makes magic numbers in assertions more descriptive.
-pub fn compute_expected_buy_price(_supply: u32, base_price: i128) -> i128 {
-    base_price
+/// Computes the expected buy price for a given supply value and curve preset.
+pub fn compute_expected_buy_price(
+    supply: u32,
+    preset: creator_keys::bonding_curve::CurvePreset,
+) -> i128 {
+    creator_keys::bonding_curve::compute_price(supply, 1, preset).unwrap()
 }
 
 /// Number of stroops in one display unit.
@@ -216,8 +232,17 @@ impl ContractStateSnapshot {
 /// base key price regardless of supply. The seller's net payout is then
 /// `price - creator_fee - protocol_fee`, computed via the `fee` helpers, so this
 /// returns the gross figure that `get_sell_quote().price` is asserted against.
-pub fn compute_expected_sell_price(_supply: u32, base_price: i128) -> i128 {
-    base_price
+/// Computes the expected (gross) sell price for a given supply value and curve preset.
+pub fn compute_expected_sell_price(
+    supply: u32,
+    preset: creator_keys::bonding_curve::CurvePreset,
+) -> i128 {
+    // Sell price at supply S is the buy price at supply S-1
+    if supply == 0 {
+        0
+    } else {
+        creator_keys::bonding_curve::compute_price(supply - 1, 1, preset).unwrap()
+    }
 }
 
 /// Computes the expected protocol fee from a given price and bps value.

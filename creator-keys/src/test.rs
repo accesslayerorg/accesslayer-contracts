@@ -415,6 +415,7 @@ fn test_read_key_balance_returns_registered_creator_supply() {
         holder_count: 3,
         fee_recipient: creator.clone(),
         registered_at: 0,
+        curve_preset: crate::bonding_curve::CurvePreset::Linear, // ADD THIS
     };
 
     let supply = env.as_contract(&contract_id, || {
@@ -520,8 +521,7 @@ fn test_get_fee_config_persists_across_repeated_reads() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
-
+    client.register_creator(&creator, &handle, &None);
     // Repeatedly read the fee config and verify stability
     for _ in 0..5 {
         let config = client.get_fee_config().unwrap();
@@ -546,7 +546,7 @@ fn test_register_creator() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let profile = client.get_creator(&creator);
     assert_eq!(profile.handle, handle);
@@ -566,7 +566,7 @@ fn test_register_creator_persists_registration_metadata() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let profile = client.get_creator(&creator);
     assert_eq!(profile.creator, creator);
@@ -586,10 +586,10 @@ fn test_duplicate_registration_fails() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     // Second registration should fail with AlreadyRegistered error
-    let result = client.try_register_creator(&creator, &handle, &None, &None);
+    let result = client.try_register_creator(&creator, &handle, &None);
     assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
     assert_no_events(&env);
 }
@@ -624,7 +624,7 @@ fn test_buy_key_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let buyer = Address::generate(&env);
     let supply = client.buy_key(&creator, &buyer, &100, &None);
@@ -647,7 +647,7 @@ fn test_get_creator_holder_count_counts_unique_holders() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let holder_one = Address::generate(&env);
     let holder_two = Address::generate(&env);
@@ -688,7 +688,7 @@ fn test_buy_key_insufficient_payment() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let buyer = Address::generate(&env);
     let result = client.try_buy_key(&creator, &buyer, &99, &None);
@@ -759,7 +759,7 @@ fn test_get_key_balance_returns_zero_for_unregistered_wallet() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let unregistered_wallet = Address::generate(&env);
 
@@ -858,7 +858,7 @@ fn test_get_buy_quote_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let quote = client.get_buy_quote(&creator);
     assert_eq!(quote.price, 1000);
@@ -880,7 +880,7 @@ fn test_get_sell_quote_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &1000, &None);
@@ -905,7 +905,7 @@ fn test_get_sell_quote_fails_if_insufficient_balance() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let holder = Address::generate(&env); // Zero balance
     let result = client.try_get_sell_quote(&creator, &holder);
@@ -940,7 +940,7 @@ fn test_get_quote_fails_if_fee_not_set() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let result = client.try_get_buy_quote(&creator);
     assert_eq!(result, Err(Ok(ContractError::FeeConfigNotSet)));
@@ -970,7 +970,7 @@ fn test_get_creator_fee_recipient_success() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let recipient = client.get_creator_fee_recipient(&creator);
     assert_eq!(recipient, creator);
@@ -1002,7 +1002,7 @@ fn test_quote_overflow_guards() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     // Buy quote: price + fees (will overflow)
     let result = client.try_get_buy_quote(&creator);
@@ -1079,7 +1079,7 @@ fn test_register_event_field_order_is_stable() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let all_events = env.events().all();
     assert_eq!(
@@ -1141,7 +1141,7 @@ fn test_buy_event_topic_and_data_order_is_stable() {
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "bob");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &500, &None);
@@ -1207,7 +1207,7 @@ fn test_register_event_fee_adjacent_fields_are_zero_and_ordered_after_identity_f
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "carol");
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let all_events = env.events().all();
     let (_contract_id, _topics, data): (

@@ -13,7 +13,7 @@ fn test_get_key_name_success() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None);
 
     let name = client.get_key_name(&creator);
     assert_eq!(name, handle);
