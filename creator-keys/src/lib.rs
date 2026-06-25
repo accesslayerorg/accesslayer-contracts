@@ -225,6 +225,7 @@ pub mod constants {
         pub const PROTOCOL_FEE_RECIPIENT_BALANCE: DataKey = DataKey::ProtocolFeeRecipientBalance;
         pub const PROTOCOL_STATE_VERSION: DataKey = DataKey::ProtocolStateVersion;
         pub const PAUSED: DataKey = DataKey::Paused;
+        pub const CURVE_SLOPE: DataKey = DataKey::CurveSlope;
 
         pub fn creator_fee_balance(creator: &Address) -> DataKey {
             DataKey::CreatorFeeBalance(creator.clone())
@@ -420,6 +421,7 @@ pub enum DataKey {
     HolderDividendPending(Address, Address),
     LockedAllocation(Address),
     MaxSupply(Address),
+    CurveSlope,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -651,14 +653,10 @@ fn compute_sell_proceeds(env: &Env, price: i128) -> Result<i128, ContractError> 
 
 fn assert_sell_proceeds_slippage(
     env: &Env,
+    price: i128,
     min_proceeds: Option<i128>,
 ) -> Result<(), ContractError> {
     if let Some(min) = min_proceeds {
-        let price: i128 = env
-            .storage()
-            .persistent()
-            .get(&constants::storage::KEY_PRICE)
-            .ok_or(ContractError::KeyPriceNotSet)?;
         let proceeds = compute_sell_proceeds(env, price)?;
         if proceeds < min {
             return Err(ContractError::SlippageExceeded);
@@ -667,7 +665,7 @@ fn assert_sell_proceeds_slippage(
     Ok(())
 }
 
-fn accrue_sell_protocol_fee(env: &Env) -> Result<(), ContractError> {
+fn accrue_sell_protocol_fee(env: &Env, price: i128) -> Result<(), ContractError> {
     if env
         .storage()
         .persistent()
@@ -676,14 +674,6 @@ fn accrue_sell_protocol_fee(env: &Env) -> Result<(), ContractError> {
     {
         return Ok(());
     }
-
-    let Some(price) = env
-        .storage()
-        .persistent()
-        .get(&constants::storage::KEY_PRICE)
-    else {
-        return Ok(());
-    };
 
     if read_protocol_fee_config(env).is_none() {
         return Ok(());
@@ -695,20 +685,23 @@ fn accrue_sell_protocol_fee(env: &Env) -> Result<(), ContractError> {
 
 /// Resolves and validates the shared inputs required by read-only quote methods.
 ///
-/// Reads the key price from storage and confirms the creator is registered.
-/// Returns `(price)` on success, or the appropriate [`ContractError`] on failure.
+/// Reads the key price and creator profile from storage, returning the
+/// bonding-curve-adjusted price. Returns the appropriate [`ContractError`] on
+/// failure. When the adjusted price is zero, returns `Ok(None)`.
 fn resolve_quote_inputs(env: &Env, creator: &Address) -> Result<Option<i128>, ContractError> {
-    let price: i128 = env
+    let base_price: i128 = env
         .storage()
         .persistent()
         .get(&constants::storage::KEY_PRICE)
         .ok_or(ContractError::KeyPriceNotSet)?;
 
-    if read_creator_profile(env, creator).is_none() {
-        return Err(ContractError::NotRegistered);
-    }
+    let Some(normalized) = normalize_quote_amount(base_price)? else {
+        return Ok(None);
+    };
 
-    normalize_quote_amount(price)
+    let profile = read_registered_creator_profile(env, creator)?;
+    let curve_price = compute_bonding_curve_price(env, normalized, profile.supply)?;
+    normalize_quote_amount(curve_price)
 }
 
 /// Normalizes quote amounts before fee math is applied.
@@ -749,6 +742,30 @@ fn compute_buyback_base_price(unit_price: i128, amount: u32) -> Result<i128, Con
 fn compute_buyback_protocol_fee(env: &Env, base_price: i128) -> Result<i128, ContractError> {
     let config = read_required_protocol_fee_config(env)?;
     fee::apply_percentage_fee(base_price, config.protocol_bps).ok_or(ContractError::Overflow)
+}
+
+fn read_curve_slope(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::CURVE_SLOPE)
+        .unwrap_or(0)
+}
+
+fn compute_bonding_curve_price(
+    env: &Env,
+    base_price: i128,
+    supply: u32,
+) -> Result<i128, ContractError> {
+    let slope = read_curve_slope(env);
+    if slope == 0 {
+        return Ok(base_price);
+    }
+    let supply_component = slope
+        .checked_mul(i128::from(supply))
+        .ok_or(ContractError::Overflow)?;
+    base_price
+        .checked_add(supply_component)
+        .ok_or(ContractError::Overflow)
 }
 
 fn zero_quote_response() -> QuoteResponse {
@@ -1030,19 +1047,20 @@ impl CreatorKeysContract {
             return Err(ContractError::NotPositiveAmount);
         }
 
-        let price: i128 = env
+        let base_price: i128 = env
             .storage()
             .persistent()
             .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        let price = compute_bonding_curve_price(&env, base_price, profile.supply)?;
 
         assert_buy_price_slippage(price, max_price)?;
 
         if payment < price {
             return Err(ContractError::InsufficientPayment);
         }
-
-        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
         // Check max supply cap if set
         if let Some(max_supply) = env
@@ -1114,6 +1132,13 @@ impl CreatorKeysContract {
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        let price = compute_bonding_curve_price(&env, base_price, profile.supply)?;
+
         let balance_key = constants::storage::key_balance(&creator, &seller);
         // Missing balance entries are interpreted as zero and rejected consistently.
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -1124,7 +1149,7 @@ impl CreatorKeysContract {
         // Settle dividends before balance changes so earnings are captured at old balance.
         settle_holder_dividends(&env, &creator, &seller, current_balance)?;
 
-        assert_sell_proceeds_slippage(&env, min_proceeds)?;
+        assert_sell_proceeds_slippage(&env, price, min_proceeds)?;
 
         let new_balance = current_balance
             .checked_sub(1)
@@ -1146,7 +1171,7 @@ impl CreatorKeysContract {
         // supply/holder_count invariants for subsequent reads.
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
-        accrue_sell_protocol_fee(&env)?;
+        accrue_sell_protocol_fee(&env, price)?;
 
         env.events().publish(
             (events::SELL_EVENT_NAME, creator.clone(), seller),
@@ -1183,12 +1208,14 @@ impl CreatorKeysContract {
         }
         validate_buyback_amount(amount)?;
 
-        let price: i128 = env
+        let base_price_stored: i128 = env
             .storage()
             .persistent()
             .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
-        let base_price = compute_buyback_base_price(price, amount)?;
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        let curve_price = compute_bonding_curve_price(&env, base_price_stored, profile.supply)?;
+        let base_price = compute_buyback_base_price(curve_price, amount)?;
         let protocol_fee = compute_buyback_protocol_fee(&env, base_price)?;
         let total_cost = base_price
             .checked_add(protocol_fee)
@@ -1198,8 +1225,6 @@ impl CreatorKeysContract {
         if payment < total_cost {
             return Err(ContractError::InsufficientPayment);
         }
-
-        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
         if amount > profile.supply {
             return Err(ContractError::InsufficientSupply);
         }
@@ -1581,6 +1606,27 @@ impl CreatorKeysContract {
             .persistent()
             .set(&constants::storage::KEY_PRICE, &price);
         Ok(())
+    }
+
+    /// Sets the bonding curve slope parameter.
+    ///
+    /// The slope controls how much the key price increases per unit of supply.
+    /// When slope is 0 (the default), the bonding curve is flat (fixed price).
+    /// When slope > 0, `price(supply) = KEY_PRICE + slope * supply`.
+    pub fn set_curve_slope(env: Env, admin: Address, slope: i128) -> Result<(), ContractError> {
+        admin.require_auth();
+        if slope < 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        env.storage()
+            .persistent()
+            .set(&constants::storage::CURVE_SLOPE, &slope);
+        Ok(())
+    }
+
+    /// Read-only view: returns the current bonding curve slope.
+    pub fn get_curve_slope(env: Env) -> i128 {
+        read_curve_slope(&env)
     }
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {

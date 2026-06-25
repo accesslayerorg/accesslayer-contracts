@@ -3,8 +3,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    compute_expected_protocol_fee, register_creator_keys, register_test_creator,
-    set_pricing_and_fees, test_env_with_auths,
+    compute_expected_bonding_curve_price, compute_expected_protocol_fee, register_creator_keys,
+    register_test_creator, set_curve_slope, set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::{events, ContractError};
 use soroban_sdk::{
@@ -231,5 +231,53 @@ fn test_buyback_does_not_change_follow_on_buy_price_under_fixed_price_model() {
     assert_eq!(
         before.total_amount, after.total_amount,
         "current buy total remains unchanged under the fixed-price model"
+    );
+}
+
+const CURVE_SLOPE: i128 = 10;
+
+#[test]
+fn test_buy_quote_decreases_after_buyback_under_bonding_curve() {
+    let env = test_env_with_auths();
+    let (client, creator) = setup(&env);
+    set_curve_slope(&env, &client, CURVE_SLOPE);
+
+    // Buy keys to reach a non-zero supply.
+    self_buy_keys(&client, &creator, 5);
+    let supply_before: u32 = client.get_total_key_supply(&creator);
+    assert_eq!(supply_before, 5);
+
+    // Record buy quote at supply = 5.
+    let quote_before = client.get_buy_quote(&creator);
+    let expected_price_before =
+        compute_expected_bonding_curve_price(CURVE_SLOPE, KEY_PRICE, supply_before);
+    assert_eq!(quote_before.price, expected_price_before);
+
+    // Creator buyback reduces supply by 2.
+    let total_cost = client.get_buyback_quote(&creator, &2);
+    client.buyback(&creator, &creator, &2, &total_cost, &None);
+    let supply_after: u32 = client.get_total_key_supply(&creator);
+    assert_eq!(supply_after, 3);
+
+    // Record buy quote at supply = 3.
+    let quote_after = client.get_buy_quote(&creator);
+    let expected_price_after =
+        compute_expected_bonding_curve_price(CURVE_SLOPE, KEY_PRICE, supply_after);
+    assert_eq!(quote_after.price, expected_price_after);
+
+    // After buyback, the bonding curve price must be lower (supply decreased).
+    assert!(
+        quote_after.price < quote_before.price,
+        "buy quote after buyback ({}) should be lower than before ({}) under bonding curve",
+        quote_after.price,
+        quote_before.price,
+    );
+
+    // The difference must match the curve formula: slope * supply_reduced.
+    let expected_difference = CURVE_SLOPE * (supply_before - supply_after) as i128;
+    assert_eq!(
+        quote_before.price - quote_after.price,
+        expected_difference,
+        "price difference should match the bonding curve formula for the reduced supply"
     );
 }

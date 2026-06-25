@@ -220,6 +220,24 @@ pub fn compute_expected_sell_price(_supply: u32, base_price: i128) -> i128 {
     base_price
 }
 
+/// Sets the bonding curve slope parameter via an auto-generated admin address.
+pub fn set_curve_slope(env: &Env, client: &CreatorKeysContractClient<'_>, slope: i128) -> Address {
+    let admin = Address::generate(env);
+    client.set_curve_slope(&admin, &slope);
+    admin
+}
+
+/// Computes the expected bonding-curve-adjusted price for a given supply.
+///
+/// Formula: `price = base_price + slope * supply`
+/// When slope is 0, this returns `base_price` (flat curve).
+pub fn compute_expected_bonding_curve_price(slope: i128, base_price: i128, supply: u32) -> i128 {
+    if slope == 0 {
+        return base_price;
+    }
+    base_price + slope * supply as i128
+}
+
 /// Computes the expected protocol fee from a given price and bps value.
 ///
 /// This helper makes fixture intent explicit and keeps tests aligned
