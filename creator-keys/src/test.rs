@@ -123,7 +123,6 @@ fn test_get_fee_config_persists_across_repeated_reads() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
     client.register_creator(&creator, &handle, &None);
-    
     // Repeatedly read the fee config and verify stability
     for _ in 0..5 {
         let config = client.get_fee_config().unwrap();
