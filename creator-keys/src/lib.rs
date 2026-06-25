@@ -1047,7 +1047,9 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .set(&from_balance_key, &new_from_balance);
-        env.storage().persistent().set(&to_balance_key, &new_to_balance);
+        env.storage()
+            .persistent()
+            .set(&to_balance_key, &new_to_balance);
 
         Ok(())
     }
