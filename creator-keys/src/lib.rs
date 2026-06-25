@@ -5,7 +5,7 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 
 pub mod bonding_curve;
 pub mod events;
-use bonding_curve::CurvePreset;
+pub use bonding_curve::CurvePreset;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
