@@ -1244,6 +1244,85 @@ impl CreatorKeysContract {
         Ok(profile.supply)
     }
 
+    pub fn transfer_key(
+        env: Env,
+        creator: Address,
+        from: Address,
+        to: Address,
+        amount: u32,
+    ) -> Result<(), ContractError> {
+        from.require_auth();
+        assert_not_paused(&env)?;
+
+        if amount == 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+        if from == to {
+            let balance_key = constants::storage::key_balance(&creator, &from);
+            let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            if current_balance < amount {
+                return Err(ContractError::InsufficientBalance);
+            }
+
+            settle_holder_dividends(&env, &creator, &from, current_balance)?;
+            return Ok(());
+        }
+
+        let from_balance_key = constants::storage::key_balance(&creator, &from);
+        let to_balance_key = constants::storage::key_balance(&creator, &to);
+
+        let from_balance: u32 = env
+            .storage()
+            .persistent()
+            .get(&from_balance_key)
+            .unwrap_or(0);
+        if from_balance < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let to_balance: u32 = env.storage().persistent().get(&to_balance_key).unwrap_or(0);
+
+        // Settle both sides before mutating balances so pending dividends reflect
+        // the pre-transfer ownership distribution.
+        settle_holder_dividends(&env, &creator, &from, from_balance)?;
+        settle_holder_dividends(&env, &creator, &to, to_balance)?;
+
+        let new_from_balance = from_balance
+            .checked_sub(amount)
+            .ok_or(ContractError::SellUnderflow)?;
+        let new_to_balance = to_balance
+            .checked_add(amount)
+            .ok_or(ContractError::Overflow)?;
+
+        if new_from_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_sub(1)
+                .ok_or(ContractError::SellUnderflow)?;
+        }
+
+        if to_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        let key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&key, &profile);
+        env.storage()
+            .persistent()
+            .set(&from_balance_key, &new_from_balance);
+        env.storage()
+            .persistent()
+            .set(&to_balance_key, &new_to_balance);
+
+        Ok(())
+    }
+
     /// Halts all state-changing operations (buy, sell, register_creator).
     ///
     /// Only the protocol admin may call this. Emits a `ProtocolPaused` event.
