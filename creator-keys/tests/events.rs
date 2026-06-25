@@ -42,7 +42,7 @@ impl<'a> EventFixture<'a> {
 
     fn register_creator(&self, env: &Env, handle: &str) {
         self.client
-            .register_creator(&self.creator, &String::from_str(env, handle));
+            .register_creator(&self.creator, &String::from_str(env, handle, &None));
     }
 
     fn buy_key(&self, buyer: &Address, payment: i128) {
@@ -165,6 +165,7 @@ impl CreatorRegisteredEventBuilder {
             holder_count: self.holder_count,
             creator_bps: self.creator_bps,
             protocol_bps: self.protocol_bps,
+            curve_preset: creator_keys::bonding_curve::CurvePreset::Linear,
         }
     }
 }
@@ -227,7 +228,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
     let fixture = EventFixture::new(&env);
     let handle = String::from_str(&env, "alice");
 
-    fixture.client.register_creator(&fixture.creator, &handle);
+    fixture.client.register_creator(&fixture.creator, &handle, &None);
 
     let events = env.events().all();
     let last = events.last().unwrap();
@@ -255,7 +256,8 @@ fn test_register_creator_event_payload_field_order_is_documented() {
             "supply",
             "holder_count",
             "creator_bps",
-            "protocol_bps"
+            "protocol_bps",
+            "curve_preset",
         ]
     );
 }
