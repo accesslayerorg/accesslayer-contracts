@@ -1,0 +1,22 @@
+# Cargo workspace configuration for contributor-friendly aliases
+# These aliases provide shortcuts for common development workflows
+
+[alias]
+# Format check: verify code formatting without making changes
+fmt-check = "fmt --all -- --check"
+
+# Lint check: run clippy with strict warning-as-error settings
+lint = "clippy --workspace --all-targets -- -D warnings"
+
+# Quick check: run formatting, linting, and compilation
+quick-check = "sh -c 'cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo check --workspace'"
+
+# Full CI workflow: format check, lint, test, and compile
+# This matches the sequence run in CI and ensures all checks pass before pushing
+ci = "sh -c 'cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo check --workspace'"
+
+# Fix formatting in-place
+fix-fmt = "fmt --all"
+
+# Run all tests
+test-all = "test --workspace"

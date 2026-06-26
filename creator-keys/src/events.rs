@@ -37,7 +37,7 @@ pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
 /// Event name for key sale.
 pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
 
-/// Event name for key transfer.
+/// Event name for peer-to-peer key transfer.
 pub const TRANSFER_EVENT_NAME: Symbol = symbol_short!("transfer");
 
 /// Event name for creator buyback.
@@ -122,6 +122,11 @@ pub struct KeysBoughtBackEvent {
 /// Shared buy event topics tuple.
 pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+/// Shared peer-to-peer transfer event topics tuple.
+pub fn transfer_event_topics(creator: &Address, from: &Address) -> (Symbol, Address, Address) {
+    (TRANSFER_EVENT_NAME, creator.clone(), from.clone())
 }
 
 /// Shared buyback event topics tuple.
@@ -215,4 +220,26 @@ pub struct CreatorFeeRecipientUpdatedEvent {
     pub creator_id: Address,
     pub old_recipient: Address,
     pub new_recipient: Address,
+}
+
+/// Event name for key transfer.
+pub const KEYS_TRANSFERRED_EVENT_NAME: Symbol = symbol_short!("xfer");
+
+/// Stable field order for key transfer event payloads.
+pub const KEYS_TRANSFERRED_DATA_FIELDS: [&str; 5] =
+    ["creator_id", "from", "to", "amount", "ledger"];
+
+/// Stable key transfer event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEYS_TRANSFERRED_EVENT_NAME, creator_id, from)`
+/// - data: `KeysTransferredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysTransferredEvent {
+    pub creator_id: Address,
+    pub from: Address,
+    pub to: Address,
+    pub amount: u32,
+    pub ledger: u32,
 }

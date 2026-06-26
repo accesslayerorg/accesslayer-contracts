@@ -42,7 +42,7 @@ fn test_get_creator_fee_bps_fails_when_fee_config_not_set() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let creator = soroban_sdk::Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None);
 
     let result = client.try_get_creator_fee_bps(&creator);
     assert_eq!(

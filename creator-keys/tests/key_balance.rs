@@ -132,3 +132,30 @@ fn test_key_balance_zero_for_registered_creator_and_unseen_wallet() {
 
     assert_eq!(client.get_key_balance(&creator, &unseen_wallet), 0);
 }
+
+#[test]
+fn test_key_balance_returns_zero_for_uninitialized_holder() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = soroban_sdk::Address::generate(&env);
+    let creator = soroban_sdk::Address::generate(&env);
+    let buyer_a = soroban_sdk::Address::generate(&env);
+    let buyer_b = soroban_sdk::Address::generate(&env);
+    let uninitialized_wallet = soroban_sdk::Address::generate(&env);
+
+    client.set_key_price(&admin, &100i128);
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None);
+    client.buy_key(&creator, &buyer_a, &100i128, &None);
+    client.buy_key(&creator, &buyer_a, &100i128, &None);
+    client.buy_key(&creator, &buyer_b, &100i128, &None);
+
+    assert_eq!(
+        client.try_get_key_balance(&creator, &uninitialized_wallet),
+        Ok(Ok(0)),
+        "wallet that has never bought keys must return zero, not an error"
+    );
+}

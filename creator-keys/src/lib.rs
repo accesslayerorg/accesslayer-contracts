@@ -68,11 +68,12 @@ pub enum ContractError {
     NoDividendClaimable = 19,
     ZeroDistributionAmount = 20,
     NoKeyHolders = 21,
-    InvalidAmount = 22,
-    AllocationLocked = 23,
-    AlreadyClaimed = 24,
-    SupplyCapExceeded = 25,
-    InsufficientSupply = 26,
+    AllocationLocked = 22,
+    AlreadyClaimed = 23,
+    SupplyCapExceeded = 24,
+    InsufficientSupply = 25,
+    SelfTransfer = 26,
+    ZeroTransferAmount = 27,
 }
 
 pub mod fee {
@@ -207,6 +208,30 @@ pub mod fee {
     /// arithmetic, replacing ad-hoc inline `checked_add` calls at each call site.
     pub fn checked_fee_sum(creator_fee: i128, protocol_fee: i128) -> Option<i128> {
         creator_fee.checked_add(protocol_fee)
+    }
+
+    /// Safely accumulates a value into an accumulator, returning an error on overflow.
+    ///
+    /// This helper is used in quote accumulator paths (e.g., dividend distribution) where
+    /// adding a per-key-net amount to the current accumulator must not overflow.
+    /// Unlike `checked_fee_sum` which returns `Option<T>`, this returns a `ContractError`
+    /// for use at call sites that need structured error handling.
+    ///
+    /// # Motivation
+    ///
+    /// Accumulator updates happen during dividend distribution and similar paths.
+    /// The pattern `accumulator.checked_add(delta).ok_or(ContractError::Overflow)?`
+    /// appears repeatedly. This helper centralizes the pattern and makes overflow
+    /// handling explicit.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let new_accum = fee::checked_accumulate(current_accumulator, per_key_net)?;
+    /// env.storage().persistent().set(&acc_key, &new_accum);
+    /// ```
+    pub fn checked_accumulate(current: i128, delta: i128) -> Result<i128, ContractError> {
+        current.checked_add(delta).ok_or(ContractError::Overflow)
     }
 }
 
@@ -641,13 +666,6 @@ fn assert_buyback_total_cost_slippage(
         if total_cost > max {
             return Err(ContractError::SlippageExceeded);
         }
-    }
-    Ok(())
-}
-
-fn assert_nonzero_amount(amount: u32) -> Result<(), ContractError> {
-    if amount == 0 {
-        return Err(ContractError::InvalidAmount);
     }
     Ok(())
 }
@@ -1275,60 +1293,6 @@ impl CreatorKeysContract {
         );
 
         Ok(profile.supply)
-    }
-
-    pub fn transfer_keys(
-        env: Env,
-        creator: Address,
-        from: Address,
-        to: Address,
-        amount: u32,
-    ) -> Result<(), ContractError> {
-        from.require_auth();
-        assert_not_paused(&env)?;
-        assert_nonzero_amount(amount)?;
-
-        let mut profile = read_registered_creator_profile(&env, &creator)?;
-
-        let from_key = constants::storage::key_balance(&creator, &from);
-        let from_balance: u32 = env.storage().persistent().get(&from_key).unwrap_or(0);
-        if from_balance < amount {
-            return Err(ContractError::InsufficientBalance);
-        }
-
-        let to_key = constants::storage::key_balance(&creator, &to);
-        let to_balance: u32 = env.storage().persistent().get(&to_key).unwrap_or(0);
-
-        let new_from_balance = from_balance
-            .checked_sub(amount)
-            .ok_or(ContractError::SellUnderflow)?;
-        let new_to_balance = to_balance
-            .checked_add(amount)
-            .ok_or(ContractError::Overflow)?;
-
-        if new_from_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_sub(1)
-                .ok_or(ContractError::SellUnderflow)?;
-        }
-
-        if to_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_add(1)
-                .ok_or(ContractError::Overflow)?;
-        }
-
-        let creator_key = constants::storage::creator(&creator);
-        env.storage().persistent().set(&creator_key, &profile);
-        env.storage().persistent().set(&from_key, &new_from_balance);
-        env.storage().persistent().set(&to_key, &new_to_balance);
-
-        env.events()
-            .publish((events::TRANSFER_EVENT_NAME, creator, from, to), amount);
-
-        Ok(())
     }
 
     /// Halts all state-changing operations (buy, sell, register_creator).
@@ -1975,9 +1939,7 @@ impl CreatorKeysContract {
 
         let acc_key = constants::storage::dividend_accumulator(&creator);
         let accumulator: i128 = env.storage().persistent().get(&acc_key).unwrap_or(0);
-        let new_accumulator = accumulator
-            .checked_add(per_key_net)
-            .ok_or(ContractError::Overflow)?;
+        let new_accumulator = fee::checked_accumulate(accumulator, per_key_net)?;
         env.storage().persistent().set(&acc_key, &new_accumulator);
 
         env.events().publish(
@@ -2190,6 +2152,110 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::max_supply(&creator))
+    }
+
+    /// Transfers key ownership between wallets without touching the bonding curve.
+    ///
+    /// The sender's balance is decremented and the recipient's balance is
+    /// incremented by `amount`. Total supply is unchanged so the bonding curve
+    /// price is not affected.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::ZeroTransferAmount`] if `amount` is zero.
+    /// - [`ContractError::SelfTransfer`] if the sender is the same as the recipient.
+    /// - [`ContractError::InsufficientBalance`] if the sender holds fewer keys than `amount`.
+    pub fn transfer_keys(
+        env: Env,
+        creator: Address,
+        from: Address,
+        to: Address,
+        amount: u32,
+    ) -> Result<(), ContractError> {
+        from.require_auth();
+        assert_not_paused(&env)?;
+
+        if amount == 0 {
+            return Err(ContractError::ZeroTransferAmount);
+        }
+        if from == to {
+            return Err(ContractError::SelfTransfer);
+        }
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+        let from_balance_key = constants::storage::key_balance(&creator, &from);
+        let from_balance: u32 = env
+            .storage()
+            .persistent()
+            .get(&from_balance_key)
+            .unwrap_or(0);
+
+        // Settle dividends for sender before balance changes.
+        settle_holder_dividends(&env, &creator, &from, from_balance)?;
+
+        if from_balance < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        // Settle dividends for recipient before balance changes.
+        let to_balance_key = constants::storage::key_balance(&creator, &to);
+        let to_balance: u32 = env.storage().persistent().get(&to_balance_key).unwrap_or(0);
+        settle_holder_dividends(&env, &creator, &to, to_balance)?;
+
+        // Update sender balance.
+        let new_from_balance = from_balance
+            .checked_sub(amount)
+            .ok_or(ContractError::InsufficientBalance)?;
+        env.storage()
+            .persistent()
+            .set(&from_balance_key, &new_from_balance);
+
+        // Decrement holder count if sender balance reaches zero.
+        if new_from_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_sub(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // Update recipient balance.
+        let new_to_balance = to_balance
+            .checked_add(amount)
+            .ok_or(ContractError::Overflow)?;
+        env.storage()
+            .persistent()
+            .set(&to_balance_key, &new_to_balance);
+
+        // Increment holder count if recipient had zero balance before.
+        if to_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // Write updated profile (holder_count changes).
+        let profile_key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&profile_key, &profile);
+
+        env.events().publish(
+            (
+                events::KEYS_TRANSFERRED_EVENT_NAME,
+                creator.clone(),
+                from.clone(),
+            ),
+            events::KeysTransferredEvent {
+                creator_id: creator,
+                from,
+                to,
+                amount,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
     }
 }
 
@@ -2582,20 +2648,6 @@ mod tests {
     }
 
     // --- Zero address validation ---
-
-    #[test]
-    fn test_assert_nonzero_amount_rejects_zero() {
-        assert_eq!(
-            super::assert_nonzero_amount(0),
-            Err(super::ContractError::InvalidAmount)
-        );
-    }
-
-    #[test]
-    fn test_assert_nonzero_amount_accepts_nonzero() {
-        assert_eq!(super::assert_nonzero_amount(1), Ok(()));
-        assert_eq!(super::assert_nonzero_amount(u32::MAX), Ok(()));
-    }
 
     #[test]
     fn test_validate_non_zero_address_rejects_zero() {

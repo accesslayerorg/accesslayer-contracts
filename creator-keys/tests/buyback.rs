@@ -148,6 +148,57 @@ fn test_buyback_exceeding_supply_reverts_with_insufficient_supply() {
 }
 
 #[test]
+fn test_buyback_exceeding_supply_with_larger_amount_reverts() {
+    let env = test_env_with_auths();
+    let (client, creator) = setup(&env);
+    self_buy_keys(&client, &creator, 10);
+
+    let quote_result = client.try_get_buyback_quote(&creator, &20);
+    let buyback_result = client.try_buyback(&creator, &creator, &20, &22_000, &None);
+
+    assert_eq!(quote_result, Err(Ok(ContractError::InsufficientSupply)));
+    assert_eq!(buyback_result, Err(Ok(ContractError::InsufficientSupply)));
+}
+
+#[test]
+fn test_buyback_with_zero_supply_reverts() {
+    let env = test_env_with_auths();
+    let (client, creator) = setup(&env);
+
+    let quote_result = client.try_get_buyback_quote(&creator, &1);
+    let buyback_result = client.try_buyback(&creator, &creator, &1, &1_100, &None);
+
+    assert_eq!(quote_result, Err(Ok(ContractError::InsufficientSupply)));
+    assert_eq!(buyback_result, Err(Ok(ContractError::InsufficientSupply)));
+}
+
+#[test]
+fn test_buyback_exceeding_supply_by_one_reverts() {
+    let env = test_env_with_auths();
+    let (client, creator) = setup(&env);
+    self_buy_keys(&client, &creator, 5);
+
+    let quote_result = client.try_get_buyback_quote(&creator, &6);
+    let buyback_result = client.try_buyback(&creator, &creator, &6, &6_600, &None);
+
+    assert_eq!(quote_result, Err(Ok(ContractError::InsufficientSupply)));
+    assert_eq!(buyback_result, Err(Ok(ContractError::InsufficientSupply)));
+}
+
+#[test]
+fn test_buyback_exceeding_supply_significantly_reverts() {
+    let env = test_env_with_auths();
+    let (client, creator) = setup(&env);
+    self_buy_keys(&client, &creator, 3);
+
+    let quote_result = client.try_get_buyback_quote(&creator, &100);
+    let buyback_result = client.try_buyback(&creator, &creator, &100, &110_000, &None);
+
+    assert_eq!(quote_result, Err(Ok(ContractError::InsufficientSupply)));
+    assert_eq!(buyback_result, Err(Ok(ContractError::InsufficientSupply)));
+}
+
+#[test]
 fn test_buyback_rejects_when_creator_balance_is_below_amount_even_if_supply_is_higher() {
     let env = test_env_with_auths();
     let (client, creator) = setup(&env);
