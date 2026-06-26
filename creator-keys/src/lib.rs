@@ -633,6 +633,18 @@ fn assert_buy_price_slippage(price: i128, max_price: Option<i128>) -> Result<(),
     Ok(())
 }
 
+fn assert_buyback_total_cost_slippage(
+    total_cost: i128,
+    max_total_cost: Option<i128>,
+) -> Result<(), ContractError> {
+    if let Some(max) = max_total_cost {
+        if total_cost > max {
+            return Err(ContractError::SlippageExceeded);
+        }
+    }
+    Ok(())
+}
+
 fn assert_nonzero_amount(amount: u32) -> Result<(), ContractError> {
     if amount == 0 {
         return Err(ContractError::InvalidAmount);
