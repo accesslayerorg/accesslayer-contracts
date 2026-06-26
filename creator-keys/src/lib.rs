@@ -178,7 +178,7 @@ pub mod fee {
     /// so the bps arithmetic stays consistent across the contract.
     ///
     /// Returns `None` if the fee computation or subtraction would underflow.
-
+    ///
     /// Computes the fee split safely, returning `None` if multiplication or subtraction overflows.
     pub fn checked_compute_fee_split(
         total: i128,
