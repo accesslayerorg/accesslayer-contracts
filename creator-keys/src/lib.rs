@@ -1969,8 +1969,7 @@ impl CreatorKeysContract {
 
         let base_price = compute_buyback_base_price(price, amount)?;
         let config = read_required_protocol_fee_config(&env)?;
-        fee::compute_buyback_cost(base_price, config.protocol_bps)
-            .ok_or(ContractError::Overflow)
+        fee::compute_buyback_cost(base_price, config.protocol_bps).ok_or(ContractError::Overflow)
     }
 
     /// Read-only view: returns a quote for selling a key.
