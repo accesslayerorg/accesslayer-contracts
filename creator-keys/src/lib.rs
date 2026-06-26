@@ -152,6 +152,37 @@ pub mod fee {
         checked_div_i128(amount.checked_mul(bps as i128)?, BPS_MAX as i128)
     }
 
+    /// Computes the net buyback cost after deducting the protocol fee.
+    ///
+    /// Returns `None` if the fee computation overflows or the subtraction overflows.
+    /// The result is `gross_price - protocol_fee` where `protocol_fee` is calculated
+    /// via `apply_percentage_fee`. This mirrors the fee logic used for regular buys.
+    pub fn compute_net_buyback_cost(gross_price: i128, protocol_fee_bps: u32) -> Option<i128> {
+        let protocol_fee = apply_percentage_fee(gross_price, protocol_fee_bps)?;
+        gross_price.checked_sub(protocol_fee)
+    }
+    ///
+    /// Returns `None` if the fee computation or addition overflows. This helper
+    /// exists so the buyback path shares the same bps math used in regular buys
+    /// instead of reimplementing the protocol fee arithmetic inline.
+    pub fn compute_buyback_cost(gross_price: i128, protocol_fee_bps: u32) -> Option<i128> {
+        let protocol_fee = apply_percentage_fee(gross_price, protocol_fee_bps)?;
+        gross_price.checked_add(protocol_fee)
+    }
+
+    /// Computes the net buyback cost after deducting the protocol fee.
+    ///
+    /// Takes the gross buyback price and subtracts the protocol fee portion,
+    /// returning the net amount that remains after fee deduction. Uses the same
+    /// `apply_percentage_fee` helper as the regular buy and buyback fee paths
+    /// so the bps arithmetic stays consistent across the contract.
+    ///
+    /// Returns `None` if the fee computation or subtraction would underflow.
+    pub fn compute_net_buyback_cost(gross_price: i128, protocol_fee_bps: u32) -> Option<i128> {
+        let protocol_fee = apply_percentage_fee(gross_price, protocol_fee_bps)?;
+        gross_price.checked_sub(protocol_fee)
+    }
+
     /// Computes the fee split safely, returning `None` if multiplication or subtraction overflows.
     pub fn checked_compute_fee_split(
         total: i128,
@@ -765,11 +796,6 @@ fn compute_buyback_base_price(unit_price: i128, amount: u32) -> Result<i128, Con
         .ok_or(ContractError::Overflow)
 }
 
-fn compute_buyback_protocol_fee(env: &Env, base_price: i128) -> Result<i128, ContractError> {
-    let config = read_required_protocol_fee_config(env)?;
-    fee::apply_percentage_fee(base_price, config.protocol_bps).ok_or(ContractError::Overflow)
-}
-
 fn read_curve_slope(env: &Env) -> i128 {
     env.storage()
         .persistent()
@@ -1307,9 +1333,10 @@ impl CreatorKeysContract {
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
         let curve_price = compute_bonding_curve_price(&env, base_price_stored, profile.supply)?;
         let base_price = compute_buyback_base_price(curve_price, amount)?;
-        let protocol_fee = compute_buyback_protocol_fee(&env, base_price)?;
-        let total_cost = base_price
-            .checked_add(protocol_fee)
+        let config = read_required_protocol_fee_config(&env)?;
+        let protocol_fee = fee::apply_percentage_fee(base_price, config.protocol_bps)
+            .ok_or(ContractError::Overflow)?;
+        let total_cost = fee::compute_buyback_cost(base_price, config.protocol_bps)
             .ok_or(ContractError::Overflow)?;
 
         assert_buyback_total_cost_slippage(total_cost, max_total_cost)?;
@@ -1941,9 +1968,8 @@ impl CreatorKeysContract {
         }
 
         let base_price = compute_buyback_base_price(price, amount)?;
-        let protocol_fee = compute_buyback_protocol_fee(&env, base_price)?;
-        base_price
-            .checked_add(protocol_fee)
+        let config = read_required_protocol_fee_config(&env)?;
+        fee::compute_buyback_cost(base_price, config.protocol_bps)
             .ok_or(ContractError::Overflow)
     }
 

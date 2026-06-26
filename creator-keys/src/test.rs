@@ -1762,3 +1762,95 @@ fn test_zero_net_boundary_seller_gets_zero_proceeds() {
         "with extreme split, proceeds should be zero"
     );
 }
+
+// --- Compute Buyback Cost Helper Tests (#426) ---
+
+#[test]
+fn test_compute_buyback_cost_zero_fee_bps() {
+    let gross_price = 1000i128;
+    let result = fee::compute_buyback_cost(gross_price, 0);
+    assert_eq!(
+        result,
+        Some(1000),
+        "zero fee bps should return gross price unchanged"
+    );
+}
+
+#[test]
+fn test_compute_buyback_cost_standard_fee_bps() {
+    let gross_price = 1000i128;
+    let result = fee::compute_buyback_cost(gross_price, 1000);
+    assert_eq!(
+        result,
+        Some(1100),
+        "1000 bps (10%) on 1000 should yield 1100"
+    );
+}
+
+#[test]
+fn test_compute_buyback_cost_maximum_fee_bps() {
+    let gross_price = 1000i128;
+    let result = fee::compute_buyback_cost(gross_price, 5000);
+    assert_eq!(
+        result,
+        Some(1500),
+        "5000 bps (50%) on 1000 should yield 1500"
+    );
+}
+
+// --- Compute Net Buyback Cost Helper Tests (#426) ---
+
+#[test]
+fn test_compute_net_buyback_cost_zero_fee_bps() {
+    let gross_price = 1000i128;
+    let result = fee::compute_net_buyback_cost(gross_price, 0);
+    assert_eq!(
+        result,
+        Some(1000),
+        "zero fee bps should return gross price unchanged"
+    );
+}
+
+#[test]
+fn test_compute_net_buyback_cost_standard_fee_bps() {
+    let gross_price = 1000i128;
+    let result = fee::compute_net_buyback_cost(gross_price, 1000);
+    assert_eq!(
+        result,
+        Some(900),
+        "1000 bps (10%) on 1000 should yield 900 net"
+    );
+}
+
+#[test]
+fn test_compute_net_buyback_cost_maximum_fee_bps() {
+    let gross_price = 1000i128;
+    let result = fee::compute_net_buyback_cost(gross_price, 5000);
+    assert_eq!(
+        result,
+        Some(500),
+        "5000 bps (50%) on 1000 should yield 500 net"
+    );
+}
+
+#[test]
+fn test_compute_net_buyback_cost_matches_inverse_of_compute_buyback_cost() {
+    let base_price = 1500i128;
+    let protocol_fee_bps = 1000; // 10%
+    let net = fee::compute_net_buyback_cost(base_price, protocol_fee_bps);
+    let total = fee::compute_buyback_cost(base_price, protocol_fee_bps);
+
+    assert_eq!(net, Some(1350));
+    assert_eq!(total, Some(1650));
+    assert_eq!(
+        net.unwrap() + total.unwrap() - base_price,
+        base_price,
+        "net + total - gross should equal gross"
+    );
+}
+
+#[test]
+fn test_compute_net_buyback_cost_zero_gross_price() {
+    let result = fee::compute_net_buyback_cost(0, 1000);
+    assert_eq!(result, Some(0), "zero gross price should return zero");
+}
