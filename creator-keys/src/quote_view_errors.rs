@@ -9,3 +9,7 @@ pub const ERR_OVERFLOW: &str = "overflow";
 /// Emitted on the sell path when a checked subtraction would underflow.
 /// Distinct from `ERR_OVERFLOW` so consumers can identify sell-specific underflow.
 pub const ERR_SELL_UNDERFLOW: &str = "sell_underflow";
+
+pub const ERR_ZERO_CLAIMABLE: &str = "zero_claimable";
+pub const ERR_NO_HOLDERS: &str = "no_holders";
+pub const ERR_DIVIDEND_AMOUNT_ZERO: &str = "dividend_amount_zero";
