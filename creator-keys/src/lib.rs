@@ -179,7 +179,6 @@ pub mod fee {
     ///
     /// Returns `None` if the fee computation or subtraction would underflow.
 
-
     /// Computes the fee split safely, returning `None` if multiplication or subtraction overflows.
     pub fn checked_compute_fee_split(
         total: i128,
@@ -2233,7 +2232,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns the max supply cap for a creator.
-/// Read-only view: returns the max supply cap for a creator.
+    /// Read-only view: returns the max supply cap for a creator.
     ///
     /// Returns `None` if no max supply cap is set (uncapped).
     pub fn get_max_supply(env: Env, creator: Address) -> Option<u32> {
