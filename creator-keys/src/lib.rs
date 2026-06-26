@@ -2233,6 +2233,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns the max supply cap for a creator.
+/// Read-only view: returns the max supply cap for a creator.
     ///
     /// Returns `None` if no max supply cap is set (uncapped).
     pub fn get_max_supply(env: Env, creator: Address) -> Option<u32> {
@@ -2240,21 +2241,6 @@ impl CreatorKeysContract {
             .persistent()
             .get(&constants::storage::max_supply(&creator))
     }
-
-    /// Transfers key ownership between wallets without touching the bonding curve.
-    ///
-    /// The sender's balance is decremented and the recipient's balance is
-    /// incremented by `amount`. Total supply is unchanged so the bonding curve
-    /// price is not affected.
-    ///
-    /// # Errors
-    ///
-    /// - [`ContractError::NotRegistered`] if the creator is not registered.
-    /// - [`ContractError::ZeroTransferAmount`] if `amount` is zero.
-    /// - [`ContractError::SelfTransfer`] if the sender is the same as the recipient.
-    /// - [`ContractError::InsufficientBalance`] if the sender holds fewer keys than `amount`.
-
-}
 
 #[cfg(test)]
 mod tests {
