@@ -109,13 +109,28 @@ pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
 /// Event shape:
 /// - topics: `(BUYBACK_EVENT_NAME, creator)`
 /// - data: `KeysBoughtBackEvent`
+///
+/// # Creator Fee Waiver
+/// On buybacks, the creator fee is explicitly waived because the creator cannot pay
+/// themselves a fee. The protocol fee still applies.
+///
+/// # Indexer Note
+/// This event represents a creator burning keys from their own held balance,
+/// which is distinct from a regular buy event. Indexers should process this
+/// event separately from `BUY_EVENT_NAME` events to correctly track supply
+/// changes and fee accounting.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct KeysBoughtBackEvent {
+    /// Address of the creator performing the buyback.
     pub creator: Address,
+    /// Number of keys being bought back and burned.
     pub amount: u32,
+    /// Total amount paid by the creator, including protocol fee (but not creator fee).
     pub price_paid: i128,
+    /// New total supply of keys for the creator after the buyback.
     pub new_supply: u32,
+    /// Ledger sequence number at the time of the buyback.
     pub ledger: u32,
 }
 

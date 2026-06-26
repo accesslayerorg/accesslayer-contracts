@@ -1213,7 +1213,8 @@ impl CreatorKeysContract {
     /// Creator-only buyback that burns keys from the creator's own held balance.
     ///
     /// The creator pays the current gross buyback cost plus protocol fee, while the
-    /// creator fee is waived. To preserve the contract's supply/balance invariants,
+    /// creator fee is waived (creator cannot pay themselves a fee). The protocol fee
+    /// still applies. To preserve the contract's supply/balance invariants,
     /// the burned amount is decremented from the creator wallet's existing key balance.
     pub fn buyback(
         env: Env,
