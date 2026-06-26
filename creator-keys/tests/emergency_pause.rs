@@ -179,3 +179,46 @@ fn test_read_only_views_work_while_paused() {
     let _ = client.get_protocol_state_version();
     let _ = client.get_key_decimals();
 }
+
+// ---------------------------------------------------------------------------
+// Combined regression: pause blocks registration but not reads, unpause resumes (#452)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pause_blocks_registration_not_reads() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let admin = set_protocol_admin(&env, &client);
+
+    let creator_a = register_test_creator(&env, &client, "creatora");
+
+    client.pause(&admin);
+    assert!(client.get_is_paused());
+
+    // Registration must revert while paused
+    let creator_b = Address::generate(&env);
+    let result = client.try_register_creator(
+        &creator_b,
+        &soroban_sdk::String::from_str(&env, "creatorb"),
+        &None,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
+
+    // Read-only views for creator_a must succeed while paused
+    assert!(client.is_creator_registered(&creator_a));
+    let _ = client.get_creator_details(&creator_a);
+    assert_eq!(client.get_total_key_supply(&creator_a), 0);
+
+    // Unpause — creator_b registration must now succeed
+    client.unpause(&admin);
+    assert!(!client.get_is_paused());
+    client
+        .try_register_creator(
+            &creator_b,
+            &soroban_sdk::String::from_str(&env, "creatorb"),
+            &None,
+            &None,
+        )
+        .unwrap();
+}
