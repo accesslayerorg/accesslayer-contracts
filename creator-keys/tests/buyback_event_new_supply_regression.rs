@@ -8,10 +8,7 @@ mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, register_test_creator, set_pricing_and_fees};
 use creator_keys::events;
-use soroban_sdk::{
-    testutils::Events,
-    Address, Env, IntoVal,
-};
+use soroban_sdk::{testutils::Events, Address, Env, IntoVal};
 
 const KEY_PRICE: i128 = 1_000;
 const CREATOR_BPS: u32 = 9_000;
@@ -35,9 +32,7 @@ fn self_buy_keys(
     }
 }
 
-fn last_buyback_payload(
-    env: &Env,
-) -> events::KeysBoughtBackEvent {
+fn last_buyback_payload(env: &Env) -> events::KeysBoughtBackEvent {
     let event_log = env.events().all();
     let last = event_log.last().unwrap();
     last.2.into_val(env)

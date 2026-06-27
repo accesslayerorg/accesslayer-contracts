@@ -21,7 +21,13 @@ use soroban_sdk::{testutils::Address as _, Address};
 fn test_claimable_balance_is_zero_after_successful_claim() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    set_pricing_and_fees(&env, &client, 100, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    set_pricing_and_fees(
+        &env,
+        &client,
+        100,
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &100, &None);
@@ -39,7 +45,13 @@ fn test_claimable_balance_is_zero_after_successful_claim() {
 fn test_second_claim_attempt_reverts_after_claimable_zeroed() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    set_pricing_and_fees(&env, &client, 100, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    set_pricing_and_fees(
+        &env,
+        &client,
+        100,
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &100, &None);
