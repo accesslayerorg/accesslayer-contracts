@@ -3,9 +3,9 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    compute_expected_holder_dividend, distribute_test_dividend, register_creator_keys,
-    register_test_creator, set_pricing_and_fees, test_env_with_auths, DEFAULT_CREATOR_BPS,
-    DEFAULT_PROTOCOL_BPS,
+    assert_claimable, compute_expected_holder_dividend, distribute_test_dividend,
+    register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
+    DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 use creator_keys::ContractError;
 use soroban_sdk::{testutils::Address as _, Address};
@@ -73,7 +73,7 @@ fn test_claim_dividend_resets_claimable_to_zero() {
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
     client.claim_dividend(&creator, &buyer);
 
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), 0);
+    assert_claimable(&client, &creator, &buyer, 0);
 }
 
 #[test]

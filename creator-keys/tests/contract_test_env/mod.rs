@@ -405,6 +405,24 @@ pub fn distribute_test_dividend(
     client.distribute_dividend(creator, distributor, &amount);
 }
 
+/// Asserts that the claimable dividend for `wallet` on `creator` equals `expected`.
+///
+/// Panics with a descriptive message that includes creator, wallet, expected, and actual values
+/// when the amounts differ, making it easy to identify which holder's dividend is wrong.
+pub fn assert_claimable(
+    client: &CreatorKeysContractClient<'_>,
+    creator: &Address,
+    wallet: &Address,
+    expected: i128,
+) {
+    let actual = client.get_claimable_dividend(creator, wallet);
+    assert_eq!(
+        actual,
+        expected,
+        "claimable dividend mismatch: creator={creator:?} wallet={wallet:?} expected={expected} actual={actual}"
+    );
+}
+
 /// Computes the expected claimable dividend for a holder given distribution parameters.
 ///
 /// Mirrors the contract's per-key accumulator model:
