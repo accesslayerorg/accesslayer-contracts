@@ -72,3 +72,12 @@ This is the only read path. The return value is the global slope stored at
 This absence is intentional. Providing an update path would introduce the holder-harm
 scenarios described above. Any contributor who adds such a function must first address
 the migration and consent mechanism for existing holders.
+
+---
+
+## Related documents
+
+- [bonding-curve-formula.md](./bonding-curve-formula.md) — full price formula and fee pipeline
+- [fee-assumptions.md](./fee-assumptions.md) — fee split math and rounding
+- [read-only-methods.md](./read-only-methods.md) — all read-only contract entry points
+- [deterministic-quote-tests.md](./deterministic-quote-tests.md) — how quote regression tests are structured
