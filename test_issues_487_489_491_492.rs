@@ -20,7 +20,7 @@ mod issue_tests {
 
     // Re-export the contract client and error type the same way the existing
     // tests do.  Adjust the path if the crate structure differs.
-    use crate::{ContractError, CreatorKeysClient};
+    use crate::{CreatorKeysClient, ContractError};
 
     // -------------------------------------------------------------------------
     // Shared test helper – shared across all tests in this module
@@ -73,7 +73,8 @@ mod issue_tests {
         }
 
         assert_eq!(
-            total_supply, computed_sum,
+            total_supply,
+            computed_sum,
             "Supply invariant violated for creator {creator_id:?}: \
              total_supply={total_supply} but sum of holder balances={computed_sum}"
         );
