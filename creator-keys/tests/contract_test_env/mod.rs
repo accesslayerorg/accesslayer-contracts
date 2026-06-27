@@ -105,7 +105,7 @@ pub fn register_test_creator(
     handle: &str,
 ) -> Address {
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
+    client.register_creator(&creator, &String::from_str(env, handle), &None, &None, &None);
     creator
 }
 
@@ -130,7 +130,7 @@ pub fn register_test_creator_with_fee_config(
     let admin = Address::generate(env);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
+    client.register_creator(&creator, &String::from_str(env, handle), &None, &None, &None);
     creator
 }
 

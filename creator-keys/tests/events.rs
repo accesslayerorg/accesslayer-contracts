@@ -42,7 +42,7 @@ impl<'a> EventFixture<'a> {
 
     fn register_creator(&self, env: &Env, handle: &str) {
         self.client
-            .register_creator(&self.creator, &String::from_str(env, handle), &None, &None);
+            .register_creator(&self.creator, &String::from_str(env, handle), &None, &None, &None);
     }
 
     fn buy_key(&self, buyer: &Address, payment: i128) {
@@ -229,7 +229,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
 
     fixture
         .client
-        .register_creator(&fixture.creator, &handle, &None, &None);
+        .register_creator(&fixture.creator, &handle, &None, &None, &None);
 
     let events = env.events().all();
     let last = events.last().unwrap();

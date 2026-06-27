@@ -46,7 +46,7 @@ fn test_get_locked_allocation_returns_some_when_set() {
             claimed: false,
         }),
         &None,
-    );
+     &None);
 
     let result = client.get_locked_allocation(&creator);
     assert!(

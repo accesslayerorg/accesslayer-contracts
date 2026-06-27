@@ -149,7 +149,7 @@ fn test_register_creator_reverts_when_paused() {
         &soroban_sdk::String::from_str(&env, "alice"),
         &None,
         &None,
-    );
+     &None);
     assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
 }
 

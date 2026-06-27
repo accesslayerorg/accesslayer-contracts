@@ -30,7 +30,7 @@ fn test_claim_locked_allocation_reverts_at_every_ledger_before_unlock() {
             claimed: false,
         }),
         &None,
-    );
+     &None);
 
     // Immediately after registration — must revert.
     let result = client.try_claim_locked_allocation(&creator);
@@ -75,7 +75,7 @@ fn test_claim_locked_allocation_succeeds_at_unlock_ledger() {
             claimed: false,
         }),
         &None,
-    );
+     &None);
 
     // Advance to exactly unlock_ledger.
     ledger_info.sequence_number = unlock_ledger;

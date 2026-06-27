@@ -35,7 +35,7 @@ fn setup_transfer(
     let sender = Address::generate(env);
     let recipient = Address::generate(env);
 
-    client.register_creator(&creator, &String::from_str(env, "alice"), &None, &None);
+    client.register_creator(&creator, &String::from_str(env, "alice"), &None, &None, &None);
     client.buy_key(&creator, &sender, &KEY_PRICE, &None);
     client.transfer_keys(&creator, &sender, &recipient, &TRANSFER_AMOUNT);
 
