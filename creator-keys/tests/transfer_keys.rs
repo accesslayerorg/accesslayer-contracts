@@ -17,7 +17,13 @@ fn test_transfer_keys_sender_balance_decreases() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -41,7 +47,13 @@ fn test_transfer_keys_recipient_balance_increases() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
 
     client.transfer_keys(&creator, &sender, &recipient, &1);
@@ -63,7 +75,13 @@ fn test_transfer_keys_total_supply_unchanged() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -84,7 +102,13 @@ fn test_transfer_keys_buy_quote_unchanged_after_transfer() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -112,7 +136,13 @@ fn test_transfer_keys_sell_quote_unchanged_after_transfer() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -136,7 +166,13 @@ fn test_transfer_keys_holder_count_unaffected_when_sender_zero_but_recipient_new
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
 
     let holders_before = client.get_creator_holder_count(&creator);
@@ -165,7 +201,13 @@ fn test_transfer_keys_holder_count_increments_when_recipient_new() {
     let sender_b = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender_a, &100, &None);
     client.buy_key(&creator, &sender_b, &100, &None);
 
@@ -191,7 +233,13 @@ fn test_transfer_keys_self_transfer_reverts() {
     let creator = Address::generate(&env);
     let sender = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
 
     let result = client.try_transfer_keys(&creator, &sender, &sender, &1);
@@ -212,7 +260,13 @@ fn test_transfer_keys_zero_amount_reverts() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
 
     let result = client.try_transfer_keys(&creator, &sender, &recipient, &0);
@@ -233,7 +287,13 @@ fn test_transfer_keys_exceeding_balance_reverts() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
 
     let result = client.try_transfer_keys(&creator, &sender, &recipient, &2);
@@ -270,7 +330,13 @@ fn test_transfer_keys_self_transfer_sender_balance_unchanged() {
     let creator = Address::generate(&env);
     let sender = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -298,7 +364,13 @@ fn test_transfer_keys_self_transfer_total_supply_unchanged() {
     let creator = Address::generate(&env);
     let sender = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -328,7 +400,13 @@ fn test_transfer_keys_preserves_other_holders() {
     let recipient = Address::generate(&env);
     let bystander = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &bystander, &100, &None);
     client.buy_key(&creator, &bystander, &100, &None);

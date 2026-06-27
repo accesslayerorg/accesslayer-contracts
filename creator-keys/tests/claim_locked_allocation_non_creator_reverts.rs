@@ -32,7 +32,8 @@ fn setup_creator_with_locked_allocation(
             claimed: false,
         }),
         &None,
-     &None);
+        &None,
+    );
     creator
 }
 

@@ -1019,7 +1019,6 @@ impl CreatorKeysContract {
     /// - `locked_allocation`: optional time-locked key allocation for creator self-vesting.
     ///   If provided, `unlock_ledger` must be strictly greater than current ledger.
     /// - `max_supply`: optional maximum supply cap. If provided, must be greater than zero.
-
     pub fn register_creator(
         env: Env,
         creator: Address,
@@ -1089,9 +1088,7 @@ impl CreatorKeysContract {
         // Handle curve preset
         let preset = curve_preset.unwrap_or(CurvePreset::Linear);
         let preset_key = constants::storage::curve_preset(&creator);
-        env.storage()
-            .persistent()
-            .set(&preset_key, &preset);
+        env.storage().persistent().set(&preset_key, &preset);
 
         let profile = CreatorProfile {
             creator: creator.clone(),
@@ -1245,7 +1242,10 @@ impl CreatorKeysContract {
             .persistent()
             .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
-        let sell_supply = profile.supply.checked_sub(1).ok_or(ContractError::SellUnderflow)?;
+        let sell_supply = profile
+            .supply
+            .checked_sub(1)
+            .ok_or(ContractError::SellUnderflow)?;
         let price = compute_bonding_curve_price(&env, &creator, base_price, sell_supply)?;
 
         // Settle dividends before balance changes so earnings are captured at old balance.
@@ -1317,7 +1317,8 @@ impl CreatorKeysContract {
             .get(&constants::storage::KEY_PRICE)
             .ok_or(ContractError::KeyPriceNotSet)?;
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
-        let curve_price = compute_bonding_curve_price(&env, &creator, base_price_stored, profile.supply)?;
+        let curve_price =
+            compute_bonding_curve_price(&env, &creator, base_price_stored, profile.supply)?;
         let base_price = compute_buyback_base_price(curve_price, amount)?;
         let config = read_required_protocol_fee_config(&env)?;
         let protocol_fee = fee::apply_percentage_fee(base_price, config.protocol_bps)
@@ -1993,7 +1994,10 @@ impl CreatorKeysContract {
         }
 
         let profile = read_registered_creator_profile(&env, &creator)?;
-        let sell_supply = profile.supply.checked_sub(1).ok_or(ContractError::SellUnderflow)?;
+        let sell_supply = profile
+            .supply
+            .checked_sub(1)
+            .ok_or(ContractError::SellUnderflow)?;
         let curve_price = compute_bonding_curve_price(&env, &creator, normalized, sell_supply)?;
         let Some(price) = normalize_quote_amount(curve_price)? else {
             return Ok(zero_quote_response());

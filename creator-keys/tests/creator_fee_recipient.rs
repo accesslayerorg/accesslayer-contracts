@@ -13,7 +13,13 @@ fn test_get_creator_fee_recipient_returns_creator_address() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let creator = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
 
     assert_eq!(client.get_creator_fee_recipient(&creator), creator);
 }
@@ -27,7 +33,13 @@ fn test_get_creator_fee_recipient_is_read_only() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let creator = Address::generate(&env);
 
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
 
     let first_read = client.get_creator_fee_recipient(&creator);
     let second_read = client.get_creator_fee_recipient(&creator);

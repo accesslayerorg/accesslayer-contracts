@@ -11,7 +11,13 @@ fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Address) {
     client.set_key_price(&admin, &100_i128);
 
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, "alice"), &None, &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
 
     (client, admin, creator)
 }

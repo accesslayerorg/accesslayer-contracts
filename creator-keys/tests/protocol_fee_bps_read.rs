@@ -84,7 +84,8 @@ fn test_get_protocol_fee_bps_persists_across_operations() {
         &soroban_sdk::String::from_str(&env, "alice"),
         &None,
         &None,
-     &None);
+        &None,
+    );
     client.set_key_price(&admin, &100);
     client.buy_key(&creator, &buyer, &100, &None);
 

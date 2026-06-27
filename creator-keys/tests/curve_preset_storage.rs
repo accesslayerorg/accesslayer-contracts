@@ -51,10 +51,7 @@ fn test_curve_preset_variants_and_error_handling() {
         client.get_curve_preset(&creator_quadratic),
         CurvePreset::Quadratic
     );
-    assert_eq!(
-        client.get_curve_preset(&creator_flat),
-        CurvePreset::Flat
-    );
+    assert_eq!(client.get_curve_preset(&creator_flat), CurvePreset::Flat);
 
     // Assert querying a non-existent creator returns the expected error (NotRegistered)
     let non_existent = Address::generate(&env);

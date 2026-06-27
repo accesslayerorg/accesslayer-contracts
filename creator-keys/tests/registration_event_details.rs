@@ -89,7 +89,8 @@ fn test_register_creator_event_fields_update_with_fee_config() {
         &String::from_str(&env, "creator_1"),
         &None,
         &None,
-     &None);
+        &None,
+    );
 
     let event1: events::CreatorRegisteredEvent =
         env.events().all().last().unwrap().2.into_val(&env);
@@ -104,7 +105,8 @@ fn test_register_creator_event_fields_update_with_fee_config() {
         &String::from_str(&env, "creator_2"),
         &None,
         &None,
-     &None);
+        &None,
+    );
 
     let event2: events::CreatorRegisteredEvent =
         env.events().all().last().unwrap().2.into_val(&env);
