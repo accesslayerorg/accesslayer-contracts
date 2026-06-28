@@ -279,6 +279,8 @@ pub mod constants {
         pub const PROTOCOL_STATE_VERSION: DataKey = DataKey::ProtocolStateVersion;
         pub const PAUSED: DataKey = DataKey::Paused;
         pub const CURVE_SLOPE: DataKey = DataKey::CurveSlope;
+        // NEW: Treasury balance storage key
+        pub const TREASURY_BALANCE: DataKey = DataKey::TreasuryBalance;
 
         pub fn curve_preset(creator: &Address) -> DataKey {
             DataKey::CurvePreset(creator.clone())
@@ -488,6 +490,8 @@ pub enum DataKey {
     MaxSupply(Address),
     CurveSlope,
     CurvePreset(Address),
+    // NEW: Track treasury balance separately
+    TreasuryBalance,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -668,22 +672,23 @@ fn read_required_protocol_fee_config(env: &Env) -> Result<fee::FeeConfig, Contra
     read_protocol_fee_config(env).ok_or(ContractError::FeeConfigNotSet)
 }
 
+// MODIFIED: Now reads from TREASURY_BALANCE instead of PROTOCOL_FEE_RECIPIENT_BALANCE
 fn read_protocol_fee_recipient_balance(env: &Env) -> i128 {
     env.storage()
         .persistent()
-        .get(&constants::storage::PROTOCOL_FEE_RECIPIENT_BALANCE)
+        .get(&constants::storage::TREASURY_BALANCE)
         .unwrap_or(0)
 }
 
+// MODIFIED: Now writes to TREASURY_BALANCE instead of PROTOCOL_FEE_RECIPIENT_BALANCE
 fn credit_protocol_fee_recipient_balance(env: &Env, amount: i128) -> Result<(), ContractError> {
     if amount <= 0 {
         return Ok(());
     }
-    let updated = read_protocol_fee_recipient_balance(env)
-        .checked_add(amount)
-        .ok_or(ContractError::Overflow)?;
+    let current = read_protocol_fee_recipient_balance(env);
+    let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
     env.storage().persistent().set(
-        &constants::storage::PROTOCOL_FEE_RECIPIENT_BALANCE,
+        &constants::storage::TREASURY_BALANCE,
         &updated,
     );
     Ok(())
@@ -1518,6 +1523,7 @@ impl CreatorKeysContract {
         }
         results
     }
+
     /// Read-only view: returns the protocol state version.
     ///
     /// Returns a stable scalar value for clients and indexers to detect
@@ -1644,6 +1650,77 @@ impl CreatorKeysContract {
         let config = read_required_protocol_fee_config(&env)?;
         Ok(config.protocol_bps)
     }
+
+    // ==================== NEW: Treasury Withdrawal Functions ====================
+
+    /// Withdraws accumulated treasury funds to a recipient address.
+    ///
+    /// Only the protocol admin can call this function. The amount must be greater than zero
+    /// and cannot exceed the current treasury balance.
+    ///
+    /// # Events
+    ///
+    /// Emits a `TreasuryWithdrawal` event with the amount, recipient, remaining balance,
+    /// and current ledger sequence.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if the caller is not the protocol admin.
+    /// - [`ContractError::NotPositiveAmount`] if `amount` is zero or negative.
+    /// - [`ContractError::InsufficientBalance`] if `amount` exceeds the treasury balance.
+    pub fn withdraw_treasury(
+        env: Env,
+        admin: Address,
+        amount: i128,
+        recipient: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if amount <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        validate_non_zero_address(&env, &recipient)?;
+
+        let current_balance = read_protocol_fee_recipient_balance(&env);
+        if amount > current_balance {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let new_balance = current_balance
+            .checked_sub(amount)
+            .ok_or(ContractError::InsufficientBalance)?;
+
+        // Update the treasury balance in storage
+        env.storage()
+            .persistent()
+            .set(&constants::storage::TREASURY_BALANCE, &new_balance);
+
+        // Emit the withdrawal event
+        env.events().publish(
+            events::treasury_withdrawal_topics(&admin),
+            events::TreasuryWithdrawalEvent {
+                amount,
+                recipient,
+                remaining_balance: new_balance,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns the current withdrawable treasury balance.
+    ///
+    /// The treasury balance represents accumulated protocol fees that can be withdrawn
+    /// by the admin. This balance is tracked separately from funds held for key payments
+    /// and pending dividends.
+    pub fn get_treasury_balance(env: Env) -> i128 {
+        read_protocol_fee_recipient_balance(&env)
+    }
+
+    // ==================== End of Treasury Withdrawal Functions ====================
 
     /// Sets the global protocol/creator fee split. Contract initialization
     /// entrypoint.
@@ -2384,6 +2461,7 @@ impl CreatorKeysContract {
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::fee;
@@ -2795,7 +2873,368 @@ mod tests {
         let result = super::validate_non_zero_address(&env, &valid);
         assert_eq!(result, Ok(()));
     }
+
+    
 }
 
 #[cfg(test)]
 mod test_issues;
+
+#[cfg(test)]
+mod treasury_withdrawal_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
+
+    /// Helper to set up a test environment with admin and treasury balance
+    fn setup_treasury_test() -> (Env, Address, Address) {
+        let env = Env::default();
+        
+        let admin = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        
+        // Set admin in storage
+        env.storage()
+            .persistent()
+            .set(&constants::storage::ADMIN_ADDRESS, &admin);
+        
+        // Seed treasury with initial balance
+        let initial_balance: i128 = 1000;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::TREASURY_BALANCE, &initial_balance);
+        
+        (env, admin, recipient)
+    }
+
+    // ==================== withdraw_treasury tests ====================
+
+    #[test]
+    fn test_withdraw_treasury_success() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let amount: i128 = 500;
+        let initial_balance = 1000;
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount,
+            recipient.clone(),
+        );
+        
+        assert_eq!(result, Ok(()));
+        
+        let new_balance = read_protocol_fee_recipient_balance(&env);
+        assert_eq!(new_balance, initial_balance - amount);
+    }
+
+    #[test]
+    fn test_withdraw_treasury_full_balance() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let initial_balance = 1000;
+        let amount = initial_balance;
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount,
+            recipient.clone(),
+        );
+        
+        assert_eq!(result, Ok(()));
+        
+        let new_balance = read_protocol_fee_recipient_balance(&env);
+        assert_eq!(new_balance, 0);
+    }
+
+    #[test]
+    fn test_withdraw_treasury_partial_withdrawal() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let initial_balance = 1000;
+        let amount = 300;
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount,
+            recipient.clone(),
+        );
+        
+        assert_eq!(result, Ok(()));
+        
+        let new_balance = read_protocol_fee_recipient_balance(&env);
+        assert_eq!(new_balance, initial_balance - amount);
+    }
+
+    #[test]
+    fn test_withdraw_treasury_over_withdrawal_fails() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let initial_balance = 1000;
+        let amount = initial_balance + 1;
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount,
+            recipient.clone(),
+        );
+        
+        assert_eq!(result, Err(ContractError::InsufficientBalance));
+        
+        let new_balance = read_protocol_fee_recipient_balance(&env);
+        assert_eq!(new_balance, initial_balance);
+    }
+
+    #[test]
+    fn test_withdraw_treasury_zero_amount_fails() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            0,
+            recipient.clone(),
+        );
+        
+        assert_eq!(result, Err(ContractError::NotPositiveAmount));
+    }
+
+    #[test]
+    fn test_withdraw_treasury_negative_amount_fails() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            -100,
+            recipient.clone(),
+        );
+        
+        assert_eq!(result, Err(ContractError::NotPositiveAmount));
+    }
+
+    #[test]
+    fn test_withdraw_treasury_non_admin_fails() {
+        let (env, _admin, recipient) = setup_treasury_test();
+        
+        let non_admin = Address::generate(&env);
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            non_admin.clone(),
+            100,
+            recipient.clone(),
+        );
+        
+        assert_eq!(result, Err(ContractError::Unauthorized));
+    }
+
+    #[test]
+    fn test_withdraw_treasury_zero_recipient_fails() {
+        let (env, admin, _recipient) = setup_treasury_test();
+        
+        let zero_str = String::from_str(
+            &env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        );
+        let zero_addr = Address::from_string(&zero_str);
+        
+        let result = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            100,
+            zero_addr,
+        );
+        
+        assert_eq!(result, Err(ContractError::ZeroAddress));
+    }
+
+    #[test]
+    fn test_withdraw_treasury_emits_event() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let amount: i128 = 500;
+        let initial_balance = 1000;
+        
+        let _ = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount,
+            recipient.clone(),
+        );
+        
+        let events = env.events().all();
+        assert_eq!(events.len(), 1);
+        
+        let event = &events[0];
+        let topics = event.topics();
+        assert_eq!(topics.len(), 2);
+        
+        let event_name: Symbol = topics[0].clone().try_into().unwrap();
+        assert_eq!(event_name, events::TREASURY_WITHDRAWAL_EVENT_NAME);
+        
+        let event_admin: Address = topics[1].clone().try_into().unwrap();
+        assert_eq!(event_admin, admin);
+        
+        let event_data: events::TreasuryWithdrawalEvent = event.data().try_into().unwrap();
+        assert_eq!(event_data.amount, amount);
+        assert_eq!(event_data.recipient, recipient);
+        assert_eq!(event_data.remaining_balance, initial_balance - amount);
+        assert!(event_data.ledger > 0);
+    }
+
+    #[test]
+    fn test_withdraw_treasury_multiple_withdrawals() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let initial_balance = 1000;
+        
+        // First withdrawal
+        let amount1 = 300;
+        let result1 = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount1,
+            recipient.clone(),
+        );
+        assert_eq!(result1, Ok(()));
+        assert_eq!(read_protocol_fee_recipient_balance(&env), 700);
+        
+        // Second withdrawal
+        let amount2 = 200;
+        let result2 = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount2,
+            recipient.clone(),
+        );
+        assert_eq!(result2, Ok(()));
+        assert_eq!(read_protocol_fee_recipient_balance(&env), 500);
+        
+        // Third withdrawal (remaining balance)
+        let amount3 = 500;
+        let result3 = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount3,
+            recipient.clone(),
+        );
+        assert_eq!(result3, Ok(()));
+        assert_eq!(read_protocol_fee_recipient_balance(&env), 0);
+    }
+
+    // ==================== get_treasury_balance tests ====================
+
+    #[test]
+    fn test_get_treasury_balance_returns_correct_balance() {
+        let (env, _admin, _recipient) = setup_treasury_test();
+        
+        let expected_balance = 1000;
+        let actual_balance = CreatorKeysContract::get_treasury_balance(env.clone());
+        
+        assert_eq!(actual_balance, expected_balance);
+    }
+
+    #[test]
+    fn test_get_treasury_balance_returns_zero_when_empty() {
+        let env = Env::default();
+        
+        let balance = CreatorKeysContract::get_treasury_balance(env.clone());
+        assert_eq!(balance, 0);
+    }
+
+    #[test]
+    fn test_get_treasury_balance_after_withdrawal() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let amount = 400;
+        let _ = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            amount,
+            recipient.clone(),
+        );
+        
+        let balance = CreatorKeysContract::get_treasury_balance(env.clone());
+        assert_eq!(balance, 600);
+    }
+
+    #[test]
+    fn test_get_treasury_balance_after_full_withdrawal() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        let initial_balance = 1000;
+        let _ = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            initial_balance,
+            recipient.clone(),
+        );
+        
+        let balance = CreatorKeysContract::get_treasury_balance(env.clone());
+        assert_eq!(balance, 0);
+    }
+
+    // ==================== Treasury balance separation tests ====================
+
+    #[test]
+    fn test_treasury_balance_separate_from_creator_fee_balance() {
+        let (env, admin, recipient) = setup_treasury_test();
+        
+        // Set some creator fee balance
+        let creator = Address::generate(&env);
+        let creator_fee_amount: i128 = 500;
+        credit_creator_fee_recipient_balance(&env, &creator, creator_fee_amount).unwrap();
+        
+        let initial_creator_balance = read_creator_fee_recipient_balance(&env, &creator);
+        assert_eq!(initial_creator_balance, creator_fee_amount);
+        
+        let treasury_balance_before = read_protocol_fee_recipient_balance(&env);
+        
+        // Withdraw from treasury
+        let withdraw_amount = 100;
+        let _ = CreatorKeysContract::withdraw_treasury(
+            env.clone(),
+            admin.clone(),
+            withdraw_amount,
+            recipient.clone(),
+        );
+        
+        // Creator fee balance remains unchanged
+        let creator_balance_after = read_creator_fee_recipient_balance(&env, &creator);
+        assert_eq!(creator_balance_after, creator_fee_amount);
+        
+        // Treasury balance decreased
+        let treasury_balance_after = read_protocol_fee_recipient_balance(&env);
+        assert_eq!(treasury_balance_after, treasury_balance_before - withdraw_amount);
+    }
+
+    #[test]
+    fn test_treasury_balance_uses_separate_storage_key() {
+        let env = Env::default();
+        
+        let treasury_amount: i128 = 1000;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::TREASURY_BALANCE, &treasury_amount);
+        
+        // PROTOCOL_FEE_RECIPIENT_BALANCE should be empty
+        let protocol_balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_FEE_RECIPIENT_BALANCE)
+            .unwrap_or(0);
+        assert_eq!(protocol_balance, 0);
+        
+        // TREASURY_BALANCE has the value
+        let treasury_balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::TREASURY_BALANCE)
+            .unwrap_or(0);
+        assert_eq!(treasury_balance, treasury_amount);
+    }
+}
