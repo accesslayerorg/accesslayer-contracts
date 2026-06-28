@@ -258,3 +258,32 @@ pub struct KeysTransferredEvent {
     pub amount: u32,
     pub ledger: u32,
 }
+
+/// Event name for treasury withdrawal.
+pub const TREASURY_WITHDRAWAL_EVENT_NAME: Symbol = symbol_short!("treasury_wd");
+
+/// Stable field order for treasury withdrawal event payloads.
+pub const TREASURY_WITHDRAWAL_DATA_FIELDS: [&str; 4] =
+    ["amount", "recipient", "remaining_balance", "ledger"];
+
+/// Number of fields in the treasury withdrawal event data payload.
+pub const TREASURY_WITHDRAWAL_FIELD_COUNT: usize = TREASURY_WITHDRAWAL_DATA_FIELDS.len();
+
+/// Treasury withdrawal event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TREASURY_WITHDRAWAL_EVENT_NAME, admin)`
+/// - data: `TreasuryWithdrawalEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TreasuryWithdrawalEvent {
+    pub amount: i128,
+    pub recipient: Address,
+    pub remaining_balance: i128,
+    pub ledger: u32,
+}
+
+/// Shared treasury withdrawal event topics tuple.
+pub fn treasury_withdrawal_topics(admin: &Address) -> (Symbol, Address) {
+    (TREASURY_WITHDRAWAL_EVENT_NAME, admin.clone())
+}
