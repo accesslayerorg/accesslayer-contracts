@@ -263,12 +263,13 @@ impl CreatorKeysContract {
         poll_id: u32,
     ) -> Result<PollResult, PollError> {
         let poll = read_poll(&env, &creator_id, poll_id)?;
+        let expired = is_poll_expired(&env, &poll);
         Ok(PollResult {
             question: poll.question,
             options: poll.options,
             vote_counts: poll.vote_counts,
             total_weight: poll.total_weight,
-            expired: is_poll_expired(&env, &poll),
+            expired,
         })
     }
 }
