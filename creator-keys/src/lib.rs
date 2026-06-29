@@ -5,7 +5,6 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 
 pub mod bonding_curve;
 pub mod events;
-pub use bonding_curve::CurvePreset;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -462,11 +461,6 @@ pub const HANDLE_LEN_MAX: u32 = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
-pub enum CurvePreset {
-    Linear = 0,
-    Quadratic = 1,
-    Flat = 2,
-}
 
 /// Canonical storage key schema for persistent protocol state.
 ///
@@ -1049,7 +1043,11 @@ impl CreatorKeysContract {
             return Err(ContractError::AlreadyRegistered);
         }
 
-        let preset = curve_preset.unwrap_or_default(); // Linear if omitted
+        use crate::bonding_curve::CurvePreset;
+
+        let profile = read_registered_creator_profile(&env, &creator)?;
+        let supply = profile.supply;
+        let preset = curve_preset.unwrap_or(CurvePreset::Linear); // or whatever default makes sense
 
         // Handle curve preset
         let preset = curve_preset.unwrap_or(CurvePreset::Linear);
@@ -1075,6 +1073,7 @@ impl CreatorKeysContract {
         // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
         // Set initial TTL for creator storage
+        let current_ledger = env.ledger().sequence();
         let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
         env.storage()
             .persistent()
@@ -1927,6 +1926,7 @@ impl CreatorKeysContract {
         checked_format_quote_response(price, creator_fee, protocol_fee, true)
     }
 
+    use crate::bonding_curve::CurvePreset;
     /// Read-only view: returns the total creator buyback cost for a given amount.
     ///
     /// The returned value is `base_price(amount) + protocol_fee(amount)` because the
@@ -2247,21 +2247,6 @@ impl CreatorKeysContract {
     /// # Errors
     ///
     /// - [`ContractError::NotRegistered`] if the creator is not registered.
-    pub fn get_curve_preset(env: Env, creator: Address) -> Result<CurvePreset, ContractError> {
-        if !env
-            .storage()
-            .persistent()
-            .has(&constants::storage::creator(&creator))
-        {
-            return Err(ContractError::NotRegistered);
-        }
-        let preset = env
-            .storage()
-            .persistent()
-            .get(&constants::storage::curve_preset(&creator))
-            .unwrap_or(CurvePreset::Flat);
-        Ok(preset)
-    }
 
     /// Transfers key ownership between wallets without touching the bonding curve.
     ///
