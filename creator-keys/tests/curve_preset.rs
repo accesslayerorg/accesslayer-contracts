@@ -13,7 +13,7 @@ use contract_test_env::{
 fn setup_with_fees() -> (Env, Address, CreatorKeysContractClient<'static>, Address) {
     let env = test_env_with_auths();
     let (client, contract_id) = register_creator_keys(&env);
-    
+
     // Set up fees
     let admin = set_protocol_fee_bps(&env, &client, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
 
@@ -47,7 +47,7 @@ fn test_register_creator_with_quadratic() {
         &None,
         &None,
         &Some(CurvePreset::Quadratic),
-        &None
+        &None,
     );
 
     let preset = client.get_curve_preset(&creator);
@@ -61,7 +61,14 @@ fn test_register_creator_with_flat() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "charlie");
 
-    client.register_creator(&creator, &handle, &None, &None, &Some(CurvePreset::Flat), &None);
+    client.register_creator(
+        &creator,
+        &handle,
+        &None,
+        &None,
+        &Some(CurvePreset::Flat),
+        &None,
+    );
 
     let preset = client.get_curve_preset(&creator);
     assert_eq!(preset, CurvePreset::Flat);
