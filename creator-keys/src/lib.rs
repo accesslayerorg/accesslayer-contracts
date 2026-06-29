@@ -1,7 +1,7 @@
 #![no_std]
 pub mod quote_view_errors;
 
-use crate::bonding_curve::CurvePreset;
+pub use crate::bonding_curve::CurvePreset;
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
 
 pub mod bonding_curve;
