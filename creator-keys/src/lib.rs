@@ -2,6 +2,7 @@
 pub mod quote_view_errors;
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
+use crate::bonding_curve::CurvePreset;
 
 pub mod bonding_curve;
 pub mod events;
@@ -1926,7 +1927,6 @@ impl CreatorKeysContract {
         checked_format_quote_response(price, creator_fee, protocol_fee, true)
     }
 
-    use crate::bonding_curve::CurvePreset;
     /// Read-only view: returns the total creator buyback cost for a given amount.
     ///
     /// The returned value is `base_price(amount) + protocol_fee(amount)` because the
