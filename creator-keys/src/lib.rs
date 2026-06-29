@@ -78,6 +78,9 @@ pub enum ContractError {
     WhitelistTooLarge = 29,
     InsufficientTreasuryBalance = 30,
     BatchClaimExceedsLimit = 31,
+    InsufficientTreasuryBalance = 28,
+    BatchClaimExceedsLimit = 29,
+    InvalidCoCreatorShare = 30,
 }
 
 pub mod fee {
@@ -197,6 +200,19 @@ pub mod fee {
         Some((creator_amount, protocol_amount))
     }
 
+    /// Splits `total` into `(remainder, shared_amount)` by basis points.
+    ///
+    /// Remainder from integer division stays with the primary recipient so the
+    /// two outputs always sum to `total`.
+    pub fn checked_split_bps_amount(total: i128, share_bps: u32) -> Option<(i128, i128)> {
+        if total <= 0 {
+            return Some((0, 0));
+        }
+        let shared_amount = apply_percentage_fee(total, share_bps)?;
+        let remainder = checked_sub_i128(total, shared_amount)?;
+        Some((remainder, shared_amount))
+    }
+
     /// Performs checked integer multiplication for quote math helpers.
     pub fn checked_mul_i128(a: i128, b: i128) -> Option<i128> {
         a.checked_mul(b)
@@ -293,6 +309,14 @@ pub mod constants {
             DataKey::CreatorFeeBalance(creator.clone())
         }
 
+        pub fn co_creator(creator: &Address) -> DataKey {
+            DataKey::CoCreator(creator.clone())
+        }
+
+        pub fn co_creator_fee_balance(creator: &Address, co_creator: &Address) -> DataKey {
+            DataKey::CoCreatorFeeBalance(creator.clone(), co_creator.clone())
+        }
+
         pub fn creator(creator: &Address) -> DataKey {
             creator_key(creator)
         }
@@ -340,6 +364,8 @@ pub mod constants {
         pub const FEE_CONFIG: &str = "get_creator_fee_config";
         pub const FEE_RECIPIENT: &str = "get_creator_fee_recipient";
         pub const FEE_RECIPIENT_BALANCE: &str = "get_creator_fee_balance";
+        pub const CO_CREATOR: &str = "get_co_creator";
+        pub const CO_CREATOR_FEE_BALANCE: &str = "get_co_creator_fee_balance";
         pub const HOLDER_KEY_COUNT: &str = "get_holder_key_count";
         pub const PROFILE: &str = "get_creator";
         pub const SUPPLY: &str = "get_creator_supply";
@@ -500,6 +526,8 @@ pub enum DataKey {
     CurvePreset(Address),
     Whitelist(Address),
     TreasuryBalance,
+    CoCreator(Address),
+    CoCreatorFeeBalance(Address, Address),
 }
 
 /// Immutable early-access whitelist configuration set at creator registration.
@@ -529,6 +557,17 @@ pub struct LockedAllocation {
     pub amount: u32,
     pub unlock_ledger: u32,
     pub claimed: bool,
+}
+
+/// Optional immutable collaborator split configured at creator registration.
+///
+/// `share_bps` is the co-creator's share of the creator fee, not of the full
+/// trade price. It must be in the inclusive range `1..=9999`.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct CoCreatorConfig {
+    pub address: Address,
+    pub share_bps: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -623,6 +662,73 @@ fn credit_creator_fee_recipient_balance(
     let current = read_creator_fee_recipient_balance(env, creator);
     let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
     env.storage().persistent().set(&key, &updated);
+    Ok(())
+}
+
+fn read_co_creator_config(env: &Env, creator: &Address) -> Option<CoCreatorConfig> {
+    let key = constants::storage::co_creator(creator);
+    env.storage()
+        .persistent()
+        .get::<DataKey, CoCreatorConfig>(&key)
+}
+
+fn validate_co_creator_config(env: &Env, config: &CoCreatorConfig) -> Result<(), ContractError> {
+    validate_non_zero_address(env, &config.address)?;
+    if !(1..fee::BPS_MAX).contains(&config.share_bps) {
+        return Err(ContractError::InvalidCoCreatorShare);
+    }
+    Ok(())
+}
+
+/// Reads accrued fee balance for a creator's configured co-creator.
+pub fn read_co_creator_fee_balance(env: &Env, creator: &Address, co_creator: &Address) -> i128 {
+    let key = constants::storage::co_creator_fee_balance(creator, co_creator);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+fn credit_co_creator_fee_balance(
+    env: &Env,
+    creator: &Address,
+    co_creator: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let key = constants::storage::co_creator_fee_balance(creator, co_creator);
+    let current = read_co_creator_fee_balance(env, creator, co_creator);
+    let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&key, &updated);
+    Ok(())
+}
+
+fn credit_creator_fee(env: &Env, creator: &Address, amount: i128) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+
+    let Some(config) = read_co_creator_config(env, creator) else {
+        return credit_creator_fee_recipient_balance(env, creator, amount);
+    };
+
+    let co_creator = config.address;
+    let (creator_recipient_amount, co_creator_amount) =
+        fee::checked_split_bps_amount(amount, config.share_bps).ok_or(ContractError::Overflow)?;
+    credit_creator_fee_recipient_balance(env, creator, creator_recipient_amount)?;
+    credit_co_creator_fee_balance(env, creator, &co_creator, co_creator_amount)?;
+
+    if co_creator_amount > 0 {
+        env.events().publish(
+            events::co_creator_fee_earned_topics(creator, &co_creator),
+            events::CoCreatorFeeEarned {
+                creator_id: creator.clone(),
+                co_creator,
+                amount: co_creator_amount,
+                ledger: env.ledger().sequence(),
+            },
+        );
+    }
+
     Ok(())
 }
 
@@ -789,23 +895,26 @@ fn assert_sell_proceeds_slippage(
     Ok(())
 }
 
-fn accrue_sell_protocol_fee(env: &Env, price: i128) -> Result<(), ContractError> {
+fn accrue_sell_trade_fees(env: &Env, creator: &Address, price: i128) -> Result<(), ContractError> {
     if read_protocol_fee_config(env).is_none() {
         return Ok(());
     }
 
-    let (_, protocol_fee) = CreatorKeysContract::compute_fees_for_payment(env.clone(), price)?;
+    let (creator_fee, protocol_fee) =
+        CreatorKeysContract::compute_fees_for_payment(env.clone(), price)?;
+    credit_creator_fee(env, creator, creator_fee)?;
     credit_treasury_balance(env, protocol_fee)?;
 
     if env
         .storage()
         .persistent()
         .get::<DataKey, Address>(&constants::storage::PROTOCOL_FEE_RECIPIENT)
-        .is_none()
+        .is_some()
     {
-        return Ok(());
+        credit_protocol_fee_recipient_balance(env, protocol_fee)?;
     }
-    credit_protocol_fee_recipient_balance(env, protocol_fee)
+
+    Ok(())
 }
 
 /// Resolves and validates the shared inputs required by read-only quote methods.
@@ -1105,6 +1214,25 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
             .persistent()
             .extend_ttl(&curve_preset_key, threshold, extend_to);
     }
+
+    let co_creator_key = constants::storage::co_creator(creator);
+    if env.storage().persistent().has(&co_creator_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&co_creator_key, threshold, extend_to);
+
+        if let Some(config) = read_co_creator_config(env, creator) {
+            let co_creator_balance_key =
+                constants::storage::co_creator_fee_balance(creator, &config.address);
+            if env.storage().persistent().has(&co_creator_balance_key) {
+                env.storage().persistent().extend_ttl(
+                    &co_creator_balance_key,
+                    threshold,
+                    extend_to,
+                );
+            }
+        }
+    }
 }
 
 #[contract]
@@ -1128,6 +1256,10 @@ impl CreatorKeysContract {
     ///   If provided, `unlock_ledger` must be strictly greater than current ledger.
     /// - `max_supply`: optional maximum supply cap. If provided, must be greater than zero.
     /// - `whitelist_window`: optional immutable early-access address list and ledger duration.
+
+    /// - `co_creator`: optional immutable collaborator split. If provided, `share_bps`
+    ///   must be in the inclusive range `1..=9999`.
+
     pub fn register_creator(
         env: Env,
         creator: Address,
@@ -1136,11 +1268,16 @@ impl CreatorKeysContract {
         max_supply: Option<u32>,
         curve_preset: Option<CurvePreset>,
         whitelist_window: Option<WhitelistConfig>,
+        co_creator: Option<CoCreatorConfig>,
+
     ) -> Result<(), ContractError> {
         creator.require_auth();
         assert_not_paused(&env)?;
 
         validate_creator_handle(&handle)?;
+        if let Some(config) = co_creator.as_ref() {
+            validate_co_creator_config(&env, config)?;
+        }
 
         let key = constants::storage::creator(&creator);
         // Creator profile storage is a single source of truth keyed by creator address.
@@ -1209,6 +1346,12 @@ impl CreatorKeysContract {
         let preset_key = constants::storage::curve_preset(&creator);
         env.storage().persistent().set(&preset_key, &preset);
 
+        if let Some(config) = co_creator {
+            env.storage()
+                .persistent()
+                .set(&constants::storage::co_creator(&creator), &config);
+        }
+
         let profile = CreatorProfile {
             creator: creator.clone(),
             handle,
@@ -1238,6 +1381,11 @@ impl CreatorKeysContract {
             env.storage()
                 .persistent()
                 .extend_ttl(&whitelist_key, current_ledger, extend_to);
+        let co_creator_key = constants::storage::co_creator(&creator);
+        if env.storage().persistent().has(&co_creator_key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&co_creator_key, current_ledger, extend_to);
         }
 
         env.events().publish(
@@ -1329,7 +1477,7 @@ impl CreatorKeysContract {
             let (creator_fee, protocol_fee) =
                 fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
                     .ok_or(ContractError::Overflow)?;
-            credit_creator_fee_recipient_balance(&env, &creator, creator_fee)?;
+            credit_creator_fee(&env, &creator, creator_fee)?;
             credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
             credit_treasury_balance(&env, protocol_fee)?;
         }
@@ -1399,7 +1547,7 @@ impl CreatorKeysContract {
         // supply/holder_count invariants for subsequent reads.
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
-        accrue_sell_protocol_fee(&env, price)?;
+        accrue_sell_trade_fees(&env, &creator, price)?;
 
         env.events().publish(
             (events::SELL_EVENT_NAME, creator.clone(), seller),
@@ -1761,6 +1909,26 @@ impl CreatorKeysContract {
     pub fn get_creator_fee_balance(env: Env, creator: Address) -> Result<i128, ContractError> {
         read_registered_creator_profile(&env, &creator)?;
         Ok(read_creator_fee_recipient_balance(&env, &creator))
+    }
+
+    /// Read-only view: returns the optional immutable co-creator config.
+    ///
+    /// Returns `None` when the creator was registered without a co-creator split.
+    pub fn get_co_creator(env: Env, creator: Address) -> Option<CoCreatorConfig> {
+        read_co_creator_config(&env, &creator)
+    }
+
+    /// Read-only view: returns accrued co-creator fee balance for a creator.
+    ///
+    /// Fails with [`ContractError::NotRegistered`] if the creator is not registered.
+    /// Returns `0` when no co-creator fees have accrued for the address.
+    pub fn get_co_creator_fee_balance(
+        env: Env,
+        creator: Address,
+        co_creator: Address,
+    ) -> Result<i128, ContractError> {
+        read_registered_creator_profile(&env, &creator)?;
+        Ok(read_co_creator_fee_balance(&env, &creator, &co_creator))
     }
 
     /// Read-only view: returns the configured creator fee rate in basis points.
