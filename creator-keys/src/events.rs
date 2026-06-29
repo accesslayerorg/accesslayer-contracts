@@ -359,7 +359,9 @@ impl CreatorKeysContract {
             expires_at,
         };
 
-        env.storage().persistent().set(&poll_storage_key(&creator_id, poll_id), &poll);
+        env.storage()
+            .persistent()
+            .set(&poll_storage_key(&creator_id, poll_id), &poll);
         env.storage().persistent().set(&next_key, &next_poll_id);
         env.events().publish(
             (POLL_CREATED_EVENT_NAME, creator_id.clone(), poll_id),
@@ -422,11 +424,18 @@ impl CreatorKeysContract {
             .vote_counts
             .get(option_index)
             .ok_or(PollError::InvalidOption)?;
-        let updated_selected_count = selected_count.checked_add(weight).ok_or(PollError::Overflow)?;
+        let updated_selected_count = selected_count
+            .checked_add(weight)
+            .ok_or(PollError::Overflow)?;
         poll.vote_counts.set(option_index, updated_selected_count);
-        poll.total_weight = poll.total_weight.checked_add(weight).ok_or(PollError::Overflow)?;
+        poll.total_weight = poll
+            .total_weight
+            .checked_add(weight)
+            .ok_or(PollError::Overflow)?;
 
-        env.storage().persistent().set(&poll_storage_key(&creator_id, poll_id), &poll);
+        env.storage()
+            .persistent()
+            .set(&poll_storage_key(&creator_id, poll_id), &poll);
         env.storage().persistent().set(
             &vote_key,
             &PollVote {
@@ -434,8 +443,10 @@ impl CreatorKeysContract {
                 weight,
             },
         );
-        env.events()
-            .publish((POLL_VOTE_EVENT_NAME, creator_id, poll_id, voter), (option_index, weight));
+        env.events().publish(
+            (POLL_VOTE_EVENT_NAME, creator_id, poll_id, voter),
+            (option_index, weight),
+        );
 
         Ok(())
     }
