@@ -654,11 +654,7 @@ fn validate_co_creator_config(env: &Env, config: &CoCreatorConfig) -> Result<(),
 }
 
 /// Reads accrued fee balance for a creator's configured co-creator.
-pub fn read_co_creator_fee_balance(
-    env: &Env,
-    creator: &Address,
-    co_creator: &Address,
-) -> i128 {
+pub fn read_co_creator_fee_balance(env: &Env, creator: &Address, co_creator: &Address) -> i128 {
     let key = constants::storage::co_creator_fee_balance(creator, co_creator);
     env.storage().persistent().get(&key).unwrap_or(0)
 }

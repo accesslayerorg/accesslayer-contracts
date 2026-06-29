@@ -71,12 +71,8 @@ fn test_register_creator_stores_optional_co_creator_config() {
     let plain_creator = register_test_creator(&env, &client, "plain");
     assert_eq!(client.get_co_creator(&plain_creator), None);
 
-    let (creator, _, config) = register_creator_with_co_creator(
-        &env,
-        &client,
-        "alice",
-        CO_CREATOR_SHARE_BPS,
-    );
+    let (creator, _, config) =
+        register_creator_with_co_creator(&env, &client, "alice", CO_CREATOR_SHARE_BPS);
 
     assert_eq!(client.get_co_creator(&creator), Some(config));
 }
@@ -113,12 +109,8 @@ fn test_buy_splits_creator_fee_between_creator_recipient_and_co_creator() {
     let (client, _) = register_creator_keys(&env);
     set_pricing_and_fees(&env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
 
-    let (creator, co_creator, _) = register_creator_with_co_creator(
-        &env,
-        &client,
-        "alice",
-        CO_CREATOR_SHARE_BPS,
-    );
+    let (creator, co_creator, _) =
+        register_creator_with_co_creator(&env, &client, "alice", CO_CREATOR_SHARE_BPS);
     let buyer = Address::generate(&env);
     let quote = client.get_buy_quote(&creator);
     let expected_creator_fee = compute_expected_creator_fee(KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
