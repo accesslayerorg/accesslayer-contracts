@@ -966,29 +966,18 @@ fn compute_bonding_curve_price(
         .get(&constants::storage::curve_preset(creator))
         .unwrap_or(CurvePreset::Linear);
 
-    match preset {
-        CurvePreset::Flat => Ok(base_price),
-        CurvePreset::Linear => {
-            let slope = read_curve_slope(env);
-            let supply_component = slope
-                .checked_mul(i128::from(supply))
-                .ok_or(ContractError::Overflow)?;
-            base_price
-                .checked_add(supply_component)
-                .ok_or(ContractError::Overflow)
-        }
-        CurvePreset::Quadratic => {
-            let slope = read_curve_slope(env);
-            let supply_sq = (supply as i128)
-                .checked_mul(supply as i128)
-                .ok_or(ContractError::Overflow)?;
-            let supply_component = slope
-                .checked_mul(supply_sq)
-                .ok_or(ContractError::Overflow)?;
-            base_price
-                .checked_add(supply_component)
-                .ok_or(ContractError::Overflow)
-        }
+    let preset_price = bonding_curve::compute_price(supply, 1, preset)
+        .ok_or(ContractError::Overflow)?;
+
+    // Scale by base_price / BASE_PRICE to respect KEY_PRICE setting
+    if base_price == bonding_curve::curve_params::BASE_PRICE {
+        Ok(preset_price)
+    } else {
+        preset_price
+            .checked_mul(base_price)
+            .ok_or(ContractError::Overflow)?
+            .checked_div(bonding_curve::curve_params::BASE_PRICE)
+            .ok_or(ContractError::Overflow)
     }
 }
 
@@ -1237,6 +1226,15 @@ impl CreatorKeysContract {
         // Persist profile before event publication so indexers reading contract state
         // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
+
+        // Store max supply cap if provided
+        if let Some(max) = _max_supply {
+            if max == 0 {
+                return Err(ContractError::NotPositiveAmount);
+            }
+            let max_supply_key = constants::storage::max_supply(&creator);
+            env.storage().persistent().set(&max_supply_key, &max);
+        }
         // Set initial TTL for creator storage
         let current_ledger = env.ledger().sequence();
         let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
