@@ -20,7 +20,10 @@
 //! - `supply`: Number of keys in circulation after the trade (for buy/sell events)
 //! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
-use crate::{constants, read_registered_creator_profile, CreatorKeysContract};
+use crate::{
+    constants, read_registered_creator_profile, CreatorKeysContract, CreatorKeysContractArgs,
+    CreatorKeysContractClient,
+};
 use soroban_sdk::{
     contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
 };
@@ -36,6 +39,15 @@ pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
 
 /// Event name for key purchase.
 pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
+
+/// Event name for key sale.
+pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
+
+/// Event name for peer-to-peer key transfer.
+pub const TRANSFER_EVENT_NAME: Symbol = symbol_short!("transfer");
+
+/// Event name for creator key buyback.
+pub const BUYBACK_EVENT_NAME: Symbol = symbol_short!("buyback");
 
 /// Event name for governance poll creation.
 pub const POLL_CREATED_EVENT_NAME: Symbol = symbol_short!("poll_new");
