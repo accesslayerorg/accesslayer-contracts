@@ -6,7 +6,7 @@ use creator_keys::{CreatorKeysContractClient, CurvePreset};
 
 mod contract_test_env;
 use contract_test_env::{
-    register_test_creator_with_fee_config, set_protocol_fee_bps, setup_test_env,
+    register_test_creator_with_fee_config, set_protocol_fee_bps,
     DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 
@@ -28,7 +28,7 @@ fn test_register_creator_defaults_to_linear() {
     let handle = String::from_str(&env, "alice");
 
     // Register without specifying preset
-    client.register_creator(&creator, &handle, &None, &None, &None);
+    client.register_creator(&creator, &handle, &None, &None, &None, &None);
 
     let preset = client.get_curve_preset(&creator);
     assert_eq!(preset, CurvePreset::Linear);
@@ -47,6 +47,7 @@ fn test_register_creator_with_quadratic() {
         &None,
         &None,
         &Some(CurvePreset::Quadratic),
+        &None
     );
 
     let preset = client.get_curve_preset(&creator);
@@ -60,7 +61,7 @@ fn test_register_creator_with_flat() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "charlie");
 
-    client.register_creator(&creator, &handle, &None, &None, &Some(CurvePreset::Flat));
+    client.register_creator(&creator, &handle, &None, &None, &Some(CurvePreset::Flat), &None);
 
     let preset = client.get_curve_preset(&creator);
     assert_eq!(preset, CurvePreset::Flat);
