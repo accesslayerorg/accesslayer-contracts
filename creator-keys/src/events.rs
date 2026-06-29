@@ -61,6 +61,9 @@ pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
 /// Topic index for the creator address in common event topic tuples.
 pub const TOPIC_CREATOR_INDEX: u32 = 1;
 
+/// Topic index for the buyer/seller/actor address in common event topic tuples.
+pub const TOPIC_BUYER_INDEX: u32 = 2;
+
 /// Stable field order for registration event payloads.
 pub const REGISTER_EVENT_DATA_FIELDS: [&str; 6] = [
     "creator",
