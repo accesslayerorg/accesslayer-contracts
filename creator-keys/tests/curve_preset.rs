@@ -6,11 +6,11 @@ use creator_keys::{CreatorKeysContractClient, CurvePreset};
 
 mod contract_test_env;
 use contract_test_env::{
-    register_test_creator_with_fee_config, set_protocol_fee_bps, DEFAULT_CREATOR_BPS,
+    register_test_creator_with_fee_config, set_protocol_fee_bps, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 
 fn setup_with_fees() -> (Env, Address, CreatorKeysContractClient<'static>, Address) {
-    let (env, contract_id, admin) = setup_env();
+    let (env, contract_id, admin) = setup_test_env();
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     // Set up fees
@@ -69,7 +69,7 @@ fn test_register_creator_with_flat() {
 fn test_linear_preset_regression_matches_base_price() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator = register_test_creator_with_preset(&env, &client, "linear", CurvePreset::Linear);
+    let creator = register_test_creator_with_fee_config(&env, &client, "linear", CurvePreset::Linear);
 
     let quote = client.get_buy_quote(&creator);
     // At supply=0, Linear should match the base price
@@ -84,9 +84,9 @@ fn test_quadratic_higher_than_linear_at_same_supply() {
     let (env, _, client, _) = setup_with_fees();
 
     let linear_creator =
-        register_test_creator_with_preset(&env, &client, "lin", CurvePreset::Linear);
+        register_test_creator_with_fee_config(&env, &client, "lin", CurvePreset::Linear);
     let quad_creator =
-        register_test_creator_with_preset(&env, &client, "quad", CurvePreset::Quadratic);
+        register_test_creator_with_fee_config(&env, &client, "quad", CurvePreset::Quadratic);
 
     // Buy one key for each to increase supply to 1
     let buyer = Address::generate(&env);
@@ -109,8 +109,8 @@ fn test_flat_lower_than_linear_at_same_supply() {
     let (env, _, client, _) = setup_with_fees();
 
     let linear_creator =
-        register_test_creator_with_preset(&env, &client, "lin", CurvePreset::Linear);
-    let flat_creator = register_test_creator_with_preset(&env, &client, "flat", CurvePreset::Flat);
+        register_test_creator_with_fee_config(&env, &client, "lin", CurvePreset::Linear);
+    let flat_creator = register_test_creator_with_fee_config(&env, &client, "flat", CurvePreset::Flat);
 
     // Buy keys to reach supply=5
     let buyer = Address::generate(&env);
@@ -134,7 +134,7 @@ fn test_flat_lower_than_linear_at_same_supply() {
 fn test_curve_preset_immutable_no_update_function() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator = register_test_creator_with_preset(&env, &client, "creator", CurvePreset::Linear);
+    let creator = register_test_creator_with_fee_config(&env, &client, "creator", CurvePreset::Linear);
 
     let preset_before = client.get_curve_preset(&creator);
 
@@ -149,8 +149,8 @@ fn test_curve_preset_immutable_no_update_function() {
 fn test_independent_curves_no_cross_contamination() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator_a = register_test_creator_with_preset(&env, &client, "a", CurvePreset::Quadratic);
-    let creator_b = register_test_creator_with_preset(&env, &client, "b", CurvePreset::Flat);
+    let creator_a = register_test_creator_with_fee_config(&env, &client, "a", CurvePreset::Quadratic);
+    let creator_b = register_test_creator_with_fee_config(&env, &client, "b", CurvePreset::Flat);
 
     // Buy multiple keys for each
     let buyer = Address::generate(&env);
@@ -185,7 +185,7 @@ fn test_buy_sell_symmetry_all_presets() {
     ] {
         let (env, _, client, _) = setup_with_fees();
 
-        let creator = register_test_creator_with_preset(&env, &client, "sym", preset);
+        let creator = register_test_creator_with_fee_config(&env, &client, "sym", preset);
         let buyer = Address::generate(&env);
 
         // Get buy quote at supply=0
@@ -220,7 +220,7 @@ fn test_creator_details_includes_preset() {
     let (env, _, client, _) = setup_with_fees();
 
     let creator =
-        register_test_creator_with_preset(&env, &client, "detailed", CurvePreset::Quadratic);
+        register_test_creator_with_fee_config(&env, &client, "detailed", CurvePreset::Quadratic);
 
     let details = client.get_creator_details(&creator);
     assert_eq!(details.curve_preset, CurvePreset::Quadratic);
@@ -230,8 +230,8 @@ fn test_creator_details_includes_preset() {
 fn test_batch_view_includes_preset() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator_a = register_test_creator_with_preset(&env, &client, "a", CurvePreset::Linear);
-    let creator_b = register_test_creator_with_preset(&env, &client, "b", CurvePreset::Flat);
+    let creator_a = register_test_creator_with_fee_config(&env, &client, "a", CurvePreset::Linear);
+    let creator_b = register_test_creator_with_fee_config(&env, &client, "b", CurvePreset::Flat);
 
     let mut creators = soroban_sdk::Vec::new(&env);
     creators.push_back(creator_a.clone());
