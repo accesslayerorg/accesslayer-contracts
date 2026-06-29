@@ -70,7 +70,8 @@ fn test_register_creator_with_flat() {
 fn test_linear_preset_regression_matches_base_price() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator = register_test_creator_with_fee_config(&env, &client, "linear", CurvePreset::Linear);
+    let creator =
+    register_test_creator_with_fee_config(&env, &client, "linear", CurvePreset::Linear);
 
     let quote = client.get_buy_quote(&creator);
     // At supply=0, Linear should match the base price
@@ -111,7 +112,8 @@ fn test_flat_lower_than_linear_at_same_supply() {
 
     let linear_creator =
         register_test_creator_with_fee_config(&env, &client, "lin", CurvePreset::Linear);
-    let flat_creator = register_test_creator_with_fee_config(&env, &client, "flat", CurvePreset::Flat);
+    let flat_creator =
+    register_test_creator_with_fee_config(&env, &client, "flat", CurvePreset::Flat);
 
     // Buy keys to reach supply=5
     let buyer = Address::generate(&env);
@@ -135,7 +137,8 @@ fn test_flat_lower_than_linear_at_same_supply() {
 fn test_curve_preset_immutable_no_update_function() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator = register_test_creator_with_fee_config(&env, &client, "creator", CurvePreset::Linear);
+    let creator =
+    register_test_creator_with_fee_config(&env, &client, "creator", CurvePreset::Linear);
 
     let preset_before = client.get_curve_preset(&creator);
 
@@ -150,7 +153,8 @@ fn test_curve_preset_immutable_no_update_function() {
 fn test_independent_curves_no_cross_contamination() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator_a = register_test_creator_with_fee_config(&env, &client, "a", CurvePreset::Quadratic);
+    let creator_a =
+    register_test_creator_with_fee_config(&env, &client, "a", CurvePreset::Quadratic);
     let creator_b = register_test_creator_with_fee_config(&env, &client, "b", CurvePreset::Flat);
 
     // Buy multiple keys for each
