@@ -6,16 +6,16 @@ use creator_keys::{CreatorKeysContractClient, CurvePreset};
 
 mod contract_test_env;
 use contract_test_env::{
-    register_test_creator_with_fee_config, set_protocol_fee_bps,
-    DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
+    register_creator_keys, register_test_creator_with_fee_config, set_protocol_fee_bps,
+    test_env_with_auths, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 
 fn setup_with_fees() -> (Env, Address, CreatorKeysContractClient<'static>, Address) {
-    let (env, contract_id, admin) = setup_test_env();
-    let client = CreatorKeysContractClient::new(&env, &contract_id);
-
+    let env = test_env_with_auths();
+    let (client, contract_id) = register_creator_keys(&env);
+    
     // Set up fees
-    set_protocol_fee_bps(&env, &client, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let admin = set_protocol_fee_bps(&env, &client, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
 
     (env, contract_id, client, admin)
 }
