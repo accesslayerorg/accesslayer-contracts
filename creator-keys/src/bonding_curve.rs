@@ -35,8 +35,8 @@ pub mod curve_params {
     pub const BASE_PRICE: i128 = 10_000_000; // 1.0 display unit at 7 decimals
 
     /// Scaling divisor for Quadratic to prevent extreme prices.
-    /// With QUADRATIC_DIVISOR = 10: at supply=9, price = base * 100 / 10 = 10x base
-    pub const QUADRATIC_DIVISOR: i128 = 10;
+    /// With QUADRATIC_DIVISOR = 1: at supply=9, price = base * 100 = 100x base
+    pub const QUADRATIC_DIVISOR: i128 = 1;
 
     /// Flat curve growth rate: price = BASE_PRICE * (1 + supply * FLAT_NUMERATOR / FLAT_DENOMINATOR)
     /// With 1/2: at supply=1, price = 1.5x base; at supply=9, price = 5.5x base vs Linear 10x
@@ -67,15 +67,15 @@ pub fn compute_price(current_supply: u32, amount: u32, preset: CurvePreset) -> O
 /// Linear: price for key at supply s = BASE_PRICE * (s + 1)
 ///
 /// Total for `amount` keys from supply S:
-/// sum_{k=1}^{amount} BASE_PRICE * (S + k) = BASE_PRICE * [amount*(S+1) + amount*(amount+1)/2]
+/// sum_{k=1}^{amount} BASE_PRICE * (S + k) = BASE_PRICE * [amount*S + amount*(amount+1)/2]
 fn compute_linear_price(supply: u32, amount: u32) -> Option<i128> {
     let s = supply as i128;
     let n = amount as i128;
 
     // sum of (S + k) for k in 1..=n = n*S + n*(n+1)/2
-    let sum_indices = n.checked_mul(s.checked_add(1)?)?;
+    let sum_supply = n.checked_mul(s)?;
     let triangular = n.checked_mul(n.checked_add(1)?)?.checked_div(2)?;
-    let total_indices = sum_indices.checked_add(triangular)?;
+    let total_indices = sum_supply.checked_add(triangular)?;
 
     BASE_PRICE.checked_mul(total_indices)
 }
@@ -181,14 +181,10 @@ mod tests {
         let l = compute_linear_price(0, 1).unwrap();
         let q = compute_quadratic_price(0, 1).unwrap();
         let f = compute_flat_price(0, 1).unwrap();
-        assert_eq!(q, BASE_PRICE / QUADRATIC_DIVISOR); // or whatever expected value
-        assert_eq!(f, BASE_PRICE);
         // At supply=0, all curves should start at BASE_PRICE
         assert_eq!(l, BASE_PRICE);
-        // Quadratic: BASE_PRICE * 1 / 10 — this is actually lower, so we adjust
-        // The formula needs to ensure all start at same price
-        // Let's verify: q = base * (0+1)^2 / 10 = base/10 — this is wrong
-        // We need to fix this in the implementation
+        assert_eq!(q, BASE_PRICE);
+        assert_eq!(f, BASE_PRICE);
     }
 
     #[test]
@@ -215,12 +211,7 @@ mod tests {
 
     #[test]
     fn test_quadratic_at_zero_equals_base() {
-        // Adjusted: quadratic should also start at BASE_PRICE
-        // price = BASE_PRICE * (s + 1)^2 / QUADRATIC_DIVISOR
-        // At s=0: BASE_PRICE * 1 / 10 — this is base/10, not base
-        // We need to ensure minimum price is BASE_PRICE
         let q = compute_quadratic_price(0, 1).unwrap();
-        // For now, document the behavior — the actual contract should enforce min price
-        assert!(q > 0);
+        assert_eq!(q, BASE_PRICE);
     }
 }
