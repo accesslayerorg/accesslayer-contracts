@@ -48,6 +48,7 @@ fn test_get_creator_treasury_share_fails_when_fee_config_not_set() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let result = client.try_get_creator_treasury_share(&creator);

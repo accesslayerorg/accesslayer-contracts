@@ -21,10 +21,10 @@ mod issue_tests {
         let handle = String::from_str(env, "alice");
         match cap {
             Some(c) => {
-                client.register_creator(&creator, &handle, &None, &Some(c), &None);
+                client.register_creator(&creator, &handle, &None, &Some(c), &None, &None);
             }
             None => {
-                client.register_creator(&creator, &handle, &None, &None, &None);
+                client.register_creator(&creator, &handle, &None, &None, &None, &None);
             }
         }
         creator

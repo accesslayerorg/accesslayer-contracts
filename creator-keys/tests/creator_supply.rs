@@ -17,6 +17,7 @@ fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Address) {
         &None,
         &None,
         &None,
+        &None,
     );
 
     (client, admin, creator)

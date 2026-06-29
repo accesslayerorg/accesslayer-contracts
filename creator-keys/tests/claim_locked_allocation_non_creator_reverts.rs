@@ -33,6 +33,7 @@ fn setup_creator_with_locked_allocation(
         }),
         &None,
         &None,
+        &None,
     );
     creator
 }

@@ -176,12 +176,19 @@ pub const PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME: Symbol = symbol_short!("p_f
 /// Event name for creator fee recipient updated.
 pub const CREATOR_FEE_RECIPIENT_UPDATED_EVENT_NAME: Symbol = symbol_short!("c_fee_upd");
 
+/// Event name for co-creator fee accrual.
+pub const CO_CREATOR_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("co_fee");
+
 /// Stable field order for dividend distributed event payloads.
 pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
     ["creator", "total_amount", "snapshot_supply", "ledger"];
 
 /// Stable field order for dividend claimed event payloads.
 pub const DIVIDEND_CLAIMED_DATA_FIELDS: [&str; 3] = ["creator", "claimant", "amount"];
+
+/// Stable field order for co-creator fee earned event payloads.
+pub const CO_CREATOR_FEE_EARNED_DATA_FIELDS: [&str; 4] =
+    ["creator_id", "co_creator", "amount", "ledger"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -244,6 +251,26 @@ pub struct CreatorFeeRecipientUpdatedEvent {
     pub creator_id: Address,
     pub old_recipient: Address,
     pub new_recipient: Address,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorFeeEarned {
+    pub creator_id: Address,
+    pub co_creator: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+pub fn co_creator_fee_earned_topics(
+    creator_id: &Address,
+    co_creator: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_FEE_EARNED_EVENT_NAME,
+        creator_id.clone(),
+        co_creator.clone(),
+    )
 }
 
 /// Event name for key transfer.

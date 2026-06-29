@@ -22,6 +22,7 @@ fn test_buy_key_event_includes_payment_amount() {
         &None,
         &None,
         &None,
+        &None,
     );
     let supply = client.buy_key(&creator, &buyer, &150i128, &None);
     assert_eq!(supply, 1);
@@ -51,6 +52,7 @@ fn test_buy_key_event_topics_include_creator_and_buyer() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
