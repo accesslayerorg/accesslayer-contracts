@@ -28,6 +28,28 @@ Returns the current quote for purchasing one key for a creator.
 
 ---
 
+### `get_buyback_quote(creator: Address, amount: u32) → Result<i128, ContractError>`
+
+Returns the total creator buyback cost for burning `amount` keys from the creator's own held balance.
+
+Semantics:
+
+- `base_price = KEY_PRICE * amount`
+- `protocol_fee = floor(base_price * protocol_bps / 10000)`
+- `total_cost = base_price + protocol_fee`
+
+The creator fee is waived on the buyback path, so only the protocol fee is added on top of the gross price.
+
+**Edge cases:**
+- Returns `Err(ContractError::NotPositiveAmount)` if `amount == 0`.
+- Returns `Err(ContractError::NotRegistered)` if `creator` is not registered.
+- Returns `Err(ContractError::KeyPriceNotSet)` if no key price has been stored.
+- Returns `Err(ContractError::FeeConfigNotSet)` if no fee config has been stored.
+- Returns `Err(ContractError::InsufficientSupply)` if `amount > get_total_key_supply(creator)`.
+- The quote does not validate the creator wallet's current held balance; execution-time balance checks occur in `buyback`.
+
+---
+
 ### `get_sell_quote(creator: Address, holder: Address) → Result<QuoteResponse, ContractError>`
 
 Returns the current quote for selling one key held by `holder` for `creator`.

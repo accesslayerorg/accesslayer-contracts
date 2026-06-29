@@ -22,6 +22,11 @@ Error codes are defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.r
 | 12 | `HandleTooShort` | 12 | Creator handle length is below minimum bound (`< 3`) during registration | Provide a handle with at least 3 characters |
 | 13 | `HandleTooLong` | 13 | Creator handle length exceeds maximum bound (`> 32`) during registration | Provide a handle with at most 32 characters |
 | 14 | `InvalidHandleCharacter` | 14 | Creator handle contains unsupported characters (allowed set: lowercase `a-z`, digits `0-9`, underscore `_`) | Normalize handle to allowed characters before calling `register_creator` |
+| 15 | `ZeroAddress` | 15 | Attempt to configure the Stellar zero address as a fee recipient or treasury-like target | Provide a valid non-zero Stellar address |
+| 16 | `SlippageExceeded` | 16 | Caller-provided max/min execution bounds were stricter than the current quote | Refresh the relevant quote and resubmit with an updated slippage bound |
+| 17 | `ProtocolPaused` | 17 | State-changing trade or registration action attempted while the protocol is paused | Retry after the protocol admin unpauses the contract |
+| 18 | `Unauthorized` | 18 | Caller is not authorized for the requested admin or creator-only action | Ensure the correct wallet signs the transaction |
+| 19 | `InsufficientSupply` | 19 | Buyback amount exceeds the current total creator supply | Reduce the requested buyback amount or wait for supply to increase |
 
 ## Integration Notes
 
@@ -30,6 +35,7 @@ Error codes are defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.r
 - Code 1 (`AlreadyRegistered`) is raised only if the same address calls `register_creator` twice. This is a guard against accidental re-registration; intended behavior should call `get_creator` first or handle registration state off-chain.
 - Code 2 (`NotRegistered`) applies to both reads and writes. Callers must always register a creator before buy/sell/quote operations.
 - Codes 12 (`HandleTooShort`), 13 (`HandleTooLong`), and 14 (`InvalidHandleCharacter`) are deterministic registration validation failures. Validate handles client-side with the same bounds and character set before submitting transactions.
+- Codes 15 (`ZeroAddress`), 17 (`ProtocolPaused`), and 18 (`Unauthorized`) are policy/configuration guards rather than arithmetic failures. Callers should surface the exact reason rather than retrying blindly.
 
 ### Pricing and Fees
 
@@ -40,7 +46,8 @@ Error codes are defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.r
 ### Buy and Sell
 
 - Code 4 (`InsufficientPayment`) applies only to buy operations. Sellers use code 9 (`InsufficientBalance`).
-- Code 6 (`NotPositiveAmount`) can be raised by `set_key_price` (amount must be > 0) or `buy_key` (payment must be > 0).
+- Code 6 (`NotPositiveAmount`) can be raised by `set_key_price` (amount must be > 0), `buy_key` (payment must be > 0), or `buyback`/`get_buyback_quote` (amount must be > 0).
+- Code 19 (`InsufficientSupply`) currently applies to creator buybacks that request more keys than exist in total supply.
 
 ### Overflow Handling
 

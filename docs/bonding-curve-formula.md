@@ -66,6 +66,20 @@ total_amount = KEY_PRICE + creator_fee + protocol_fee
 
 ---
 
+## Buyback quote
+
+The current buyback path also follows the fixed-price model, but waives the creator fee:
+
+```
+base_price   = KEY_PRICE * amount
+protocol_fee = floor(base_price * protocol_bps / 10000)
+total_cost   = base_price + protocol_fee
+```
+
+Because `KEY_PRICE` is global and flat, buybacks do **not** currently change the gross price returned by later `get_buy_quote` calls. A future move to a supply-sensitive curve would be required for buybacks to move price.
+
+---
+
 ## Sell quote
 
 The seller receives the key price minus all fees:

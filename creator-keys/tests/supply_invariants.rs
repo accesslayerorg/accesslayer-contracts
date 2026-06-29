@@ -10,6 +10,7 @@ mod contract_test_env;
 
 use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
+    test_wallet_address, test_wallet_address_from_index,
 };
 use creator_keys::CreatorKeysContractClient;
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -22,6 +23,30 @@ fn setup<'a>(env: &'a Env, price: i128) -> (CreatorKeysContractClient<'a>, Addre
 }
 
 // ── Supply conservation: buy then sell returns to prior state ───────────���─
+
+#[test]
+fn test_wallet_address_returns_same_address_for_same_seed() {
+    let env = test_env_with_auths();
+
+    assert_eq!(
+        test_wallet_address(&env, "same-seed"),
+        test_wallet_address(&env, "same-seed")
+    );
+}
+
+#[test]
+fn test_wallet_address_returns_distinct_addresses_for_distinct_inputs() {
+    let env = test_env_with_auths();
+
+    assert_ne!(
+        test_wallet_address_from_index(&env, 1),
+        test_wallet_address_from_index(&env, 2)
+    );
+    assert_ne!(
+        test_wallet_address(&env, "seed-a"),
+        test_wallet_address(&env, "seed-b")
+    );
+}
 
 #[test]
 fn test_supply_buy_then_sell_returns_to_zero() {
@@ -73,9 +98,9 @@ fn test_supply_three_buyers_sum_equals_total() {
     let env = test_env_with_auths();
     let (client, creator) = setup(&env, 100);
 
-    let b1 = Address::generate(&env);
-    let b2 = Address::generate(&env);
-    let b3 = Address::generate(&env);
+    let b1 = test_wallet_address_from_index(&env, 1);
+    let b2 = test_wallet_address_from_index(&env, 2);
+    let b3 = test_wallet_address_from_index(&env, 3);
 
     client.buy_key(&creator, &b1, &100, &None);
     client.buy_key(&creator, &b2, &100, &None);

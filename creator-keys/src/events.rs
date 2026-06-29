@@ -37,6 +37,12 @@ pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
 /// Event name for key sale.
 pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
 
+/// Event name for peer-to-peer key transfer.
+pub const TRANSFER_EVENT_NAME: Symbol = symbol_short!("transfer");
+
+/// Event name for creator buyback.
+pub const BUYBACK_EVENT_NAME: Symbol = symbol_short!("buyback");
+
 /// Common topic indexes for event tuple topics.
 pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
 pub const TOPIC_CREATOR_INDEX: u32 = 1;
@@ -68,6 +74,13 @@ pub const SELL_EVENT_DATA_FIELDS: [&str; 1] = ["supply"];
 /// Number of fields in the sell event data payload.
 pub const SELL_EVENT_FIELD_COUNT: usize = SELL_EVENT_DATA_FIELDS.len();
 
+/// Stable field order for buyback event payloads.
+pub const BUYBACK_EVENT_DATA_FIELDS: [&str; 5] =
+    ["creator", "amount", "price_paid", "new_supply", "ledger"];
+
+/// Number of fields in the buyback event data payload.
+pub const BUYBACK_EVENT_FIELD_COUNT: usize = BUYBACK_EVENT_DATA_FIELDS.len();
+
 /// Stable registration event payload for downstream indexers.
 ///
 /// Event shape:
@@ -93,9 +106,49 @@ pub fn register_event_topics(creator: &Address) -> (Symbol, Address) {
     (REGISTER_EVENT_NAME, creator.clone())
 }
 
+/// Stable buyback event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BUYBACK_EVENT_NAME, creator)`
+/// - data: `KeysBoughtBackEvent`
+///
+/// # Creator Fee Waiver
+/// On buybacks, the creator fee is explicitly waived because the creator cannot pay
+/// themselves a fee. The protocol fee still applies.
+///
+/// # Indexer Note
+/// This event represents a creator burning keys from their own held balance,
+/// which is distinct from a regular buy event. Indexers should process this
+/// event separately from `BUY_EVENT_NAME` events to correctly track supply
+/// changes and fee accounting.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysBoughtBackEvent {
+    /// Address of the creator performing the buyback.
+    pub creator: Address,
+    /// Number of keys being bought back and burned.
+    pub amount: u32,
+    /// Total amount paid by the creator, including protocol fee (but not creator fee).
+    pub price_paid: i128,
+    /// New total supply of keys for the creator after the buyback.
+    pub new_supply: u32,
+    /// Ledger sequence number at the time of the buyback.
+    pub ledger: u32,
+}
+
 /// Shared buy event topics tuple.
 pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+/// Shared peer-to-peer transfer event topics tuple.
+pub fn transfer_event_topics(creator: &Address, from: &Address) -> (Symbol, Address, Address) {
+    (TRANSFER_EVENT_NAME, creator.clone(), from.clone())
+}
+
+/// Shared buyback event topics tuple.
+pub fn buyback_event_topics(creator: &Address) -> (Symbol, Address) {
+    (BUYBACK_EVENT_NAME, creator.clone())
 }
 
 /// Event name for dividend distribution.
@@ -184,4 +237,26 @@ pub struct CreatorFeeRecipientUpdatedEvent {
     pub creator_id: Address,
     pub old_recipient: Address,
     pub new_recipient: Address,
+}
+
+/// Event name for key transfer.
+pub const KEYS_TRANSFERRED_EVENT_NAME: Symbol = symbol_short!("xfer");
+
+/// Stable field order for key transfer event payloads.
+pub const KEYS_TRANSFERRED_DATA_FIELDS: [&str; 5] =
+    ["creator_id", "from", "to", "amount", "ledger"];
+
+/// Stable key transfer event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEYS_TRANSFERRED_EVENT_NAME, creator_id, from)`
+/// - data: `KeysTransferredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysTransferredEvent {
+    pub creator_id: Address,
+    pub from: Address,
+    pub to: Address,
+    pub amount: u32,
+    pub ledger: u32,
 }

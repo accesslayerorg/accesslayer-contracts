@@ -15,6 +15,7 @@ use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Env, String,
 };
+use std::string::String as StdString;
 
 /// Stable timestamp used by integration tests unless a test needs to override it.
 pub const DEFAULT_TEST_TIMESTAMP: u64 = 1_700_000_000;
@@ -41,6 +42,16 @@ pub fn test_env_with_auths() -> Env {
     let env = Env::default();
     env.mock_all_auths();
     env
+}
+
+/// Return a deterministic test wallet address for a seed string.
+pub fn test_wallet_address(env: &Env, seed: &str) -> Address {
+    Address::from_string(&String::from_str(env, &account_strkey_from_seed(seed)))
+}
+
+/// Return a deterministic test wallet address for an index.
+pub fn test_wallet_address_from_index(env: &Env, index: u32) -> Address {
+    test_wallet_address(env, &std::format!("wallet-{index}"))
 }
 
 /// Register [`CreatorKeysContract`] and return a client and the contract id.
@@ -94,19 +105,13 @@ pub fn register_test_creator(
     handle: &str,
 ) -> Address {
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None);
-    creator
-}
-
-/// Register a new creator with a specific curve preset.
-pub fn register_test_creator_with_preset(
-    env: &Env,
-    client: &CreatorKeysContractClient<'_>,
-    handle: &str,
-    preset: creator_keys::bonding_curve::CurvePreset,
-) -> Address {
-    let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &Some(preset));
+    client.register_creator(
+        &creator,
+        &String::from_str(env, handle),
+        &None,
+        &None,
+        &None,
+    );
     creator
 }
 
@@ -131,7 +136,13 @@ pub fn register_test_creator_with_fee_config(
     let admin = Address::generate(env);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(env, handle),
+        &None,
+        &None,
+        &None,
+    );
     creator
 }
 
@@ -144,6 +155,81 @@ pub fn set_stored_key_price(env: &Env, contract_id: &Address, price: i128) {
     });
 }
 
+fn account_strkey_from_seed(seed: &str) -> StdString {
+    let mut payload = [0u8; 32];
+    let mut state = 0xcbf2_9ce4_8422_2325u64;
+
+    for byte in seed.as_bytes() {
+        state ^= u64::from(*byte);
+        state = state.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+
+    for chunk in payload.chunks_mut(8) {
+        state ^= state >> 33;
+        state = state.wrapping_mul(0xff51_afd7_ed55_8ccd);
+        state ^= state >> 33;
+        state = state.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+        state ^= state >> 33;
+        chunk.copy_from_slice(&state.to_be_bytes());
+    }
+
+    let mut raw = [0u8; 35];
+    raw[0] = 6 << 3;
+    raw[1..33].copy_from_slice(&payload);
+    let checksum = crc16_xmodem(&raw[..33]).to_le_bytes();
+    raw[33..].copy_from_slice(&checksum);
+
+    base32_encode(&raw)
+}
+
+fn crc16_xmodem(bytes: &[u8]) -> u16 {
+    let mut crc = 0u16;
+
+    for byte in bytes {
+        crc ^= u16::from(*byte) << 8;
+        for _ in 0..8 {
+            if crc & 0x8000 != 0 {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+
+    crc
+}
+
+fn base32_encode(bytes: &[u8]) -> StdString {
+    const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+    let mut encoded = StdString::new();
+    let mut buffer = 0u16;
+    let mut bits = 0u8;
+
+    for byte in bytes {
+        buffer = (buffer << 8) | u16::from(*byte);
+        bits += 8;
+
+        while bits >= 5 {
+            bits -= 5;
+            let index = ((buffer >> bits) & 0x1f) as usize;
+            encoded.push(ALPHABET[index] as char);
+        }
+
+        if bits > 0 {
+            buffer &= (1 << bits) - 1;
+        } else {
+            buffer = 0;
+        }
+    }
+
+    if bits > 0 {
+        let index = ((buffer << (5 - bits)) & 0x1f) as usize;
+        encoded.push(ALPHABET[index] as char);
+    }
+
+    encoded
+}
 /// Computes the expected buy price for a given supply value.
 ///
 /// Current bonding curve formula:
@@ -245,6 +331,24 @@ pub fn compute_expected_sell_price(
     }
 }
 
+/// Sets the bonding curve slope parameter via an auto-generated admin address.
+pub fn set_curve_slope(env: &Env, client: &CreatorKeysContractClient<'_>, slope: i128) -> Address {
+    let admin = Address::generate(env);
+    client.set_curve_slope(&admin, &slope);
+    admin
+}
+
+/// Computes the expected bonding-curve-adjusted price for a given supply.
+///
+/// Formula: `price = base_price + slope * supply`
+/// When slope is 0, this returns `base_price` (flat curve).
+pub fn compute_expected_bonding_curve_price(slope: i128, base_price: i128, supply: u32) -> i128 {
+    if slope == 0 {
+        return base_price;
+    }
+    base_price + slope * supply as i128
+}
+
 /// Computes the expected protocol fee from a given price and bps value.
 ///
 /// This helper makes fixture intent explicit and keeps tests aligned
@@ -293,6 +397,29 @@ pub fn compute_expected_balance_after_trades(
     balance as u32
 }
 
+/// Computes the proportional dividend share for a single holder.
+///
+/// This is the canonical helper for the `holder_balance / total_supply * net_amount`
+/// calculation. It returns the integer floor share for one holder and can be used in
+/// isolation to verify the math without deploying the full contract.
+///
+/// - `net_amount`: gross distribution amount after protocol fee has been deducted.
+/// - `holder_balance`: number of keys held by the holder.
+/// - `total_supply`: total keys in circulation at distribution time.
+///
+/// Returns `0` when `total_supply` is zero or `holder_balance` is zero.
+pub fn proportional_dividend_share(
+    net_amount: i128,
+    holder_balance: u32,
+    total_supply: u32,
+) -> i128 {
+    if total_supply == 0 || holder_balance == 0 {
+        return 0;
+    }
+    let per_key = net_amount / total_supply as i128;
+    per_key * holder_balance as i128
+}
+
 /// Distributes a dividend from `distributor` to holders of `creator`'s keys.
 pub fn distribute_test_dividend(
     client: &CreatorKeysContractClient<'_>,
@@ -301,6 +428,45 @@ pub fn distribute_test_dividend(
     amount: i128,
 ) {
     client.distribute_dividend(creator, distributor, &amount);
+}
+
+/// Asserts that the claimable dividend for `wallet` on `creator` equals `expected`.
+///
+/// Panics with a descriptive message that includes creator, wallet, expected, and actual values
+/// when the amounts differ, making it easy to identify which holder's dividend is wrong.
+pub fn assert_claimable(
+    client: &CreatorKeysContractClient<'_>,
+    creator: &Address,
+    wallet: &Address,
+    expected: i128,
+) {
+    let actual = client.get_claimable_dividend(creator, wallet);
+    assert_eq!(
+        actual,
+        expected,
+        "claimable dividend mismatch: creator={creator:?} wallet={wallet:?} expected={expected} actual={actual}"
+    );
+}
+
+/// Registers a creator with multiple holders at varied balances in one call.
+///
+/// For each `(holder, amount)` pair, buys `amount` keys from `holder`.
+/// The buy quote is fetched before each individual purchase so the helper
+/// works correctly under both flat and bonding-curve pricing models.
+/// Returns the total supply after all buys complete.
+pub fn setup_holders(
+    _env: &Env,
+    client: &CreatorKeysContractClient<'_>,
+    creator: &Address,
+    holders: &[(Address, u32)],
+) -> u32 {
+    for (holder, amount) in holders {
+        for _ in 0..*amount {
+            let quote = client.get_buy_quote(creator);
+            client.buy_key(creator, holder, &quote.total_amount, &None);
+        }
+    }
+    client.get_total_key_supply(creator)
 }
 
 /// Computes the expected claimable dividend for a holder given distribution parameters.

@@ -69,6 +69,19 @@ Registers a new creator profile on-chain.
 - **Constraints**: Handle must be 3-32 characters, lowercase alphanumeric or underscores.
 - **Fails**: `AlreadyRegistered` if a profile already exists for `creator`.
 
+### `buyback(creator: Address, caller: Address, amount: u32, payment: i128, max_total_cost: Option<i128>) -> Result<u32, ContractError>`
+
+Creator-authorized buyback that burns keys from the creator's own held balance.
+
+- **Auth**: `caller.require_auth()`
+- **Constraints**:
+  - `caller` must equal `creator`, otherwise `Unauthorized`
+  - `amount` must be `> 0`
+  - `payment` must be `> 0` and `>= get_buyback_quote(creator, amount)`
+  - `amount` must not exceed the creator's total supply, otherwise `InsufficientSupply`
+  - the creator wallet must already hold at least `amount` keys, otherwise `InsufficientBalance`
+- **Returns**: The new total supply for the creator after the burn
+
 ---
 
 ## Key holder functions
@@ -95,6 +108,19 @@ Sells one key held by `seller` for `creator`.
 
 ---
 
+### `transfer_keys(creator: Address, from: Address, to: Address, amount: u32) -> Result<(), ContractError>`
+
+Transfers `amount` keys from `from` to `to` for `creator`. Does not interact with the bonding curve and charges no fee.
+
+- **Auth**: `from.require_auth()` — only the sender authorizes. No recipient approval required.
+- **Rejects**: Self-transfers (`from == to`) with `ContractError::SelfTransfer`, and zero-amount transfers with `ContractError::ZeroTransferAmount`.
+- **Fails**: `InsufficientBalance` if `from` holds fewer than `amount` keys.
+- **Fails**: `NotRegistered` if `creator` is not registered.
+- **State changes**: `KeyBalance(creator, from)` decremented, `KeyBalance(creator, to)` incremented. Creator supply and holder_count are unchanged.
+- See [key-transfer-authorization.md](./key-transfer-authorization.md) for full details.
+
+---
+
 ## Open (read-only) functions
 
 These functions require no authorization. Anyone can call them. They do not mutate contract state.
@@ -104,6 +130,7 @@ These functions require no authorization. Anyone can call them. They do not muta
 | Method | Returns |
 |---|---|
 | `get_buy_quote(creator: Address)` | `Result<QuoteResponse, ContractError>` |
+| `get_buyback_quote(creator: Address, amount: u32)` | `Result<i128, ContractError>` |
 | `get_sell_quote(creator: Address, holder: Address)` | `Result<QuoteResponse, ContractError>` |
 | `compute_fees_for_payment(total: i128)` | `Result<(i128, i128), ContractError>` |
 
@@ -162,8 +189,10 @@ These functions require no authorization. Anyone can call them. They do not muta
 | Function | Access level | Mutates state |
 |---|---|---|
 | `register_creator` | Creator | Yes |
+| `buyback` | Creator | Yes |
 | `buy_key` | Key holder (buyer) | Yes |
 | `sell_key` | Key holder (seller) | Yes |
+| `transfer_keys` | Key holder (sender / `from`) | Yes |
 | `set_fee_config` | Admin | Yes |
 | `set_key_price` | Admin | Yes |
 | `set_treasury_address` | Admin | Yes |

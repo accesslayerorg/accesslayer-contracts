@@ -81,6 +81,7 @@ These invariants must hold true after every contract operation:
 
 - When buying a key, increment both `profile.supply` and `KeyBalance(creator, buyer)`
 - When selling a key, decrement both `profile.supply` and `KeyBalance(creator, seller)`
+- When processing a creator buyback, decrement both `profile.supply` and `KeyBalance(creator, creator)` by the burned amount
 - Never modify supply without updating the corresponding balance
 
 **Invariant**: For any registered creator, `profile.holder_count == count of non-zero KeyBalance(creator, *)`.
