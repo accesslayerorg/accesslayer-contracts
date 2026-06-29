@@ -966,8 +966,8 @@ fn compute_bonding_curve_price(
         .get(&constants::storage::curve_preset(creator))
         .unwrap_or(CurvePreset::Linear);
 
-    let preset_price = bonding_curve::compute_price(supply, 1, preset)
-        .ok_or(ContractError::Overflow)?;
+    let preset_price =
+        bonding_curve::compute_price(supply, 1, preset).ok_or(ContractError::Overflow)?;
 
     // Scale by base_price / BASE_PRICE to respect KEY_PRICE setting
     if base_price == bonding_curve::curve_params::BASE_PRICE {
