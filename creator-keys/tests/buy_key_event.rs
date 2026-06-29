@@ -16,7 +16,13 @@ fn test_buy_key_event_includes_payment_amount() {
     let buyer = soroban_sdk::Address::generate(&env);
 
     client.set_key_price(&admin, &100i128);
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     let supply = client.buy_key(&creator, &buyer, &150i128, &None);
     assert_eq!(supply, 1);
 
@@ -42,7 +48,13 @@ fn test_buy_key_event_topics_include_creator_and_buyer() {
     let buyer = soroban_sdk::Address::generate(&env);
 
     client.set_key_price(&admin, &100i128);
-    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(&env, "alice"),
+        &None,
+        &None,
+        &None,
+    );
     client.buy_key(&creator, &buyer, &200i128, &None);
 
     let events = env.events().all();

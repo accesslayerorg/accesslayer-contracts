@@ -11,9 +11,9 @@ For the complete contract authorization model covering all entrypoints, see [aut
 ```rust
 pub fn transfer_keys(
     env: Env,
+    creator: Address,
     from: Address,
     to: Address,
-    creator: Address,
     amount: u32,
 ) -> Result<(), ContractError>
 ```
@@ -53,9 +53,9 @@ In the contract, `from.require_auth()` is called at the top of `transfer_keys`, 
 ```rust
 pub fn transfer_keys(
     env: Env,
+    creator: Address,
     from: Address,
     to: Address,
-    creator: Address,
     amount: u32,
 ) -> Result<(), ContractError> {
     from.require_auth();  // ✅ Sender authenticates
@@ -97,11 +97,11 @@ Since the fixed key price is never read and no fee math is performed, the operat
 
 ## Self-Transfer Restriction
 
-**`transfer_keys` rejects self-transfers** — calls where `from == to` — with `ContractError::ZeroAddress`.
+**`transfer_keys` rejects self-transfers** — calls where `from == to` — with `ContractError::SelfTransfer`.
 
 ```rust
 if from == to {
-    return Err(ContractError::ZeroAddress);
+    return Err(ContractError::SelfTransfer);
 }
 ```
 
@@ -109,7 +109,7 @@ if from == to {
 
 - A self-transfer would decrement and increment the same holder's balance, resulting in a no-op state change.
 - Allowing it would waste ledger space and caller gas without providing any useful semantic.
-- The `ZeroAddress` error code is reused here because the scenario is semantically similar to the zero-address rejection in `set_protocol_fee_recipient`: an operation that would produce a meaningless state change.
+- The dedicated `SelfTransfer` error code makes the rejection reason unambiguous for clients and indexers, rather than overloading a zero-address error.
 
 ### Other preconditions
 
@@ -117,7 +117,7 @@ Beyond the self-transfer guard, `transfer_keys` validates:
 
 - **`from` must have sufficient balance**: The `from` address must hold at least `amount` keys for `creator`. If not, the function returns `ContractError::InsufficientBalance`.
 - **`creator` must be registered**: The creator profile must exist in storage. If not, the function returns `ContractError::NotRegistered`.
-- **`amount` must be positive**: `amount` must be `> 0`. If `amount == 0`, the function returns `ContractError::NotPositiveAmount`.
+- **`amount` must be positive**: `amount` must be `> 0`. If `amount == 0`, the function returns `ContractError::ZeroTransferAmount`.
 
 ---
 

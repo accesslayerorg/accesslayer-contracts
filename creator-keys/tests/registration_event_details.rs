@@ -26,7 +26,7 @@ fn test_register_creator_event_field_values_match_fixtures() {
     client.set_fee_config(&admin, &expected_creator_bps, &expected_protocol_bps);
 
     // 3. Trigger registration
-    client.register_creator(&creator, &handle, &None, &None);
+    client.register_creator(&creator, &handle, &None, &None, &None);
 
     // 4. Capture the emitted event
     let all_events = env.events().all();
@@ -89,6 +89,7 @@ fn test_register_creator_event_fields_update_with_fee_config() {
         &String::from_str(&env, "creator_1"),
         &None,
         &None,
+        &None,
     );
 
     let event1: events::CreatorRegisteredEvent =
@@ -102,6 +103,7 @@ fn test_register_creator_event_fields_update_with_fee_config() {
     client.register_creator(
         &creator2,
         &String::from_str(&env, "creator_2"),
+        &None,
         &None,
         &None,
     );

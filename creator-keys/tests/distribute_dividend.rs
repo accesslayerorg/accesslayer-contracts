@@ -3,9 +3,9 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    compute_expected_holder_dividend, distribute_test_dividend, register_creator_keys,
-    register_test_creator, set_key_price_for_tests, set_pricing_and_fees, test_env_with_auths,
-    DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
+    assert_claimable, compute_expected_holder_dividend, distribute_test_dividend,
+    register_creator_keys, register_test_creator, set_key_price_for_tests, set_pricing_and_fees,
+    test_env_with_auths, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 use creator_keys::ContractError;
 use soroban_sdk::{testutils::Address as _, Address};
@@ -153,8 +153,7 @@ fn test_distribute_dividend_single_holder_receives_full_net() {
     distribute_test_dividend(&client, &creator, &distributor, amount);
 
     let expected = compute_expected_holder_dividend(amount, 1, 1, DEFAULT_PROTOCOL_BPS);
-    let claimable = client.get_claimable_dividend(&creator, &buyer);
-    assert_eq!(claimable, expected);
+    assert_claimable(&client, &creator, &buyer, expected);
 }
 
 #[test]
@@ -179,14 +178,8 @@ fn test_distribute_dividend_two_equal_holders_split_evenly() {
     distribute_test_dividend(&client, &creator, &distributor, amount);
 
     let expected_each = compute_expected_holder_dividend(amount, 1, 2, DEFAULT_PROTOCOL_BPS);
-    assert_eq!(
-        client.get_claimable_dividend(&creator, &buyer_a),
-        expected_each
-    );
-    assert_eq!(
-        client.get_claimable_dividend(&creator, &buyer_b),
-        expected_each
-    );
+    assert_claimable(&client, &creator, &buyer_a, expected_each);
+    assert_claimable(&client, &creator, &buyer_b, expected_each);
 }
 
 #[test]
@@ -215,14 +208,8 @@ fn test_distribute_dividend_proportional_to_balance() {
 
     let expected_whale = compute_expected_holder_dividend(amount, 3, 4, DEFAULT_PROTOCOL_BPS);
     let expected_small = compute_expected_holder_dividend(amount, 1, 4, DEFAULT_PROTOCOL_BPS);
-    assert_eq!(
-        client.get_claimable_dividend(&creator, &whale),
-        expected_whale
-    );
-    assert_eq!(
-        client.get_claimable_dividend(&creator, &small),
-        expected_small
-    );
+    assert_claimable(&client, &creator, &whale, expected_whale);
+    assert_claimable(&client, &creator, &small, expected_small);
 }
 
 #[test]
@@ -245,7 +232,7 @@ fn test_distribute_dividend_deducts_protocol_fee() {
     assert_eq!(after_protocol_balance - before_protocol_balance, 1_000);
 
     // Holder gets 90% of 10_000 = 9_000
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), 9_000);
+    assert_claimable(&client, &creator, &buyer, 9_000);
 }
 
 #[test]
@@ -268,5 +255,5 @@ fn test_multiple_distributions_accumulate() {
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
 
     let expected = compute_expected_holder_dividend(10_000, 1, 1, DEFAULT_PROTOCOL_BPS) * 2;
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), expected);
+    assert_claimable(&client, &creator, &buyer, expected);
 }

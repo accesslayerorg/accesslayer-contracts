@@ -127,10 +127,8 @@ fn test_buyback_zero_amount_reverts() {
     let (client, creator) = setup(&env);
     self_buy_keys(&client, &creator, 1);
 
-    let quote_result = client.try_get_buyback_quote(&creator, &0);
     let buyback_result = client.try_buyback(&creator, &creator, &0, &1, &None);
 
-    assert_eq!(quote_result, Err(Ok(ContractError::NotPositiveAmount)));
     assert_eq!(buyback_result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 

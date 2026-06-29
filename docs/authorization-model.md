@@ -108,12 +108,12 @@ Sells one key held by `seller` for `creator`.
 
 ---
 
-### `transfer_keys(from: Address, to: Address, creator: Address, amount: u32) -> Result<(), ContractError>`
+### `transfer_keys(creator: Address, from: Address, to: Address, amount: u32) -> Result<(), ContractError>`
 
 Transfers `amount` keys from `from` to `to` for `creator`. Does not interact with the bonding curve and charges no fee.
 
 - **Auth**: `from.require_auth()` — only the sender authorizes. No recipient approval required.
-- **Rejects**: Self-transfers (`from == to`) with `ContractError::ZeroAddress`.
+- **Rejects**: Self-transfers (`from == to`) with `ContractError::SelfTransfer`, and zero-amount transfers with `ContractError::ZeroTransferAmount`.
 - **Fails**: `InsufficientBalance` if `from` holds fewer than `amount` keys.
 - **Fails**: `NotRegistered` if `creator` is not registered.
 - **State changes**: `KeyBalance(creator, from)` decremented, `KeyBalance(creator, to)` incremented. Creator supply and holder_count are unchanged.

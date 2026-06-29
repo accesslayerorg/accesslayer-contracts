@@ -71,6 +71,7 @@ For guidance on writing deterministic quote tests, see [docs/deterministic-quote
 ## Documentation for contributors
 
 - **[CI Contract Checks](./docs/ci-contract-checks.md)**: Understanding the CI pipeline, running checks locally, and troubleshooting failures
+- **[Contract Function Contribution Guide](./docs/contract-function-contribution-guide.md)**: How new contract entrypoints should be placed, authorized, and emitted in the repo's existing patterns
 - **[Storage Key Invariants](./docs/storage-key-invariants.md)**: Storage model, key structure, and invariants that must be maintained across all operations
 - **[Minimum Viable Test Structure](./docs/minimum-viable-test-structure.md)**: Required test categories and example structures for new contract entrypoints
 - **[Deterministic Quote Tests](./docs/deterministic-quote-tests.md)**: Guide for writing tests for quote operations with the fixed price model
