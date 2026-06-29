@@ -41,12 +41,12 @@ fn test_register_creator_with_quadratic() {
     let handle = String::from_str(&env, "bob");
 
     client.register_creator(
-    &creator,
-    &handle,
-    &None,
-    &None,
-    &Some(CurvePreset::Quadratic),
-);
+        &creator,
+        &handle,
+        &None,
+        &None,
+        &Some(CurvePreset::Quadratic),
+    );
 
     let preset = client.get_curve_preset(&creator);
     assert_eq!(preset, CurvePreset::Quadratic);
