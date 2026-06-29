@@ -12,6 +12,11 @@ fn test_creator_read_method_names_are_stable() {
         creator_reads::FEE_RECIPIENT_BALANCE,
         "get_creator_fee_balance"
     );
+    assert_eq!(creator_reads::CO_CREATOR, "get_co_creator");
+    assert_eq!(
+        creator_reads::CO_CREATOR_FEE_BALANCE,
+        "get_co_creator_fee_balance"
+    );
     assert_eq!(creator_reads::FEE_CONFIG, "get_creator_fee_config");
     assert_eq!(creator_reads::FEE_BPS, "get_creator_fee_bps");
     assert_eq!(creator_reads::TREASURY_SHARE, "get_creator_treasury_share");

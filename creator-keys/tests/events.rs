@@ -47,6 +47,7 @@ impl<'a> EventFixture<'a> {
             &None,
             &None,
             &None,
+            &None,
         );
     }
 
@@ -234,7 +235,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
 
     fixture
         .client
-        .register_creator(&fixture.creator, &handle, &None, &None, &None);
+        .register_creator(&fixture.creator, &handle, &None, &None, &None, &None);
 
     let events = env.events().all();
     let last = events.last().unwrap();

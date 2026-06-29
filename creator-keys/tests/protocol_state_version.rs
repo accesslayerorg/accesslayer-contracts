@@ -108,6 +108,7 @@ fn test_get_protocol_state_version_increments_only_on_config_updates() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &buyer, &100i128, &None);
     client.set_treasury_address(&admin, &Address::generate(&env));

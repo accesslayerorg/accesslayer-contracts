@@ -31,6 +31,7 @@ fn test_buy_event_buyer_address_matches_caller() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Clear any prior events then perform the buy
@@ -85,6 +86,7 @@ fn test_buy_event_buyer_address_field_is_non_zero() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,

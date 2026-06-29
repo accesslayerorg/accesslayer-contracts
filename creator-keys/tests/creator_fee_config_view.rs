@@ -28,7 +28,7 @@ fn test_get_creator_fee_config_registered_no_fee_config() {
 
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
-    client.register_creator(&creator, &handle, &None, &None, &None);
+    client.register_creator(&creator, &handle, &None, &None, &None, &None);
 
     let view = client.get_creator_fee_config(&creator);
 
@@ -50,7 +50,7 @@ fn test_get_creator_fee_config_registered_with_fee_config() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
 
-    client.register_creator(&creator, &handle, &None, &None, &None);
+    client.register_creator(&creator, &handle, &None, &None, &None, &None);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let view = client.get_creator_fee_config(&creator);
@@ -73,7 +73,7 @@ fn test_get_creator_fee_config_is_read_only() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
 
-    client.register_creator(&creator, &handle, &None, &None, &None);
+    client.register_creator(&creator, &handle, &None, &None, &None, &None);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     let v1 = client.get_creator_fee_config(&creator);
@@ -97,7 +97,7 @@ fn test_get_creator_fee_config_updates_after_fee_reconfiguration() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "test_creator");
 
-    client.register_creator(&creator, &handle, &None, &None, &None);
+    client.register_creator(&creator, &handle, &None, &None, &None, &None);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let v1 = client.get_creator_fee_config(&creator);
@@ -124,8 +124,8 @@ fn test_get_creator_fee_config_multiple_creators_independent() {
     let handle1 = String::from_str(&env, "creator_one");
     let handle2 = String::from_str(&env, "creator_two");
 
-    client.register_creator(&creator1, &handle1, &None, &None, &None);
-    client.register_creator(&creator2, &handle2, &None, &None, &None);
+    client.register_creator(&creator1, &handle1, &None, &None, &None, &None);
+    client.register_creator(&creator2, &handle2, &None, &None, &None, &None);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let view1 = client.get_creator_fee_config(&creator1);

@@ -32,6 +32,7 @@ fn test_sell_event_seller_address_matches_caller() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Buyer purchases keys
@@ -89,6 +90,7 @@ fn test_sell_event_seller_address_field_is_non_zero() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,

@@ -23,6 +23,7 @@ fn test_transfer_keys_sender_balance_decreases() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -50,6 +51,7 @@ fn test_transfer_keys_recipient_balance_increases() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
@@ -81,6 +83,7 @@ fn test_transfer_keys_total_supply_unchanged() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -105,6 +108,7 @@ fn test_transfer_keys_buy_quote_unchanged_after_transfer() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
@@ -142,6 +146,7 @@ fn test_transfer_keys_sell_quote_unchanged_after_transfer() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -169,6 +174,7 @@ fn test_transfer_keys_holder_count_unaffected_when_sender_zero_but_recipient_new
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
@@ -207,6 +213,7 @@ fn test_transfer_keys_holder_count_increments_when_recipient_new() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender_a, &100, &None);
     client.buy_key(&creator, &sender_b, &100, &None);
@@ -239,6 +246,7 @@ fn test_transfer_keys_self_transfer_reverts() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -266,6 +274,7 @@ fn test_transfer_keys_zero_amount_reverts() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -290,6 +299,7 @@ fn test_transfer_keys_exceeding_balance_reverts() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
@@ -336,6 +346,7 @@ fn test_transfer_keys_self_transfer_sender_balance_unchanged() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -367,6 +378,7 @@ fn test_transfer_keys_self_transfer_total_supply_unchanged() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
@@ -403,6 +415,7 @@ fn test_transfer_keys_preserves_other_holders() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
