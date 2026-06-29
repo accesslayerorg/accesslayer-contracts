@@ -268,6 +268,35 @@ pub struct KeysTransferredEvent {
     pub ledger: u32,
 }
 
+/// Event name for treasury withdrawal by the protocol admin.
+pub const TREASURY_WITHDRAWAL_EVENT_NAME: Symbol = symbol_short!("treas_out");
+
+/// Stable field order for treasury withdrawal event payloads.
+pub const TREASURY_WITHDRAWAL_DATA_FIELDS: [&str; 4] =
+    ["amount", "recipient", "remaining_balance", "ledger"];
+
+/// Stable treasury withdrawal event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TREASURY_WITHDRAWAL_EVENT_NAME, recipient)`
+/// - data: `TreasuryWithdrawalEvent`
+///
+/// `ledger` is the Soroban ledger sequence number at the time of withdrawal so
+/// off-chain indexers can reconstruct the timeline without replaying all events.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TreasuryWithdrawalEvent {
+    pub amount: i128,
+    pub recipient: Address,
+    pub remaining_balance: i128,
+    pub ledger: u32,
+}
+
+/// Shared treasury withdrawal event topics tuple.
+pub fn treasury_withdrawal_event_topics(recipient: &Address) -> (Symbol, Address) {
+    (TREASURY_WITHDRAWAL_EVENT_NAME, recipient.clone())
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
