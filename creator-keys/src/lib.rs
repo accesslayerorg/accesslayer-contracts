@@ -1042,7 +1042,6 @@ impl CreatorKeysContract {
             return Err(ContractError::AlreadyRegistered);
         }
 
-
         let supply = 0; // New creator starts with 0 supply
         let preset = curve_preset.unwrap_or(CurvePreset::Linear); // or whatever default makes sense
 
