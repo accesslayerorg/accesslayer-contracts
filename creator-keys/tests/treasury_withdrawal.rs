@@ -3,7 +3,7 @@
 mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, set_pricing_and_fees, test_env_with_auths};
-use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{ContractError, CreatorKeysContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Events},
     Address, Env, IntoVal,
@@ -55,7 +55,7 @@ fn get_treasury_balance_returns_zero_before_any_trades() {
 #[test]
 fn get_treasury_balance_increases_after_buy_key() {
     let env = test_env_with_auths();
-    let (client, admin) = setup_with_admin(&env);
+    let (client, _admin) = setup_with_admin(&env);
 
     let fee = buy_one_key(&env, &client);
     assert_eq!(client.get_treasury_balance(), fee);
@@ -64,7 +64,7 @@ fn get_treasury_balance_increases_after_buy_key() {
 #[test]
 fn get_treasury_balance_accumulates_across_multiple_buys() {
     let env = test_env_with_auths();
-    let (client, admin) = setup_with_admin(&env);
+    let (client, _admin) = setup_with_admin(&env);
 
     let creator = Address::generate(&env);
     client.register_creator(
