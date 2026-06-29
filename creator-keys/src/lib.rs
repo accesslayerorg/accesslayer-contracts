@@ -462,13 +462,11 @@ pub const HANDLE_LEN_MAX: u32 = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
-
 /// Canonical storage key schema for persistent protocol state.
 ///
 /// For quote-related key usage and invariants, see
 /// [`docs/quote-storage-keys.md`](../../docs/quote-storage-keys.md).
 #[derive(Clone)]
-#[contracttype]
 pub enum DataKey {
     Creator(Address),
     FeeConfig,
@@ -1044,14 +1042,11 @@ impl CreatorKeysContract {
             return Err(ContractError::AlreadyRegistered);
         }
 
-        use crate::bonding_curve::CurvePreset;
 
-        let profile = read_registered_creator_profile(&env, &creator)?;
-        let supply = profile.supply;
+        let supply = 0; // New creator starts with 0 supply
         let preset = curve_preset.unwrap_or(CurvePreset::Linear); // or whatever default makes sense
 
         // Handle curve preset
-        let preset = curve_preset.unwrap_or(CurvePreset::Linear);
         let preset_key = constants::storage::curve_preset(&creator);
         env.storage().persistent().set(&preset_key, &preset);
 
@@ -2233,7 +2228,6 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns the max supply cap for a creator.
-    /// Read-only view: returns the max supply cap for a creator.
     ///
     /// Returns `None` if no max supply cap is set (uncapped).
     pub fn get_max_supply(env: Env, creator: Address) -> Option<u32> {
@@ -2247,7 +2241,6 @@ impl CreatorKeysContract {
     /// # Errors
     ///
     /// - [`ContractError::NotRegistered`] if the creator is not registered.
-
     /// Transfers key ownership between wallets without touching the bonding curve.
     ///
     /// The sender's balance is decremented and the recipient's balance is
