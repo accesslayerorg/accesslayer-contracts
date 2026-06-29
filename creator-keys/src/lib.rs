@@ -75,6 +75,7 @@ pub enum ContractError {
     SelfTransfer = 26,
     ZeroTransferAmount = 27,
     InsufficientTreasuryBalance = 28,
+    BatchClaimExceedsLimit = 29,
 }
 
 pub mod fee {
@@ -519,6 +520,13 @@ pub struct CreatorProfile {
     /// field was added deserialise correctly — the Soroban persistent storage layer
     /// reads structs by field index, so appending is the only safe extension pattern.
     pub registered_at: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ClaimResult {
+    pub creator: Address,
+    pub amount_claimed: i128,
 }
 
 /// Reads a creator profile from storage, returning `None` for unregistered creators.
@@ -2124,6 +2132,53 @@ impl CreatorKeysContract {
         );
 
         Ok(claimable)
+    }
+
+    pub fn batch_claim_dividend(
+        env: Env,
+        creators: soroban_sdk::Vec<Address>,
+        holder: Address,
+    ) -> Result<soroban_sdk::Vec<ClaimResult>, ContractError> {
+        holder.require_auth();
+        assert_not_paused(&env)?;
+
+        if creators.len() > 20 {
+            return Err(ContractError::BatchClaimExceedsLimit);
+        }
+
+        let mut results = soroban_sdk::Vec::new(&env);
+
+        for creator in creators.iter() {
+            let claimable = compute_claimable_dividend(&env, &creator, &holder);
+
+            if claimable > 0 {
+                let accumulator = read_dividend_accumulator(&env, &creator);
+                env.storage().persistent().set(
+                    &constants::storage::holder_dividend_pending(&creator, &holder),
+                    &0i128,
+                );
+                env.storage().persistent().set(
+                    &constants::storage::holder_dividend_checkpoint(&creator, &holder),
+                    &accumulator,
+                );
+
+                env.events().publish(
+                    events::dividend_claimed_topics(&creator, &holder),
+                    events::DividendClaimedEvent {
+                        creator: creator.clone(),
+                        claimant: holder.clone(),
+                        amount: claimable,
+                    },
+                );
+            }
+
+            results.push_back(ClaimResult {
+                creator: creator.clone(),
+                amount_claimed: claimable,
+            });
+        }
+
+        Ok(results)
     }
 
     /// Read-only view: returns the total unclaimed dividend amount for `wallet` on `creator`.
