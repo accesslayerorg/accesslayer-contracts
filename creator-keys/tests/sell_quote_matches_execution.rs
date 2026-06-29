@@ -131,7 +131,7 @@ fn test_buy_then_sell_has_symmetric_price_impact_after_fees() {
 
     // A buy followed by selling the same key should unwind the supply-side price impact;
     // the seller receives the original curve price minus the configured sell fees.
-    let expected_sell_price = compute_expected_buy_price(supply_after_buy, key_price);
+    let expected_sell_price = compute_expected_buy_price(supply_after_buy, creator_keys::CurvePreset::Linear);
     let expected_sell_proceeds =
         expected_sell_price - sell_quote.creator_fee - sell_quote.protocol_fee;
     assert_eq!(sell_quote.price, expected_sell_price);
