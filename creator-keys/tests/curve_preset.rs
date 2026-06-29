@@ -70,8 +70,13 @@ fn test_register_creator_with_flat() {
 fn test_linear_preset_regression_matches_base_price() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator =
-    register_test_creator_with_fee_config(&env, &client, "linear", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let creator = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "linear",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
 
     let quote = client.get_buy_quote(&creator);
     // At supply=0, Linear should match the base price
@@ -85,10 +90,20 @@ fn test_linear_preset_regression_matches_base_price() {
 fn test_quadratic_higher_than_linear_at_same_supply() {
     let (env, _, client, _) = setup_with_fees();
 
-    let linear_creator =
-        register_test_creator_with_fee_config(&env, &client, "lin", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
-    let quad_creator =
-        register_test_creator_with_fee_config(&env, &client, "quad", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let linear_creator = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "lin",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
+    let quad_creator = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "quad",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
 
     // Buy one key for each to increase supply to 1
     let buyer = Address::generate(&env);
@@ -110,10 +125,20 @@ fn test_quadratic_higher_than_linear_at_same_supply() {
 fn test_flat_lower_than_linear_at_same_supply() {
     let (env, _, client, _) = setup_with_fees();
 
-    let linear_creator =
-        register_test_creator_with_fee_config(&env, &client, "lin", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
-    let flat_creator =
-    register_test_creator_with_fee_config(&env, &client, "flat", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let linear_creator = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "lin",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
+    let flat_creator = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "flat",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
 
     // Buy keys to reach supply=5
     let buyer = Address::generate(&env);
@@ -137,8 +162,13 @@ fn test_flat_lower_than_linear_at_same_supply() {
 fn test_curve_preset_immutable_no_update_function() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator =
-    register_test_creator_with_fee_config(&env, &client, "creator", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let creator = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "creator",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
 
     let preset_before = client.get_curve_preset(&creator);
 
@@ -153,9 +183,20 @@ fn test_curve_preset_immutable_no_update_function() {
 fn test_independent_curves_no_cross_contamination() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator_a =
-    register_test_creator_with_fee_config(&env, &client, "a", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
-    let creator_b = register_test_creator_with_fee_config(&env, &client, "b", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let creator_a = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "a",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
+    let creator_b = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "b",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
 
     // Buy multiple keys for each
     let buyer = Address::generate(&env);
@@ -190,7 +231,13 @@ fn test_buy_sell_symmetry_all_presets() {
     ] {
         let (env, _, client, _) = setup_with_fees();
 
-        let creator = register_test_creator_with_fee_config(&env, &client, "sym", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+        let creator = register_test_creator_with_fee_config(
+            &env,
+            &client,
+            "sym",
+            DEFAULT_CREATOR_BPS,
+            DEFAULT_PROTOCOL_BPS,
+        );
         let buyer = Address::generate(&env);
 
         // Get buy quote at supply=0
@@ -224,8 +271,13 @@ fn test_get_curve_preset_unregistered_fails() {
 fn test_creator_details_includes_preset() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator =
-        register_test_creator_with_fee_config(&env, &client, "detailed", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let creator = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "detailed",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
 
     let details = client.get_creator_details(&creator);
     assert_eq!(details.curve_preset, CurvePreset::Quadratic);
@@ -235,8 +287,20 @@ fn test_creator_details_includes_preset() {
 fn test_batch_view_includes_preset() {
     let (env, _, client, _) = setup_with_fees();
 
-    let creator_a = register_test_creator_with_fee_config(&env, &client, "a", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
-    let creator_b = register_test_creator_with_fee_config(&env, &client, "b", DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    let creator_a = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "a",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
+    let creator_b = register_test_creator_with_fee_config(
+        &env,
+        &client,
+        "b",
+        DEFAULT_CREATOR_BPS,
+        DEFAULT_PROTOCOL_BPS,
+    );
 
     let mut creators = soroban_sdk::Vec::new(&env);
     creators.push_back(creator_a.clone());
