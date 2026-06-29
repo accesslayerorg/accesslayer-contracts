@@ -10,19 +10,16 @@ use contract_test_env::{
     test_env_with_auths, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 
-fn setup_with_fees() -> (Env, Address, CreatorKeysContractClient<'static>, Address) {
-    let env = test_env_with_auths();
-    let (client, contract_id) = register_creator_keys(&env);
-
-    // Set up fees
-    let admin = set_protocol_fee_bps(&env, &client, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
-
-    (env, contract_id, client, admin)
+fn setup_with_fees(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Address) {
+    let (client, contract_id) = register_creator_keys(env);
+    let admin = set_protocol_fee_bps(env, &client, DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS);
+    (client, contract_id, admin)
 }
 
 #[test]
 fn test_register_creator_defaults_to_linear() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
@@ -36,7 +33,8 @@ fn test_register_creator_defaults_to_linear() {
 
 #[test]
 fn test_register_creator_with_quadratic() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "bob");
@@ -56,7 +54,8 @@ fn test_register_creator_with_quadratic() {
 
 #[test]
 fn test_register_creator_with_flat() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "charlie");
@@ -76,7 +75,8 @@ fn test_register_creator_with_flat() {
 
 #[test]
 fn test_linear_preset_regression_matches_base_price() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator = register_test_creator_with_fee_config(
         &env,
@@ -96,7 +96,8 @@ fn test_linear_preset_regression_matches_base_price() {
 
 #[test]
 fn test_quadratic_higher_than_linear_at_same_supply() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let linear_creator = register_test_creator_with_fee_config(
         &env,
@@ -131,7 +132,8 @@ fn test_quadratic_higher_than_linear_at_same_supply() {
 
 #[test]
 fn test_flat_lower_than_linear_at_same_supply() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let linear_creator = register_test_creator_with_fee_config(
         &env,
@@ -168,7 +170,8 @@ fn test_flat_lower_than_linear_at_same_supply() {
 
 #[test]
 fn test_curve_preset_immutable_no_update_function() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator = register_test_creator_with_fee_config(
         &env,
@@ -189,7 +192,8 @@ fn test_curve_preset_immutable_no_update_function() {
 
 #[test]
 fn test_independent_curves_no_cross_contamination() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator_a = register_test_creator_with_fee_config(
         &env,
@@ -237,7 +241,8 @@ fn test_buy_sell_symmetry_all_presets() {
         CurvePreset::Quadratic,
         CurvePreset::Flat,
     ] {
-        let (env, _, client, _) = setup_with_fees();
+        let env = test_env_with_auths();
+        let (client, _, _) = setup_with_fees(&env);
 
         let creator = register_test_creator_with_fee_config(
             &env,
@@ -268,7 +273,8 @@ fn test_buy_sell_symmetry_all_presets() {
 
 #[test]
 fn test_get_curve_preset_unregistered_fails() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let unregistered = Address::generate(&env);
     let result = client.try_get_curve_preset(&unregistered);
@@ -277,7 +283,8 @@ fn test_get_curve_preset_unregistered_fails() {
 
 #[test]
 fn test_creator_details_includes_preset() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator = register_test_creator_with_fee_config(
         &env,
@@ -293,7 +300,8 @@ fn test_creator_details_includes_preset() {
 
 #[test]
 fn test_batch_view_includes_preset() {
-    let (env, _, client, _) = setup_with_fees();
+    let env = test_env_with_auths();
+    let (client, _, _) = setup_with_fees(&env);
 
     let creator_a = register_test_creator_with_fee_config(
         &env,
