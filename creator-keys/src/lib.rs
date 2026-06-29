@@ -1225,6 +1225,8 @@ impl CreatorKeysContract {
 
         // Persist profile before event publication so indexers reading contract state
         // after this tx observe the same registration payload that was emitted.
+        // Keep the registration TTL and event emission in this block so merge conflict
+        // resolutions do not accidentally splice registration state writes into trading flows.
         env.storage().persistent().set(&key, &profile);
         // Set initial TTL for creator storage
         let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
