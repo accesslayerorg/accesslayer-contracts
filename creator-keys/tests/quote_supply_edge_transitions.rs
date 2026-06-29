@@ -2,11 +2,11 @@
 
 mod contract_test_env;
 
-use creator_keys::CurvePreset;
 use contract_test_env::{
     compute_expected_buy_price, register_creator_keys, register_test_creator, set_pricing_and_fees,
     test_env_with_auths,
 };
+use creator_keys::CurvePreset;
 use soroban_sdk::{testutils::Address as _, Address};
 
 #[test]
