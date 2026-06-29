@@ -1024,8 +1024,8 @@ impl CreatorKeysContract {
         env: Env,
         creator: Address,
         handle: String,
-        locked_allocation: Option<LockedAllocation>,
-        max_supply: Option<u32>,
+        _locked_allocation: Option<LockedAllocation>,
+        _max_supply: Option<u32>,
         curve_preset: Option<CurvePreset>,
     ) -> Result<(), ContractError> {
         creator.require_auth();
