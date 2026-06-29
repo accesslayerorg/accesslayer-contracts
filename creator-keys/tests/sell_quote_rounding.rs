@@ -45,7 +45,7 @@ fn assert_sell_quote(
     let supply = client.get_creator_supply(creator);
     assert_eq!(
         q.price,
-        compute_expected_sell_price(supply, key_price),
+        compute_expected_sell_price(supply, creator_keys::CurvePreset::Linear)    ,
         "price"
     );
     assert_eq!(q.creator_fee, exp_creator, "creator_fee");
