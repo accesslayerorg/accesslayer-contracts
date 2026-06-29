@@ -460,13 +460,11 @@ pub const CREATOR_TTL_LEDGERS: u32 = 6311520; // ~2 years at 5s per ledger
 pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
 /// Canonical storage key schema for persistent protocol state.
 ///
 /// For quote-related key usage and invariants, see
 /// [`docs/quote-storage-keys.md`](../../docs/quote-storage-keys.md).
-#[derive(Clone)]
 pub enum DataKey {
     Creator(Address),
     FeeConfig,
