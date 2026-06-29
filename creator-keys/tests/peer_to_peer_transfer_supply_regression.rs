@@ -25,7 +25,7 @@ fn test_transfer_keys_keeps_supply_and_same_level_quotes_unchanged() {
     let buy_quote_before = client.get_buy_quote(&creator);
     let sell_quote_before = client.get_sell_quote(&creator, &sender);
 
-    client.transfer_keys(&creator, &sender, &recipient, &1);
+    client.transfer_keys(&creator, &sender, &recipient, &1u32);
 
     assert_eq!(
         client.get_total_key_supply(&creator),

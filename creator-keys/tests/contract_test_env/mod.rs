@@ -105,7 +105,13 @@ pub fn register_test_creator(
     handle: &str,
 ) -> Address {
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(env, handle),
+        &None,
+        &None,
+        &None,
+    );
     creator
 }
 
@@ -130,7 +136,13 @@ pub fn register_test_creator_with_fee_config(
     let admin = Address::generate(env);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     let creator = Address::generate(env);
-    client.register_creator(&creator, &String::from_str(env, handle), &None, &None);
+    client.register_creator(
+        &creator,
+        &String::from_str(env, handle),
+        &None,
+        &None,
+        &None,
+    );
     creator
 }
 
@@ -403,6 +415,45 @@ pub fn distribute_test_dividend(
     amount: i128,
 ) {
     client.distribute_dividend(creator, distributor, &amount);
+}
+
+/// Asserts that the claimable dividend for `wallet` on `creator` equals `expected`.
+///
+/// Panics with a descriptive message that includes creator, wallet, expected, and actual values
+/// when the amounts differ, making it easy to identify which holder's dividend is wrong.
+pub fn assert_claimable(
+    client: &CreatorKeysContractClient<'_>,
+    creator: &Address,
+    wallet: &Address,
+    expected: i128,
+) {
+    let actual = client.get_claimable_dividend(creator, wallet);
+    assert_eq!(
+        actual,
+        expected,
+        "claimable dividend mismatch: creator={creator:?} wallet={wallet:?} expected={expected} actual={actual}"
+    );
+}
+
+/// Registers a creator with multiple holders at varied balances in one call.
+///
+/// For each `(holder, amount)` pair, buys `amount` keys from `holder`.
+/// The buy quote is fetched before each individual purchase so the helper
+/// works correctly under both flat and bonding-curve pricing models.
+/// Returns the total supply after all buys complete.
+pub fn setup_holders(
+    _env: &Env,
+    client: &CreatorKeysContractClient<'_>,
+    creator: &Address,
+    holders: &[(Address, u32)],
+) -> u32 {
+    for (holder, amount) in holders {
+        for _ in 0..*amount {
+            let quote = client.get_buy_quote(creator);
+            client.buy_key(creator, holder, &quote.total_amount, &None);
+        }
+    }
+    client.get_total_key_supply(creator)
 }
 
 /// Computes the expected claimable dividend for a holder given distribution parameters.

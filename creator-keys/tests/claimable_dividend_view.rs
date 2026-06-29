@@ -3,7 +3,7 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    capture_snapshot, compute_expected_holder_dividend, distribute_test_dividend,
+    assert_claimable, capture_snapshot, compute_expected_holder_dividend, distribute_test_dividend,
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
     DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
@@ -24,7 +24,7 @@ fn test_get_claimable_dividend_zero_before_any_distribution() {
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &100, &None);
 
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), 0);
+    assert_claimable(&client, &creator, &buyer, 0);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn test_get_claimable_dividend_correct_after_distribution() {
     distribute_test_dividend(&client, &creator, &distributor, amount);
 
     let expected = compute_expected_holder_dividend(amount, 1, 1, DEFAULT_PROTOCOL_BPS);
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), expected);
+    assert_claimable(&client, &creator, &buyer, expected);
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn test_get_claimable_dividend_zero_after_claim() {
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
     client.claim_dividend(&creator, &buyer);
 
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), 0);
+    assert_claimable(&client, &creator, &buyer, 0);
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn test_get_claimable_dividend_accumulates_across_distributions() {
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
 
     let expected = compute_expected_holder_dividend(10_000, 1, 1, DEFAULT_PROTOCOL_BPS) * 3;
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), expected);
+    assert_claimable(&client, &creator, &buyer, expected);
 }
 
 #[test]
@@ -145,5 +145,5 @@ fn test_get_claimable_dividend_works_while_paused() {
 
     // Read-only view must work even when protocol is paused.
     let expected = compute_expected_holder_dividend(10_000, 1, 1, DEFAULT_PROTOCOL_BPS);
-    assert_eq!(client.get_claimable_dividend(&creator, &buyer), expected);
+    assert_claimable(&client, &creator, &buyer, expected);
 }
