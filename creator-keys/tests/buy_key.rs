@@ -3,7 +3,7 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    compute_expected_buy_price, register_creator_keys, register_test_creator,
+    capture_snapshot, compute_expected_buy_price, register_creator_keys, register_test_creator,
     set_key_price_for_tests, set_protocol_fee_bps, test_env_with_auths,
 };
 use creator_keys::ContractError;
@@ -50,6 +50,32 @@ fn test_buy_key_insufficient_payment_fails() {
     let expected_price = compute_expected_buy_price(0, base_price);
     let result = client.try_buy_key(&creator, &buyer, &(expected_price - 1), &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
+}
+
+#[test]
+fn test_buy_key_unregistered_creator_no_state_mutation() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let base_price = 100i128;
+    set_key_price_for_tests(&env, &client, base_price);
+    set_protocol_fee_bps(&env, &client, 9000u32, 1000u32);
+
+    let registered = register_test_creator(&env, &client, "alice");
+    let buyer = Address::generate(&env);
+    client.buy_key(&registered, &buyer, &base_price, &None);
+
+    let snapshot_before = capture_snapshot(&client, &registered, &buyer);
+
+    let unregistered = Address::generate(&env);
+    let result = client.try_buy_key(&unregistered, &buyer, &base_price, &None);
+    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+
+    let snapshot_after = capture_snapshot(&client, &registered, &buyer);
+    snapshot_before.assert_unchanged(&snapshot_after);
+
+    assert_eq!(client.get_total_key_supply(&unregistered), 0);
+    assert_eq!(client.get_key_balance(&unregistered, &buyer), 0);
+    assert_eq!(client.get_creator_holder_count(&unregistered), 0);
 }
 
 #[test]

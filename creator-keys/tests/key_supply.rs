@@ -65,17 +65,17 @@ fn test_get_total_key_supply_increments_after_three_sequential_buys() {
     let buyer1 = Address::generate(&env);
     let buyer2 = Address::generate(&env);
     let buyer3 = Address::generate(&env);
-    client.register_creator(&creator, &String::from_str(&env, "alice"));
+    client.register_creator(&creator, &String::from_str(&env, "alice"), &None, &None);
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
 
-    client.buy_key(&creator, &buyer1, &100_i128);
+    client.buy_key(&creator, &buyer1, &100_i128, &None);
     assert_eq!(client.get_total_key_supply(&creator), 1);
 
-    client.buy_key(&creator, &buyer2, &100_i128);
+    client.buy_key(&creator, &buyer2, &100_i128, &None);
     assert_eq!(client.get_total_key_supply(&creator), 2);
 
-    client.buy_key(&creator, &buyer3, &100_i128);
+    client.buy_key(&creator, &buyer3, &100_i128, &None);
     assert_eq!(client.get_total_key_supply(&creator), 3);
 }
 
