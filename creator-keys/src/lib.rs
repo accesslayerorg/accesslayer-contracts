@@ -1390,6 +1390,7 @@ impl CreatorKeysContract {
         // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
         extend_creator_registration_ttl(&env, &key, &preset_key, &whitelist_key, current_ledger);
+
         // Set initial TTL for creator storage
         let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
         env.storage()
@@ -1404,6 +1405,7 @@ impl CreatorKeysContract {
                 .persistent()
                 .extend_ttl(&co_creator_key, current_ledger, extend_to);
         }
+
 
 
         env.events().publish(
