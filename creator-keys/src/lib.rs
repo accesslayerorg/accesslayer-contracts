@@ -74,13 +74,10 @@ pub enum ContractError {
     InsufficientSupply = 25,
     SelfTransfer = 26,
     ZeroTransferAmount = 27,
-<<<<<<< HEAD
-=======
     WhitelistOnly = 28,
     WhitelistTooLarge = 29,
     InsufficientTreasuryBalance = 30,
     BatchClaimExceedsLimit = 31,
->>>>>>> 054ca09c875bd7b17fa1e1d31d6ffa027c921d5e
     InsufficientTreasuryBalance = 28,
     BatchClaimExceedsLimit = 29,
     InvalidCoCreatorShare = 30,
@@ -1186,16 +1183,11 @@ impl CreatorKeysContract {
     /// - `locked_allocation`: optional time-locked key allocation for creator self-vesting.
     ///   If provided, `unlock_ledger` must be strictly greater than current ledger.
     /// - `max_supply`: optional maximum supply cap. If provided, must be greater than zero.
-<<<<<<< HEAD
-    /// - `co_creator`: optional immutable collaborator split. If provided, `share_bps`
-    ///   must be in the inclusive range `1..=9999`.
-=======
     /// - `whitelist_window`: optional immutable early-access address list and ledger duration.
 
     /// - `co_creator`: optional immutable collaborator split. If provided, `share_bps`
     ///   must be in the inclusive range `1..=9999`.
 
->>>>>>> 054ca09c875bd7b17fa1e1d31d6ffa027c921d5e
     pub fn register_creator(
         env: Env,
         creator: Address,
@@ -1203,13 +1195,9 @@ impl CreatorKeysContract {
         locked_allocation: Option<LockedAllocation>,
         max_supply: Option<u32>,
         curve_preset: Option<CurvePreset>,
-<<<<<<< HEAD
-        co_creator: Option<CoCreatorConfig>,
-=======
         whitelist_window: Option<WhitelistConfig>,
         co_creator: Option<CoCreatorConfig>,
 
->>>>>>> 054ca09c875bd7b17fa1e1d31d6ffa027c921d5e
     ) -> Result<(), ContractError> {
         creator.require_auth();
         assert_not_paused(&env)?;
@@ -1308,13 +1296,10 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .extend_ttl(&preset_key, current_ledger, extend_to);
-<<<<<<< HEAD
-=======
         if env.storage().persistent().has(&whitelist_key) {
             env.storage()
                 .persistent()
                 .extend_ttl(&whitelist_key, current_ledger, extend_to);
->>>>>>> 054ca09c875bd7b17fa1e1d31d6ffa027c921d5e
         let co_creator_key = constants::storage::co_creator(&creator);
         if env.storage().persistent().has(&co_creator_key) {
             env.storage()
