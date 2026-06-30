@@ -1195,7 +1195,6 @@ impl CreatorKeysContract {
         curve_preset: Option<CurvePreset>,
         whitelist_window: Option<WhitelistConfig>,
         co_creator: Option<CoCreatorConfig>,
-
     ) -> Result<(), ContractError> {
         creator.require_auth();
         assert_not_paused(&env)?;
