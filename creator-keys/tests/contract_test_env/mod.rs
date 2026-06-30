@@ -239,8 +239,12 @@ fn base32_encode(bytes: &[u8]) -> StdString {
 ///
 /// This helper ensures that test fixtures stay aligned with the contract's
 /// pricing logic and makes magic numbers in assertions more descriptive.
-pub fn compute_expected_buy_price(_supply: u32, base_price: i128) -> i128 {
-    base_price
+/// Computes the expected buy price for a given supply value and curve preset.
+pub fn compute_expected_buy_price(
+    supply: u32,
+    preset: creator_keys::bonding_curve::CurvePreset,
+) -> i128 {
+    creator_keys::bonding_curve::compute_price(supply, 1, preset).unwrap()
 }
 
 /// Number of stroops in one display unit.
@@ -316,8 +320,17 @@ impl ContractStateSnapshot {
 /// base key price regardless of supply. The seller's net payout is then
 /// `price - creator_fee - protocol_fee`, computed via the `fee` helpers, so this
 /// returns the gross figure that `get_sell_quote().price` is asserted against.
-pub fn compute_expected_sell_price(_supply: u32, base_price: i128) -> i128 {
-    base_price
+/// Computes the expected (gross) sell price for a given supply value and curve preset.
+pub fn compute_expected_sell_price(
+    supply: u32,
+    preset: creator_keys::bonding_curve::CurvePreset,
+) -> i128 {
+    // Sell price at supply S is the buy price at supply S-1
+    if supply == 0 {
+        0
+    } else {
+        creator_keys::bonding_curve::compute_price(supply - 1, 1, preset).unwrap()
+    }
 }
 
 /// Sets the bonding curve slope parameter via an auto-generated admin address.

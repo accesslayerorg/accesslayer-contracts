@@ -672,6 +672,7 @@ fn test_read_key_balance_returns_registered_creator_supply() {
         holder_count: 3,
         fee_recipient: creator.clone(),
         registered_at: 0,
+        curve_preset: crate::bonding_curve::CurvePreset::Linear, // ADD THIS
     };
 
     let supply = env.as_contract(&contract_id, || {

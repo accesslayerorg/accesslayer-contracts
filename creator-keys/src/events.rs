@@ -65,13 +65,14 @@ pub const TOPIC_CREATOR_INDEX: u32 = 1;
 pub const TOPIC_BUYER_INDEX: u32 = 2;
 
 /// Stable field order for registration event payloads.
-pub const REGISTER_EVENT_DATA_FIELDS: [&str; 6] = [
+pub const REGISTER_EVENT_DATA_FIELDS: [&str; 7] = [
     "creator",
     "handle",
     "supply",
     "holder_count",
     "creator_bps",
     "protocol_bps",
+    "curve_preset", // NEW
 ];
 
 /// Stable field order for buy event payloads.
@@ -106,6 +107,7 @@ pub struct CreatorRegisteredEvent {
     pub holder_count: u32,
     pub creator_bps: u32,
     pub protocol_bps: u32,
+    pub curve_preset: crate::bonding_curve::CurvePreset,
 }
 
 /// Shared registration event topics tuple.

@@ -27,3 +27,10 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Configure Cargo
+        run: |
+         mkdir -p ~/.cargo
+         echo '[net]' >> ~/.cargo/config.toml
+         echo 'retry = 3' >> ~/.cargo/config.toml
+         echo 'git-fetch-with-cli = true' >> ~/.cargo/config.toml

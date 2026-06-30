@@ -19,7 +19,7 @@ fn test_buy_key_unregistered_creator_fails() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 
-    let expected_price = compute_expected_buy_price(0, base_price);
+    let expected_price = compute_expected_buy_price(0, creator_keys::CurvePreset::Linear);
 
     let fee_view_before = client.get_protocol_fee_view();
     assert_eq!(client.get_total_key_supply(&creator), 0);
@@ -47,7 +47,7 @@ fn test_buy_key_insufficient_payment_fails() {
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
 
-    let expected_price = compute_expected_buy_price(0, base_price);
+    let expected_price = compute_expected_buy_price(0, creator_keys::CurvePreset::Linear);
     let result = client.try_buy_key(&creator, &buyer, &(expected_price - 1), &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientPayment)));
 }
@@ -61,7 +61,7 @@ fn test_buy_key_sufficient_payment_succeeds() {
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
 
-    let expected_price = compute_expected_buy_price(0, base_price);
+    let expected_price = compute_expected_buy_price(0, creator_keys::CurvePreset::Linear);
     let supply = client.buy_key(&creator, &buyer, &expected_price, &None);
     assert_eq!(supply, 1);
 
