@@ -1181,11 +1181,8 @@ impl CreatorKeysContract {
     /// - `locked_allocation`: optional time-locked key allocation for creator self-vesting.
     ///   If provided, `unlock_ledger` must be strictly greater than current ledger.
     /// - `max_supply`: optional maximum supply cap. If provided, must be greater than zero.
-    /// - `whitelist_window`: optional immutable early-access address list and ledger duration.
-
     /// - `co_creator`: optional immutable collaborator split. If provided, `share_bps`
     ///   must be in the inclusive range `1..=9999`.
-
     pub fn register_creator(
         env: Env,
         creator: Address,
@@ -1193,7 +1190,6 @@ impl CreatorKeysContract {
         locked_allocation: Option<LockedAllocation>,
         max_supply: Option<u32>,
         curve_preset: Option<CurvePreset>,
-        whitelist_window: Option<WhitelistConfig>,
         co_creator: Option<CoCreatorConfig>,
     ) -> Result<(), ContractError> {
         creator.require_auth();
@@ -1293,11 +1289,6 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .extend_ttl(&preset_key, current_ledger, extend_to);
-        if env.storage().persistent().has(&whitelist_key) {
-            env.storage()
-                .persistent()
-                .extend_ttl(&whitelist_key, current_ledger, extend_to);
-        }
         let co_creator_key = constants::storage::co_creator(&creator);
         if env.storage().persistent().has(&co_creator_key) {
             env.storage()
