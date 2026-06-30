@@ -2101,8 +2101,12 @@ impl CreatorKeysContract {
     pub fn get_buy_quote(env: Env, creator: Address) -> Result<QuoteResponse, ContractError> {
         let profile = read_registered_creator_profile(&env, &creator)?;
 
-        let price = bonding_curve::compute_price(profile.supply, 1, profile.curve_preset)
-            .ok_or(ContractError::Overflow)?;
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        let price = compute_bonding_curve_price(&env, &creator, base_price, profile.supply)?;
 
         if price == 0 {
             return Ok(zero_quote_response());
