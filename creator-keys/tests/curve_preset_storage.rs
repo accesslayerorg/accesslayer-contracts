@@ -23,6 +23,7 @@ fn test_curve_preset_variants_and_error_handling() {
         &None,
         &Some(CurvePreset::Linear),
         &None,
+        &None,
     );
 
     // Register creator with Quadratic preset
@@ -33,6 +34,7 @@ fn test_curve_preset_variants_and_error_handling() {
         &None,
         &Some(CurvePreset::Quadratic),
         &None,
+        &None,
     );
 
     // Register creator with Flat preset
@@ -42,6 +44,7 @@ fn test_curve_preset_variants_and_error_handling() {
         &None,
         &None,
         &Some(CurvePreset::Flat),
+        &None,
         &None,
     );
 

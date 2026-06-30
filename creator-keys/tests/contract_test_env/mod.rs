@@ -112,6 +112,7 @@ pub fn register_test_creator(
         &None,
         &None,
         &None,
+        &None,
     );
     creator
 }
@@ -140,6 +141,7 @@ pub fn register_test_creator_with_fee_config(
     client.register_creator(
         &creator,
         &String::from_str(env, handle),
+        &None,
         &None,
         &None,
         &None,

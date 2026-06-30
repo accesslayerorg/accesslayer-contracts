@@ -20,6 +20,7 @@ fn test_get_creator_treasury_share_returns_configured_value() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
@@ -39,6 +40,7 @@ fn test_get_creator_treasury_share_is_read_only() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,

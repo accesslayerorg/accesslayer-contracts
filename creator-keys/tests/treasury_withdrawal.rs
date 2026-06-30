@@ -38,6 +38,7 @@ fn buy_one_key(env: &Env, client: &CreatorKeysContractClient<'_>) -> i128 {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &buyer, &100i128, &None);
     // 10% of 100 = 10 stroops
@@ -71,6 +72,7 @@ fn get_treasury_balance_accumulates_across_multiple_buys() {
     client.register_creator(
         &creator,
         &soroban_sdk::String::from_str(&env, "bob"),
+        &None,
         &None,
         &None,
         &None,
@@ -202,6 +204,7 @@ fn withdraw_treasury_multiple_partial_withdrawals_track_correctly() {
     client.register_creator(
         &creator,
         &soroban_sdk::String::from_str(&env, "charlie"),
+        &None,
         &None,
         &None,
         &None,

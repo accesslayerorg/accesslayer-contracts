@@ -49,6 +49,7 @@ fn test_get_creator_fee_bps_fails_when_fee_config_not_set() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let result = client.try_get_creator_fee_bps(&creator);

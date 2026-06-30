@@ -27,6 +27,7 @@ fn test_transfer_keys_preserves_claimable_dividends() {
         &None,
         &Some(CurvePreset::Flat),
         &None,
+        &None,
     );
 
     let wallet_a = Address::generate(&env);

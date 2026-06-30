@@ -22,6 +22,7 @@ fn test_register_creator_rejects_empty_handle() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert_eq!(result, Err(Ok(ContractError::HandleTooShort)));

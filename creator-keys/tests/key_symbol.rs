@@ -13,7 +13,7 @@ fn test_get_key_symbol_success() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    client.register_creator(&creator, &handle, &None, &None, &None, &None);
+    client.register_creator(&creator, &handle, &None, &None, &None, &None, &None);
 
     let symbol = client.get_key_symbol(&creator);
     assert_eq!(symbol, handle);
