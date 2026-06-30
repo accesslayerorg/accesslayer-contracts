@@ -13,7 +13,17 @@ fn test_register_creator_minimum_handle_length_success() {
     let min_handle = "a".repeat(HANDLE_LEN_MIN as usize);
     let handle = String::from_str(&env, &min_handle);
 
-    let result = client.try_register_creator(&creator, &handle, &None, &None, &None, &None);
+    let result = client.try_register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     // Happy path: the function succeeds
     assert_eq!(result, Ok(Ok(())));
@@ -34,7 +44,17 @@ fn test_register_creator_below_minimum_handle_length_fails() {
     let short_handle = "a".repeat((HANDLE_LEN_MIN - 1) as usize);
     let handle = String::from_str(&env, &short_handle);
 
-    let result = client.try_register_creator(&creator, &handle, &None, &None, &None, &None);
+    let result = client.try_register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     // Error case: expected failure
     assert_eq!(result, Err(Ok(ContractError::HandleTooShort)));

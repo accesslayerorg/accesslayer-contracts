@@ -17,31 +17,40 @@ fn test_curve_preset_variants_and_error_handling() {
 
     // Register creator with Linear preset
     client.register_creator(
-        &creator_linear,
-        &String::from_str(&env, "linear_c"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_linear.clone(),
+            handle: String::from_str(&env, "linear_c"),
+        },
         &None,
         &None,
         &Some(CurvePreset::Linear),
+        &None,
         &None,
     );
 
     // Register creator with Quadratic preset
     client.register_creator(
-        &creator_quadratic,
-        &String::from_str(&env, "quadratic_c"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_quadratic.clone(),
+            handle: String::from_str(&env, "quadratic_c"),
+        },
         &None,
         &None,
         &Some(CurvePreset::Quadratic),
+        &None,
         &None,
     );
 
     // Register creator with Flat preset
     client.register_creator(
-        &creator_flat,
-        &String::from_str(&env, "flat_c"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_flat.clone(),
+            handle: String::from_str(&env, "flat_c"),
+        },
         &None,
         &None,
         &Some(CurvePreset::Flat),
+        &None,
         &None,
     );
 

@@ -21,8 +21,11 @@ fn creator_can_create_poll_and_view_empty_result() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -55,8 +58,11 @@ fn holder_vote_uses_liquid_key_balance_as_weight() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -93,8 +99,11 @@ fn changing_vote_before_expiry_updates_tally() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -134,8 +143,11 @@ fn vote_after_expiry_reverts_with_poll_expired() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -172,8 +184,11 @@ fn non_holder_vote_reverts_with_not_a_holder() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -204,8 +219,11 @@ fn invalid_vote_option_reverts() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

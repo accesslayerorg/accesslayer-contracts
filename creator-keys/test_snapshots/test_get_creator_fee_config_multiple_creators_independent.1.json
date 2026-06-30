@@ -15,11 +15,27 @@
               "function_name": "register_creator",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "handle"
+                      },
+                      "val": {
+                        "string": "creator_one"
+                      }
+                    }
+                  ]
                 },
-                {
-                  "string": "creator_one"
-                },
+                "void",
+                "void",
                 "void",
                 "void",
                 "void"
@@ -40,11 +56,27 @@
               "function_name": "register_creator",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "handle"
+                      },
+                      "val": {
+                        "string": "creator_two"
+                      }
+                    }
+                  ]
                 },
-                {
-                  "string": "creator_two"
-                },
+                "void",
+                "void",
                 "void",
                 "void",
                 "void"

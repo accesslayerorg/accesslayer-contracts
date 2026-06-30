@@ -22,13 +22,16 @@ fn test_claim_locked_allocation_reverts_at_every_ledger_before_unlock() {
     env.ledger().set(ledger_info.clone());
 
     client.register_creator(
-        &creator,
-        &handle,
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
         &Some(LockedAllocation {
             amount: 50,
             unlock_ledger,
             claimed: false,
         }),
+        &None,
         &None,
         &None,
         &None,
@@ -69,13 +72,16 @@ fn test_claim_locked_allocation_succeeds_at_unlock_ledger() {
     env.ledger().set(ledger_info.clone());
 
     client.register_creator(
-        &creator,
-        &handle,
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
         &Some(LockedAllocation {
             amount,
             unlock_ledger,
             claimed: false,
         }),
+        &None,
         &None,
         &None,
         &None,

@@ -145,8 +145,11 @@ fn test_register_creator_reverts_when_paused() {
 
     let creator = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator,
-        &soroban_sdk::String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: soroban_sdk::String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -200,8 +203,11 @@ fn test_pause_blocks_registration_not_reads() {
     // Registration must revert while paused
     let creator_b = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator_b,
-        &soroban_sdk::String::from_str(&env, "creatorb"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_b.clone(),
+            handle: soroban_sdk::String::from_str(&env, "creatorb"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -217,10 +223,14 @@ fn test_pause_blocks_registration_not_reads() {
     // Unpause — creator_b registration must now succeed
     client.unpause(&admin);
     assert!(!client.get_is_paused());
+
     let _ = client
         .try_register_creator(
-            &creator_b,
-            &soroban_sdk::String::from_str(&env, "creatorb"),
+            &creator_keys::RegisterCreatorParams {
+                creator: creator_b.clone(),
+                handle: soroban_sdk::String::from_str(&env, "creatorb"),
+            },
+            &None,
             &None,
             &None,
             &None,

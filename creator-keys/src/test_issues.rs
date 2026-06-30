@@ -21,10 +21,30 @@ mod issue_tests {
         let handle = String::from_str(env, "alice");
         match cap {
             Some(c) => {
-                client.register_creator(&creator, &handle, &None, &Some(c), &None, &None);
+                client.register_creator(
+                    &crate::RegisterCreatorParams {
+                        creator: creator.clone(),
+                        handle: handle.clone(),
+                    },
+                    &None,
+                    &Some(c),
+                    &None,
+                    &None,
+                    &None,
+                );
             }
             None => {
-                client.register_creator(&creator, &handle, &None, &None, &None, &None);
+                client.register_creator(
+                    &crate::RegisterCreatorParams {
+                        creator: creator.clone(),
+                        handle: handle.clone(),
+                    },
+                    &None,
+                    &None,
+                    &None,
+                    &None,
+                    &None,
+                );
             }
         }
         creator

@@ -21,8 +21,11 @@ fn test_get_total_key_supply_returns_zero_for_new_creator() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -51,8 +54,11 @@ fn test_get_total_key_supply_increments_after_buy() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -77,8 +83,11 @@ fn test_get_total_key_supply_is_read_only() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -104,8 +113,11 @@ fn test_buy_key_zero_payment_fails() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -125,8 +137,11 @@ fn test_buy_key_negative_payment_fails() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -146,8 +161,11 @@ fn test_buy_key_positive_payment_succeeds() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

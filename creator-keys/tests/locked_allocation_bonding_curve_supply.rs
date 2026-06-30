@@ -42,8 +42,10 @@ fn setup(
 
     let creator_with_alloc = Address::generate(env);
     client.register_creator(
-        &creator_with_alloc,
-        &String::from_str(env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_with_alloc.clone(),
+            handle: String::from_str(env, "alice"),
+        },
         &Some(LockedAllocation {
             amount: ALLOCATION_AMOUNT,
             unlock_ledger: UNLOCK_LEDGER,
@@ -52,12 +54,16 @@ fn setup(
         &None,
         &None,
         &None,
+        &None,
     );
 
     let creator_no_alloc = Address::generate(env);
     client.register_creator(
-        &creator_no_alloc,
-        &String::from_str(env, "bob"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_no_alloc.clone(),
+            handle: String::from_str(env, "bob"),
+        },
+        &None,
         &None,
         &None,
         &None,
