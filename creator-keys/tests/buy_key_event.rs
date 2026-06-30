@@ -17,8 +17,11 @@ fn test_buy_key_event_includes_payment_amount() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -50,8 +53,11 @@ fn test_buy_key_event_topics_include_creator_and_buyer() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

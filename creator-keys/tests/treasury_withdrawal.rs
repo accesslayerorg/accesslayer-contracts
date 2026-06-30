@@ -32,8 +32,11 @@ fn buy_one_key(env: &Env, client: &CreatorKeysContractClient<'_>) -> i128 {
     let creator = Address::generate(env);
     let buyer = Address::generate(env);
     client.register_creator(
-        &creator,
-        &soroban_sdk::String::from_str(env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: soroban_sdk::String::from_str(env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -69,8 +72,11 @@ fn get_treasury_balance_accumulates_across_multiple_buys() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &soroban_sdk::String::from_str(&env, "bob"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: soroban_sdk::String::from_str(&env, "bob"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -200,8 +206,11 @@ fn withdraw_treasury_multiple_partial_withdrawals_track_correctly() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &soroban_sdk::String::from_str(&env, "charlie"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: soroban_sdk::String::from_str(&env, "charlie"),
+        },
+        &None,
         &None,
         &None,
         &None,

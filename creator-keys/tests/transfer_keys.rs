@@ -18,8 +18,11 @@ fn test_transfer_keys_sender_balance_decreases() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -49,8 +52,11 @@ fn test_transfer_keys_recipient_balance_increases() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -78,8 +84,11 @@ fn test_transfer_keys_total_supply_unchanged() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -106,8 +115,11 @@ fn test_transfer_keys_buy_quote_unchanged_after_transfer() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -141,8 +153,11 @@ fn test_transfer_keys_sell_quote_unchanged_after_transfer() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -172,8 +187,11 @@ fn test_transfer_keys_holder_count_unaffected_when_sender_zero_but_recipient_new
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -208,8 +226,11 @@ fn test_transfer_keys_holder_count_increments_when_recipient_new() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -241,8 +262,11 @@ fn test_transfer_keys_self_transfer_reverts() {
     let sender = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -269,8 +293,11 @@ fn test_transfer_keys_zero_amount_reverts() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -297,8 +324,11 @@ fn test_transfer_keys_exceeding_balance_reverts() {
     let recipient = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -341,8 +371,11 @@ fn test_transfer_keys_self_transfer_sender_balance_unchanged() {
     let sender = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -376,8 +409,11 @@ fn test_transfer_keys_self_transfer_total_supply_unchanged() {
     let sender = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -413,8 +449,11 @@ fn test_transfer_keys_preserves_other_holders() {
     let bystander = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

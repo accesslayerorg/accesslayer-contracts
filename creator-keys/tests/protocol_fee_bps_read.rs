@@ -80,8 +80,11 @@ fn test_get_protocol_fee_bps_persists_across_operations() {
     let creator = soroban_sdk::Address::generate(&env);
     let buyer = soroban_sdk::Address::generate(&env);
     client.register_creator(
-        &creator,
-        &soroban_sdk::String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: soroban_sdk::String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

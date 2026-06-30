@@ -23,10 +23,13 @@ fn test_max_supply_zero_reverts_at_registration() {
 
     let creator = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
         &None,
         &Some(0),
+        &None,
         &None,
         &None,
     );
@@ -49,10 +52,13 @@ fn test_no_creator_state_written_after_zero_supply_cap_rejection() {
 
     let creator = Address::generate(&env);
     let _ = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
         &None,
         &Some(0),
+        &None,
         &None,
         &None,
     );
@@ -83,10 +89,13 @@ fn test_max_supply_one_accepted_as_minimum() {
 
     let creator = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
         &None,
         &Some(1),
+        &None,
         &None,
         &None,
     );
@@ -117,8 +126,11 @@ fn test_max_supply_none_accepted_no_cap() {
 
     let creator = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -145,10 +157,13 @@ fn test_max_supply_two_accepted() {
 
     let creator = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
         &None,
         &Some(2),
+        &None,
         &None,
         &None,
     );
@@ -164,10 +179,13 @@ fn test_max_supply_large_value_accepted() {
 
     let creator = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
         &None,
         &Some(1_000_000),
+        &None,
         &None,
         &None,
     );

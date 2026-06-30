@@ -24,13 +24,16 @@ fn setup_creator_with_locked_allocation(
     ledger_info.sequence_number = 1;
     env.ledger().set(ledger_info);
     client.register_creator(
-        &creator,
-        &String::from_str(env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(env, "alice"),
+        },
         &Some(LockedAllocation {
             amount: ALLOCATION_AMOUNT,
             unlock_ledger: UNLOCK_LEDGER,
             claimed: false,
         }),
+        &None,
         &None,
         &None,
         &None,

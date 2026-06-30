@@ -18,8 +18,11 @@ fn holder_count_tracks_distinct_buyers_and_decrements_on_exit() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "creator"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "creator"),
+        },
+        &None,
         &None,
         &None,
         &None,

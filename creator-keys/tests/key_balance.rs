@@ -31,8 +31,11 @@ fn test_key_balance_increments_on_buy() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -63,8 +66,11 @@ fn test_key_balance_is_per_buyer() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -94,16 +100,22 @@ fn test_key_balance_is_per_creator() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator_a,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_a.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
         &None,
     );
     client.register_creator(
-        &creator_b,
-        &String::from_str(&env, "bob"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_b.clone(),
+            handle: String::from_str(&env, "bob"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -131,8 +143,11 @@ fn test_key_balance_zero_for_unregistered_creator_even_when_other_balances_exist
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &registered_creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: registered_creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -158,8 +173,11 @@ fn test_key_balance_zero_for_registered_creator_and_unseen_wallet() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -186,8 +204,11 @@ fn test_key_balance_returns_zero_for_uninitialized_holder() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
