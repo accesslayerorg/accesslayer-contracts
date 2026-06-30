@@ -78,9 +78,7 @@ pub enum ContractError {
     WhitelistTooLarge = 29,
     InsufficientTreasuryBalance = 30,
     BatchClaimExceedsLimit = 31,
-    InsufficientTreasuryBalance = 28,
-    BatchClaimExceedsLimit = 29,
-    InvalidCoCreatorShare = 30,
+    InvalidCoCreatorShare = 32,
 }
 
 pub mod fee {
