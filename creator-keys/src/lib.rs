@@ -57,7 +57,29 @@ pub enum ContractError {
     InvalidFeeConfig = 8,
     InsufficientBalance = 9,
     SellUnderflow = 10,
-    ProtocolFeeExceedsCap = 11,
+    ProtocolFeeExceedsCap = 11,Run cargo fmt --all -- --check
+  cargo fmt --all -- --check
+  shell: /usr/bin/bash -e {0}
+  env:
+    CARGO_HOME: /home/runner/.cargo
+    CARGO_INCREMENTAL: 0
+    CARGO_TERM_COLOR: always
+error: this file contains an unclosed delimiter
+    --> /home/runner/work/accesslayer-contracts/accesslayer-contracts/creator-keys/src/lib.rs:3115:18
+     |
+1168 | impl CreatorKeysContract {
+     |                          - unclosed delimiter
+...
+1297 |         if env.storage().persistent().has(&whitelist_key) {
+     |                                                           - this delimiter might not be properly closed...
+...
+1321 |     }
+     |     - ...as it matches this but it has different indentation
+...
+3115 | mod test_issues;
+     |                 ^
+
+Error: Process completed with exit code 
     HandleTooShort = 12,
     HandleTooLong = 13,
     InvalidHandleCharacter = 14,
