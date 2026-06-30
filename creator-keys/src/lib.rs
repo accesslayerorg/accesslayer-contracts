@@ -1,7 +1,7 @@
 #![no_std]
 pub mod quote_view_errors;
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
 
 pub mod events;
 
@@ -74,9 +74,14 @@ pub enum ContractError {
     InsufficientSupply = 25,
     SelfTransfer = 26,
     ZeroTransferAmount = 27,
+    WhitelistOnly = 28,
+    WhitelistTooLarge = 29,
+    InsufficientTreasuryBalance = 30,
+    BatchClaimExceedsLimit = 31,
     InsufficientTreasuryBalance = 28,
     BatchClaimExceedsLimit = 29,
     InvalidCoCreatorShare = 30,
+
 }
 
 pub mod fee {
@@ -340,6 +345,10 @@ pub mod constants {
         pub fn max_supply(creator: &Address) -> DataKey {
             DataKey::MaxSupply(creator.clone())
         }
+
+        pub fn whitelist(creator: &Address) -> DataKey {
+            DataKey::Whitelist(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -481,6 +490,7 @@ pub const KEY_DECIMALS: u32 = 7;
 pub const CREATOR_TTL_LEDGERS: u32 = 6311520; // ~2 years at 5s per ledger
 pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
+pub const MAX_WHITELIST_SIZE: u32 = 500;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -515,9 +525,27 @@ pub enum DataKey {
     MaxSupply(Address),
     CurveSlope,
     CurvePreset(Address),
+    Whitelist(Address),
     TreasuryBalance,
     CoCreator(Address),
     CoCreatorFeeBalance(Address, Address),
+}
+
+/// Immutable early-access whitelist configuration set at creator registration.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct WhitelistConfig {
+    pub addresses: Vec<Address>,
+    pub window_ledgers: u32,
+}
+
+/// Read-only whitelist window status for a creator.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct WhitelistStatus {
+    pub active: bool,
+    pub expires_at_ledger: u32,
+    pub remaining_ledgers: u32,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1094,6 +1122,69 @@ fn compute_claimable_dividend(env: &Env, creator: &Address, holder: &Address) ->
 /// This function extends the TTL of the creator's primary storage entries
 /// to prevent active creator state from expiring. Called after successful
 /// buy and sell operations.
+fn read_whitelist_config(env: &Env, creator: &Address) -> Option<WhitelistConfig> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::whitelist(creator))
+}
+
+fn whitelist_expires_at(profile: &CreatorProfile, config: &WhitelistConfig) -> Option<u32> {
+    profile.registered_at.checked_add(config.window_ledgers)
+}
+
+fn is_whitelist_window_active(
+    env: &Env,
+    profile: &CreatorProfile,
+    config: &WhitelistConfig,
+) -> bool {
+    if config.window_ledgers == 0 {
+        return false;
+    }
+    whitelist_expires_at(profile, config)
+        .map(|expires_at| env.ledger().sequence() < expires_at)
+        .unwrap_or(false)
+}
+
+fn assert_whitelist_buy_allowed(
+    env: &Env,
+    profile: &CreatorProfile,
+    buyer: &Address,
+) -> Result<(), ContractError> {
+    let Some(config) = read_whitelist_config(env, &profile.creator) else {
+        return Ok(());
+    };
+    if !is_whitelist_window_active(env, profile, &config) {
+        return Ok(());
+    }
+    for address in config.addresses.iter() {
+        if address == *buyer {
+            return Ok(());
+        }
+    }
+    Err(ContractError::WhitelistOnly)
+}
+
+fn extend_creator_registration_ttl(
+    env: &Env,
+    creator_key: &DataKey,
+    preset_key: &DataKey,
+    whitelist_key: &DataKey,
+    current_ledger: u32,
+) {
+    let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
+    env.storage()
+        .persistent()
+        .extend_ttl(creator_key, current_ledger, extend_to);
+    env.storage()
+        .persistent()
+        .extend_ttl(preset_key, current_ledger, extend_to);
+    if env.storage().persistent().has(whitelist_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(whitelist_key, current_ledger, extend_to);
+    }
+}
+
 fn extend_creator_ttl(env: &Env, creator: &Address) {
     let current_ledger = env.ledger().sequence();
     let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
@@ -1130,6 +1221,13 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
         env.storage()
             .persistent()
             .extend_ttl(&max_supply_key, threshold, extend_to);
+    }
+
+    let whitelist_key = constants::storage::whitelist(creator);
+    if env.storage().persistent().has(&whitelist_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&whitelist_key, threshold, extend_to);
     }
 
     let curve_preset_key = constants::storage::curve_preset(creator);
@@ -1179,6 +1277,7 @@ impl CreatorKeysContract {
     /// - `locked_allocation`: optional time-locked key allocation for creator self-vesting.
     ///   If provided, `unlock_ledger` must be strictly greater than current ledger.
     /// - `max_supply`: optional maximum supply cap. If provided, must be greater than zero.
+    /// - `whitelist_window`: optional immutable early-access address list and ledger duration.
     /// - `co_creator`: optional immutable collaborator split. If provided, `share_bps`
     ///   must be in the inclusive range `1..=9999`.
     pub fn register_creator(
@@ -1188,7 +1287,9 @@ impl CreatorKeysContract {
         locked_allocation: Option<LockedAllocation>,
         max_supply: Option<u32>,
         curve_preset: Option<CurvePreset>,
+        whitelist_window: Option<WhitelistConfig>,
         co_creator: Option<CoCreatorConfig>,
+
     ) -> Result<(), ContractError> {
         creator.require_auth();
         assert_not_paused(&env)?;
@@ -1251,6 +1352,15 @@ impl CreatorKeysContract {
                 .set(&constants::storage::max_supply(&creator), &cap);
         }
 
+        // Handle immutable whitelist window
+        let whitelist_key = constants::storage::whitelist(&creator);
+        if let Some(config) = whitelist_window {
+            if config.addresses.len() > MAX_WHITELIST_SIZE {
+                return Err(ContractError::WhitelistTooLarge);
+            }
+            env.storage().persistent().set(&whitelist_key, &config);
+        }
+
         // Handle curve preset
         let preset = curve_preset.unwrap_or(CurvePreset::Linear);
         let preset_key = constants::storage::curve_preset(&creator);
@@ -1279,6 +1389,7 @@ impl CreatorKeysContract {
         // Persist profile before event publication so indexers reading contract state
         // after this tx observe the same registration payload that was emitted.
         env.storage().persistent().set(&key, &profile);
+        extend_creator_registration_ttl(&env, &key, &preset_key, &whitelist_key, current_ledger);
         // Set initial TTL for creator storage
         let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
         env.storage()
@@ -1293,6 +1404,7 @@ impl CreatorKeysContract {
                 .persistent()
                 .extend_ttl(&co_creator_key, current_ledger, extend_to);
         }
+
 
         env.events().publish(
             events::register_event_topics(&profile.creator),
@@ -1332,6 +1444,7 @@ impl CreatorKeysContract {
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
         let price = compute_bonding_curve_price(&env, &creator, base_price, profile.supply)?;
 
+        assert_whitelist_buy_allowed(&env, &profile, &buyer)?;
         assert_buy_price_slippage(price, max_price)?;
 
         if payment < price {
@@ -1617,6 +1730,35 @@ impl CreatorKeysContract {
 
     pub fn get_creator(env: Env, creator: Address) -> Result<CreatorProfile, ContractError> {
         read_registered_creator_profile(&env, &creator)
+    }
+
+    /// Read-only view: returns whitelist window status for a registered creator.
+    pub fn get_whitelist_status(
+        env: Env,
+        creator: Address,
+    ) -> Result<WhitelistStatus, ContractError> {
+        let profile = read_registered_creator_profile(&env, &creator)?;
+        let Some(config) = read_whitelist_config(&env, &creator) else {
+            return Ok(WhitelistStatus {
+                active: false,
+                expires_at_ledger: profile.registered_at,
+                remaining_ledgers: 0,
+            });
+        };
+        let expires_at_ledger =
+            whitelist_expires_at(&profile, &config).ok_or(ContractError::Overflow)?;
+        let current = env.ledger().sequence();
+        let active = config.window_ledgers > 0 && current < expires_at_ledger;
+        let remaining_ledgers = if active {
+            expires_at_ledger - current
+        } else {
+            0
+        };
+        Ok(WhitelistStatus {
+            active,
+            expires_at_ledger,
+            remaining_ledgers,
+        })
     }
 
     /// Read-only view: returns stable creator details.
