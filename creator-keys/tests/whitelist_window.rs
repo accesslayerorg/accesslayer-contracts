@@ -17,8 +17,11 @@ fn register_whitelisted_creator(
 ) -> Address {
     let creator = Address::generate(env);
     client.register_creator(
-        &creator,
-        &String::from_str(env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -111,8 +114,11 @@ fn test_whitelist_over_500_addresses_reverts_at_registration() {
     }
 
     let result = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -133,8 +139,11 @@ fn test_none_whitelist_allows_public_buy_immediately() {
     set_key_price_for_tests(&env, &client, 100);
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

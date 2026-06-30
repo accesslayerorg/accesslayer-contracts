@@ -26,8 +26,11 @@ fn test_buy_event_buyer_address_matches_caller() {
     // Configure contract
     client.set_key_price(&admin, &KEY_PRICE);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -84,8 +87,11 @@ fn test_buy_event_buyer_address_field_is_non_zero() {
     // Configure and execute
     client.set_key_price(&admin, &KEY_PRICE);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

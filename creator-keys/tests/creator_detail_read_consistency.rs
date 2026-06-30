@@ -23,7 +23,17 @@ fn test_creator_details_identical_across_three_consecutive_reads() {
     let handle = String::from_str(&env, "alice");
 
     // Register creator to establish initial state
-    client.register_creator(&creator, &handle, &None, &None, &None, &None);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     // Perform three consecutive reads with NO state changes between them
     let read1 = client.get_creator_details(&creator);
@@ -131,7 +141,17 @@ fn test_creator_details_no_storage_writes_during_reads() {
     let creator = soroban_sdk::Address::generate(&env);
     let handle = String::from_str(&env, "charlie");
 
-    client.register_creator(&creator, &handle, &None, &None, &None, &None);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
 
     // Use a sentinel holder address — no keys held, so balance stays 0.
     let sentinel = soroban_sdk::Address::generate(&env);

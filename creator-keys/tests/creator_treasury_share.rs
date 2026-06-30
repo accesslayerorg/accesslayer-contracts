@@ -14,8 +14,11 @@ fn test_get_creator_treasury_share_returns_configured_value() {
     let creator = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -37,8 +40,11 @@ fn test_get_creator_treasury_share_is_read_only() {
     let creator = Address::generate(&env);
 
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

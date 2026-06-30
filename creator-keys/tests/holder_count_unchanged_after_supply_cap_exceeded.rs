@@ -19,10 +19,13 @@ fn test_holder_count_unchanged_after_failed_buy_supply_cap_exceeded() {
     // Register creator with a supply cap of 10.
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
         &None,
         &Some(10u32),
+        &None,
         &None,
         &None,
     );

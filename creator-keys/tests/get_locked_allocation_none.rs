@@ -38,13 +38,16 @@ fn test_get_locked_allocation_returns_some_when_set() {
     env.ledger().set(ledger_info);
 
     client.register_creator(
-        &creator,
-        &handle,
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
         &Some(LockedAllocation {
             amount,
             unlock_ledger,
             claimed: false,
         }),
+        &None,
         &None,
         &None,
         &None,
