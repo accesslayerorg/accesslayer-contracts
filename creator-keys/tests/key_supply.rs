@@ -27,6 +27,7 @@ fn test_get_total_key_supply_returns_zero_for_new_creator() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
@@ -57,6 +58,7 @@ fn test_get_total_key_supply_increments_after_buy() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
@@ -79,6 +81,7 @@ fn test_get_total_key_supply_is_read_only() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,
@@ -110,6 +113,7 @@ fn test_buy_key_zero_payment_fails() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let result = client.try_buy_key(&creator, &buyer, &0_i128, &None);
@@ -131,6 +135,7 @@ fn test_buy_key_negative_payment_fails() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let result = client.try_buy_key(&creator, &buyer, &-50_i128, &None);
@@ -148,6 +153,7 @@ fn test_buy_key_positive_payment_succeeds() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,

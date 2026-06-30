@@ -58,6 +58,7 @@ fn register_creator_with_co_creator(
         &None,
         &None,
         &Some(config.clone()),
+        &None,
     );
 
     (creator, co_creator, config)
@@ -97,6 +98,7 @@ fn test_register_creator_rejects_invalid_co_creator_share_bps() {
             &None,
             &None,
             &Some(config),
+            &None,
         );
 
         assert_eq!(result, Err(Ok(ContractError::InvalidCoCreatorShare)));

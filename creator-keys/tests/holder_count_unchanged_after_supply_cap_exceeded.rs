@@ -25,6 +25,7 @@ fn test_holder_count_unchanged_after_failed_buy_supply_cap_exceeded() {
         &Some(10u32),
         &None,
         &None,
+        &None,
     );
 
     // First wallet buys 10 keys to fill the cap.

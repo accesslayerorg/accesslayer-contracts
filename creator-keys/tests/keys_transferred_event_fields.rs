@@ -42,6 +42,7 @@ fn setup_transfer(
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &KEY_PRICE, &None);
     client.transfer_keys(&creator, &sender, &recipient, &TRANSFER_AMOUNT);

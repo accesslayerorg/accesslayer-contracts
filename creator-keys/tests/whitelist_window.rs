@@ -22,6 +22,7 @@ fn register_whitelisted_creator(
         &None,
         &None,
         &None,
+        &None,
         &Some(WhitelistConfig {
             addresses: whitelist,
             window_ledgers,
@@ -116,6 +117,7 @@ fn test_whitelist_over_500_addresses_reverts_at_registration() {
         &None,
         &None,
         &None,
+        &None,
         &Some(WhitelistConfig {
             addresses,
             window_ledgers: 10,
@@ -135,6 +137,7 @@ fn test_none_whitelist_allows_public_buy_immediately() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
+        &None,
         &None,
         &None,
         &None,

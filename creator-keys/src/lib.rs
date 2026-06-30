@@ -315,6 +315,10 @@ pub mod constants {
             DataKey::CoCreatorFeeBalance(creator.clone(), co_creator.clone())
         }
 
+        pub fn whitelist(creator: &Address) -> DataKey {
+            DataKey::Whitelist(creator.clone())
+        }
+
         pub fn creator(creator: &Address) -> DataKey {
             creator_key(creator)
         }
@@ -484,6 +488,9 @@ pub const CREATOR_TTL_LEDGERS: u32 = 6311520; // ~2 years at 5s per ledger
 pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
 
+/// Maximum number of addresses accepted in a creator whitelist.
+pub const MAX_WHITELIST_SIZE: u32 = 500;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum CurvePreset {
@@ -520,6 +527,7 @@ pub enum DataKey {
     TreasuryBalance,
     CoCreator(Address),
     CoCreatorFeeBalance(Address, Address),
+    Whitelist(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -543,6 +551,21 @@ pub struct LockedAllocation {
 pub struct CoCreatorConfig {
     pub address: Address,
     pub share_bps: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct WhitelistConfig {
+    pub addresses: soroban_sdk::Vec<Address>,
+    pub window_ledgers: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct WhitelistStatus {
+    pub active: bool,
+    pub expires_at_ledger: u32,
+    pub remaining_ledgers: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1161,6 +1184,55 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
     }
 }
 
+fn whitelist_status_for_profile(
+    env: &Env,
+    creator: &Address,
+    registered_at: u32,
+) -> WhitelistStatus {
+    let Some(config) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, WhitelistConfig>(&constants::storage::whitelist(creator))
+    else {
+        return WhitelistStatus {
+            active: false,
+            expires_at_ledger: 0,
+            remaining_ledgers: 0,
+        };
+    };
+    let expires_at_ledger = registered_at.saturating_add(config.window_ledgers);
+    let current = env.ledger().sequence();
+    let remaining_ledgers = expires_at_ledger.saturating_sub(current);
+    WhitelistStatus {
+        active: remaining_ledgers > 0,
+        expires_at_ledger,
+        remaining_ledgers,
+    }
+}
+
+fn enforce_whitelist_window(
+    env: &Env,
+    profile: &CreatorProfile,
+    creator: &Address,
+    buyer: &Address,
+) -> Result<(), ContractError> {
+    let status = whitelist_status_for_profile(env, creator, profile.registered_at);
+    if !status.active {
+        return Ok(());
+    }
+    let config: WhitelistConfig = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::whitelist(creator))
+        .ok_or(ContractError::WhitelistOnly)?;
+    for address in config.addresses.iter() {
+        if address == *buyer {
+            return Ok(());
+        }
+    }
+    Err(ContractError::WhitelistOnly)
+}
+
 #[contract]
 pub struct CreatorKeysContract;
 
@@ -1191,6 +1263,7 @@ impl CreatorKeysContract {
         max_supply: Option<u32>,
         curve_preset: Option<CurvePreset>,
         co_creator: Option<CoCreatorConfig>,
+        whitelist: Option<WhitelistConfig>,
     ) -> Result<(), ContractError> {
         creator.require_auth();
         assert_not_paused(&env)?;
@@ -1198,6 +1271,11 @@ impl CreatorKeysContract {
         validate_creator_handle(&handle)?;
         if let Some(config) = co_creator.as_ref() {
             validate_co_creator_config(&env, config)?;
+        }
+        if let Some(config) = whitelist.as_ref() {
+            if config.addresses.len() > MAX_WHITELIST_SIZE {
+                return Err(ContractError::WhitelistTooLarge);
+            }
         }
 
         let key = constants::storage::creator(&creator);
@@ -1264,6 +1342,12 @@ impl CreatorKeysContract {
                 .set(&constants::storage::co_creator(&creator), &config);
         }
 
+        if let Some(config) = whitelist {
+            env.storage()
+                .persistent()
+                .set(&constants::storage::whitelist(&creator), &config);
+        }
+
         let profile = CreatorProfile {
             creator: creator.clone(),
             handle,
@@ -1294,6 +1378,12 @@ impl CreatorKeysContract {
             env.storage()
                 .persistent()
                 .extend_ttl(&co_creator_key, current_ledger, extend_to);
+        }
+        let whitelist_key = constants::storage::whitelist(&creator);
+        if env.storage().persistent().has(&whitelist_key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&whitelist_key, current_ledger, extend_to);
         }
 
         env.events().publish(
@@ -1332,6 +1422,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::KeyPriceNotSet)?;
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        enforce_whitelist_window(&env, &profile, &creator, &buyer)?;
         let price = compute_bonding_curve_price(&env, &creator, base_price, profile.supply)?;
 
         assert_buy_price_slippage(price, max_price)?;
@@ -1743,6 +1834,18 @@ impl CreatorKeysContract {
     /// invalid lookups. Delegates to the shared [`read_key_balance`] helper.
     pub fn get_total_key_supply(env: Env, creator: Address) -> u32 {
         read_key_balance(&env, &creator)
+    }
+
+    /// Read-only view: returns whitelist window state for a creator.
+    pub fn get_whitelist_status(env: Env, creator: Address) -> WhitelistStatus {
+        let Some(profile) = read_creator_profile(&env, &creator) else {
+            return WhitelistStatus {
+                active: false,
+                expires_at_ledger: 0,
+                remaining_ledgers: 0,
+            };
+        };
+        whitelist_status_for_profile(&env, &creator, profile.registered_at)
     }
 
     /// Read-only view: returns the current supply for a registered creator.

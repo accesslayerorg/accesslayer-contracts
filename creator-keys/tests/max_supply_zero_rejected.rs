@@ -29,6 +29,7 @@ fn test_max_supply_zero_reverts_at_registration() {
         &Some(0),
         &None,
         &None,
+        &None,
     );
     assert_eq!(
         result,
@@ -53,6 +54,7 @@ fn test_no_creator_state_written_after_zero_supply_cap_rejection() {
         &String::from_str(&env, "alice"),
         &None,
         &Some(0),
+        &None,
         &None,
         &None,
     );
@@ -89,6 +91,7 @@ fn test_max_supply_one_accepted_as_minimum() {
         &Some(1),
         &None,
         &None,
+        &None,
     );
     assert!(
         result.is_ok(),
@@ -123,6 +126,7 @@ fn test_max_supply_none_accepted_no_cap() {
         &None,
         &None,
         &None,
+        &None,
     );
     assert!(result.is_ok(), "max_supply: None must be accepted (no cap)");
     assert!(client.is_creator_registered(&creator));
@@ -151,6 +155,7 @@ fn test_max_supply_two_accepted() {
         &Some(2),
         &None,
         &None,
+        &None,
     );
     assert!(result.is_ok(), "max_supply: Some(2) must be accepted");
     assert_eq!(client.get_max_supply(&creator), Some(2));
@@ -168,6 +173,7 @@ fn test_max_supply_large_value_accepted() {
         &String::from_str(&env, "alice"),
         &None,
         &Some(1_000_000),
+        &None,
         &None,
         &None,
     );

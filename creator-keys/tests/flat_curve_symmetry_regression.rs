@@ -93,6 +93,7 @@ fn test_flat_curve_symmetry() {
         &None,
         &Some(CurvePreset::Flat),
         &None,
+        &None,
     );
 
     let buyer = Address::generate(&env);

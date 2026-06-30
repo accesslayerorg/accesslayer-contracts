@@ -151,6 +151,7 @@ fn test_register_creator_reverts_when_paused() {
         &None,
         &None,
         &None,
+        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
 }
@@ -206,6 +207,7 @@ fn test_pause_blocks_registration_not_reads() {
         &None,
         &None,
         &None,
+        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
 
@@ -222,6 +224,7 @@ fn test_pause_blocks_registration_not_reads() {
         .try_register_creator(
             &creator_b,
             &soroban_sdk::String::from_str(&env, "creatorb"),
+            &None,
             &None,
             &None,
             &None,
