@@ -36,7 +36,10 @@ fn test_get_locked_allocation_returns_claimed_true_after_claim() {
 
     // Assert claimed field is false before claim
     let alloc_before = client.get_locked_allocation(&creator).unwrap();
-    assert!(!alloc_before.claimed, "claimed field must be false before claim");
+    assert!(
+        !alloc_before.claimed,
+        "claimed field must be false before claim"
+    );
 
     // Advance to exactly unlock_ledger.
     ledger_info.sequence_number = unlock_ledger;
@@ -47,9 +50,15 @@ fn test_get_locked_allocation_returns_claimed_true_after_claim() {
 
     // Call get_locked_allocation and assert claimed is true
     let alloc_after1 = client.get_locked_allocation(&creator).unwrap();
-    assert!(alloc_after1.claimed, "claimed field must be true after successful claim");
+    assert!(
+        alloc_after1.claimed,
+        "claimed field must be true after successful claim"
+    );
 
     // Call again and assert it is still true
     let alloc_after2 = client.get_locked_allocation(&creator).unwrap();
-    assert!(alloc_after2.claimed, "claimed field must remain true on subsequent reads");
+    assert!(
+        alloc_after2.claimed,
+        "claimed field must remain true on subsequent reads"
+    );
 }

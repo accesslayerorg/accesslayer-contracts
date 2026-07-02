@@ -5,7 +5,9 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, set_pricing_and_fees, set_curve_slope, test_env_with_auths};
+use contract_test_env::{
+    register_creator_keys, set_curve_slope, set_pricing_and_fees, test_env_with_auths,
+};
 use creator_keys::CurvePreset;
 use soroban_sdk::{testutils::Address as _, Address, String};
 

@@ -16,14 +16,17 @@ fn test_creator_fee_recipient_rotation_regression() {
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
-        &Some(initial_recipient.clone()),
         &None,
+        &Some(initial_recipient.clone()),
         &None,
         &None,
     );
 
     // Initial fee recipient is set correctly
-    assert_eq!(client.get_creator_fee_recipient(&creator), initial_recipient);
+    assert_eq!(
+        client.get_creator_fee_recipient(&creator),
+        initial_recipient
+    );
 
     let buyer = Address::generate(&env);
     let quote1 = client.get_buy_quote(&creator);
@@ -51,5 +54,8 @@ fn test_creator_fee_recipient_rotation_regression() {
     assert_eq!(balance_after_buy2 - balance_after_buy1, quote2.creator_fee);
 
     // Since the old recipient is no longer the fee recipient, they receive nothing from subsequent trades.
-    assert_ne!(client.get_creator_fee_recipient(&creator), initial_recipient);
+    assert_ne!(
+        client.get_creator_fee_recipient(&creator),
+        initial_recipient
+    );
 }

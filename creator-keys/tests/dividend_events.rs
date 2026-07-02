@@ -98,11 +98,11 @@ fn test_distribute_dividend_event_fields_individual_assertions() {
     set_pricing_and_fees(&env, &client, 100, 9000, 1000);
     let creator = register_test_creator(&env, &client, "alice");
     let buyer = Address::generate(&env);
-    
+
     // Distribute to a creator with a known supply (e.g. 2 keys bought)
     client.buy_key(&creator, &buyer, &100, &None);
     client.buy_key(&creator, &buyer, &100, &None);
-    
+
     // Set env ledger to a positive non-zero sequence
     let mut ledger_info = env.ledger().get();
     ledger_info.sequence_number = 12345;
@@ -126,18 +126,17 @@ fn test_distribute_dividend_event_fields_individual_assertions() {
         .expect("DividendDistributed event not found");
 
     let event: DividendDistributedEvent = data.into_val(&env);
-    
+
     // Assert creator matches the creator used
     assert_eq!(event.creator, creator);
-    
+
     // Assert total_amount reflects the gross amount before protocol fee deduction (not the net amount)
     assert_eq!(event.total_amount, gross_amount);
-    
+
     // Assert snapshot_supply matches total supply at distribution time
     assert_eq!(event.snapshot_supply, 2);
-    
+
     // Assert ledger is a positive non-zero value
     assert!(event.ledger > 0);
     assert_eq!(event.ledger, 12345);
 }
-
