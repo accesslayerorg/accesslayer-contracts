@@ -12,21 +12,21 @@ fn test_creator_fee_recipient_rotation_regression() {
     set_pricing_and_fees(&env, &client, 1000, 9000, 1000);
 
     let creator = Address::generate(&env);
-    let initial_recipient = Address::generate(&env);
     client.register_creator(
         &creator,
         &String::from_str(&env, "alice"),
         &None,
-        &Some(initial_recipient.clone()),
+        &None,
         &None,
         &None,
     );
 
-    // Initial fee recipient is set correctly
-    assert_eq!(
-        client.get_creator_fee_recipient(&creator),
-        initial_recipient
-    );
+    // Initial fee recipient is the creator themselves
+    assert_eq!(client.get_creator_fee_recipient(&creator), creator);
+
+    // Set custom initial fee recipient
+    let initial_recipient = Address::generate(&env);
+    client.update_creator_fee_recipient(&creator, &initial_recipient);
 
     let buyer = Address::generate(&env);
     let quote1 = client.get_buy_quote(&creator);
