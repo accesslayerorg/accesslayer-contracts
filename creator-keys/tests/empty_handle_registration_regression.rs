@@ -16,8 +16,11 @@ fn test_register_creator_rejects_empty_handle() {
 
     let creator = Address::generate(&env);
     let result = client.try_register_creator(
-        &creator,
-        &String::from_str(&env, ""),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, ""),
+        },
+        &None,
         &None,
         &None,
         &None,

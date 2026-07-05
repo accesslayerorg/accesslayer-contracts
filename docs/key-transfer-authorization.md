@@ -166,6 +166,6 @@ This mirrors the `sell` event pattern (`(Symbol("sell"), creator, seller)` / `su
 | **Who authorizes?** | Only `from` (sender). No `to` (recipient) approval required. |
 | **Auth mechanism** | `from.require_auth()` — Soroban signature verification. |
 | **Fee?** | None. No bonding curve interaction. No fee math. |
-| **Self-transfer?** | Rejected with `ContractError::ZeroAddress` when `from == to`. |
+| **Self-transfer?** | Rejected with `ContractError::SelfTransfer` when `from == to`. |
 | **State changes** | `KeyBalance` decremented for `from`, incremented for `to`. Supply unchanged. |
 | **Access level** | Key holder (`from`). |

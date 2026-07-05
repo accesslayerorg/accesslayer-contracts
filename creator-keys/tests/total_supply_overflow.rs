@@ -20,8 +20,11 @@ fn buy_at_max_supply_is_rejected_with_overflow_and_no_state_corruption() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "maxed"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "maxed"),
+        },
+        &None,
         &None,
         &None,
         &None,

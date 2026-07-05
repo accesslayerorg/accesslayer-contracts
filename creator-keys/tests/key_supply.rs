@@ -21,8 +21,11 @@ fn test_get_total_key_supply_returns_zero_for_new_creator() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -51,8 +54,11 @@ fn test_get_total_key_supply_increments_after_buy() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -70,6 +76,40 @@ fn test_get_total_key_supply_increments_after_buy() {
 }
 
 #[test]
+fn test_get_total_key_supply_increments_after_three_sequential_buys() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _) = setup(&env);
+
+    let creator = Address::generate(&env);
+    let buyer1 = Address::generate(&env);
+    let buyer2 = Address::generate(&env);
+    let buyer3 = Address::generate(&env);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    assert_eq!(client.get_total_key_supply(&creator), 0);
+
+    client.buy_key(&creator, &buyer1, &100_i128, &None);
+    assert_eq!(client.get_total_key_supply(&creator), 1);
+
+    client.buy_key(&creator, &buyer2, &100_i128, &None);
+    assert_eq!(client.get_total_key_supply(&creator), 2);
+
+    client.buy_key(&creator, &buyer3, &100_i128, &None);
+    assert_eq!(client.get_total_key_supply(&creator), 3);
+}
+
+#[test]
 fn test_get_total_key_supply_is_read_only() {
     let env = Env::default();
     env.mock_all_auths();
@@ -77,8 +117,11 @@ fn test_get_total_key_supply_is_read_only() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -104,8 +147,11 @@ fn test_buy_key_zero_payment_fails() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -125,8 +171,11 @@ fn test_buy_key_negative_payment_fails() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -146,8 +195,11 @@ fn test_buy_key_positive_payment_succeeds() {
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,

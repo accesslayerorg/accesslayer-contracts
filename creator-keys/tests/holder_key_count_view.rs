@@ -10,8 +10,11 @@ fn setup_with_creator(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Add
     let creator = Address::generate(env);
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator,
-        &String::from_str(env, "test"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(env, "test"),
+        },
+        &None,
         &None,
         &None,
         &None,
@@ -180,16 +183,22 @@ fn test_holder_key_count_view_zero_keys_different_creators() {
 
     client.set_key_price(&admin, &100i128);
     client.register_creator(
-        &creator_a,
-        &String::from_str(&env, "alice"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_a.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
         &None,
         &None,
         &None,
         &None,
     );
     client.register_creator(
-        &creator_b,
-        &String::from_str(&env, "bob"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator_b.clone(),
+            handle: String::from_str(&env, "bob"),
+        },
+        &None,
         &None,
         &None,
         &None,

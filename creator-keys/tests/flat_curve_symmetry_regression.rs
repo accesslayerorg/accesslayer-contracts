@@ -87,11 +87,14 @@ fn test_flat_curve_symmetry() {
 
     let creator = Address::generate(&env);
     client.register_creator(
-        &creator,
-        &String::from_str(&env, "flatcreator"),
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "flatcreator"),
+        },
         &None,
         &None,
         &Some(CurvePreset::Flat),
+        &None,
         &None,
     );
 
