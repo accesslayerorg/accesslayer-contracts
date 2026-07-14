@@ -118,10 +118,12 @@ mod issue_tests {
         let wallet_b = Address::generate(&env);
 
         for _ in 0..90 {
-            client.buy_key(&creator, &wallet_a, &KEY_PRICE, &None);
+            let quote = client.get_buy_quote(&creator);
+            client.buy_key(&creator, &wallet_a, &quote.total_amount, &None);
         }
         for _ in 0..10 {
-            client.buy_key(&creator, &wallet_b, &KEY_PRICE, &None);
+            let quote = client.get_buy_quote(&creator);
+            client.buy_key(&creator, &wallet_b, &quote.total_amount, &None);
         }
 
         assert_eq!(client.get_total_key_supply(&creator), 100u32);
@@ -184,7 +186,8 @@ mod issue_tests {
         let buyer = Address::generate(&env);
 
         for _ in 0..8 {
-            client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+            let quote = client.get_buy_quote(&creator);
+            client.buy_key(&creator, &buyer, &quote.total_amount, &None);
         }
         assert_eq!(
             client.get_total_key_supply(&creator),
@@ -200,7 +203,8 @@ mod issue_tests {
         );
 
         for _ in 0..2 {
-            client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+            let quote = client.get_buy_quote(&creator);
+            client.buy_key(&creator, &buyer, &quote.total_amount, &None);
         }
         assert_eq!(
             client.get_total_key_supply(&creator),
@@ -208,7 +212,8 @@ mod issue_tests {
             "Total supply should be 10 after filling to the cap"
         );
 
-        let result = client.try_buy_key(&creator, &buyer, &KEY_PRICE, &None);
+        let quote = client.get_buy_quote(&creator);
+        let result = client.try_buy_key(&creator, &buyer, &quote.total_amount, &None);
         assert!(
             result.is_err(),
             "Buying at the cap should revert, but it succeeded"
@@ -248,7 +253,8 @@ mod issue_tests {
         let creator = register_creator(&env, &client, None);
         let buyer = Address::generate(&env);
 
-        client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+        let quote = client.get_buy_quote(&creator);
+        client.buy_key(&creator, &buyer, &quote.total_amount, &None);
 
         assert_supply_equals_holder_sum(
             &env,
@@ -273,7 +279,8 @@ mod issue_tests {
         let buyer = Address::generate(&env);
 
         for _ in 0..10 {
-            client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+            let quote = client.get_buy_quote(&creator);
+            client.buy_key(&creator, &buyer, &quote.total_amount, &None);
         }
 
         assert_supply_equals_holder_sum(
@@ -317,7 +324,8 @@ mod issue_tests {
         let receiver = Address::generate(&env);
 
         for _ in 0..8 {
-            client.buy_key(&creator, &sender, &KEY_PRICE, &None);
+            let quote = client.get_buy_quote(&creator);
+            client.buy_key(&creator, &sender, &quote.total_amount, &None);
         }
 
         assert_supply_equals_holder_sum(

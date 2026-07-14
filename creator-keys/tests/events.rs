@@ -174,6 +174,7 @@ impl CreatorRegisteredEventBuilder {
             holder_count: self.holder_count,
             creator_bps: self.creator_bps,
             protocol_bps: self.protocol_bps,
+            curve_preset: creator_keys::bonding_curve::CurvePreset::Linear,
         }
     }
 }
@@ -274,7 +275,8 @@ fn test_register_creator_event_payload_field_order_is_documented() {
             "supply",
             "holder_count",
             "creator_bps",
-            "protocol_bps"
+            "protocol_bps",
+            "curve_preset",
         ]
     );
 }
