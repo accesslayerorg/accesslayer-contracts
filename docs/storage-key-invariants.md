@@ -6,6 +6,8 @@ For quote-specific storage behavior (`get_buy_quote`, `get_sell_quote`), see [qu
 
 For Soroban TTL and rent-bump expectations specific to creator profiles and holder balances, see [creator-state-storage-ttl.md](./creator-state-storage-ttl.md).
 
+For key staking storage keys and the data model, see [key-staking-storage.md](./key-staking-storage.md).
+
 ## Overview
 
 Access Layer contracts use Soroban's persistent storage to maintain creator profiles, key balances, and protocol configuration. Understanding these storage invariants is critical for contributors working on contract logic.
