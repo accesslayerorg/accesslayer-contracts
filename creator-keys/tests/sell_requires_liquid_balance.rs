@@ -1,4 +1,4 @@
-﻿//! Tests that verify staked keys cannot be sold and only liquid balance is available for selling.
+//! Tests that verify staked keys cannot be sold and only liquid balance is available for selling.
 //!
 //! ## Invariants Tested:
 //! 1. Liquid balance = Total balance - Staked balance
@@ -41,8 +41,27 @@ fn test_sell_reverts_when_attempting_to_use_staked_keys() {
     assert_eq!(client.get_staked_balance(&creator, &holder), 6);
     assert_eq!(client.get_liquid_balance(&creator, &holder), 4);
 
+    // Sell 4 liquid keys successfully
+    for _ in 0..4 {
+        let result = client.try_sell_key(&creator, &holder, &None);
+        assert!(
+            result.is_ok(),
+            "Selling within liquid balance should succeed"
+        );
+    }
+
+    // Attempt to sell 5th key - should fail because only 4 were liquid
     let result = client.try_sell_key(&creator, &holder, &None);
-    assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::InsufficientBalance)),
+        "Selling more than liquid balance should fail"
+    );
+
+    // Verify staked balance unchanged
+    assert_eq!(client.get_staked_balance(&creator, &holder), 6);
+    assert_eq!(client.get_liquid_balance(&creator, &holder), 0);
+    assert_eq!(client.get_key_balance(&creator, &holder), 6);
 }
 
 #[test]
@@ -76,12 +95,20 @@ fn test_staked_balance_unchanged_after_sell_attempts() {
     }
     client.stake_keys(&creator, &holder, &6);
 
-    let _ = client.try_sell_key(&creator, &holder, &None);
-    assert_eq!(client.get_staked_balance(&creator, &holder), 6);
-
+    // Successfully sell 4 keys (one at a time)
     for _ in 0..4 {
         client.sell_key(&creator, &holder, &None);
     }
+
+    // Verify staked balance unchanged after successful sells
+    assert_eq!(client.get_staked_balance(&creator, &holder), 6);
+    assert_eq!(client.get_liquid_balance(&creator, &holder), 0);
+
+    // Attempt to sell when no liquid balance remains (should fail)
+    let result = client.try_sell_key(&creator, &holder, &None);
+    assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
+
+    // Verify staked balance still unchanged after failed attempt
     assert_eq!(client.get_staked_balance(&creator, &holder), 6);
 }
 
