@@ -38,7 +38,7 @@ fn test_sell_exceeds_balance_reverts_insufficient_balance() {
     let supply_before = client.get_total_key_supply(&creator);
 
     // Try to sell 3 keys - must revert
-    let result = client.try_sell_key(&creator, &holder, &Some(3u32));
+    let result = client.try_sell_key(&creator, &holder, &Some(3i128));
 
     assert!(result.is_err());
     match result {
