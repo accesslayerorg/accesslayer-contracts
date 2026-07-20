@@ -79,6 +79,7 @@ pub enum ContractError {
     InvalidCoCreatorShare = 30,
     WhitelistOnly = 31,
     WhitelistTooLarge = 32,
+    AirdropRecipientLimitExceeded = 33,
 }
 
 pub mod fee {
@@ -489,6 +490,13 @@ pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
 pub const MAX_WHITELIST_SIZE: u32 = 500;
 
+/// Maximum number of recipient entries accepted by a single
+/// [`CreatorKeysContract::airdrop_keys`] call.
+///
+/// Larger lists revert with [`ContractError::AirdropRecipientLimitExceeded`]
+/// so a single airdrop cannot grow unbounded in storage writes.
+pub const MAX_AIRDROP_RECIPIENTS: u32 = 50;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum CurvePreset {
@@ -601,6 +609,27 @@ pub struct CreatorProfile {
 pub struct ClaimResult {
     pub creator: Address,
     pub amount_claimed: i128,
+}
+
+/// One recipient of a creator key airdrop: the wallet to credit and how many
+/// keys it receives.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AirdropEntry {
+    pub address: Address,
+    pub amount: u32,
+}
+
+/// Result of a successful [`CreatorKeysContract::airdrop_keys`] call.
+///
+/// `total_cost` is the full amount charged to the creator: the bonding curve
+/// cost for every minted key plus the protocol fee on that cost.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AirdropSummary {
+    pub total_keys: u32,
+    pub total_cost: i128,
+    pub recipient_count: u32,
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
@@ -1657,6 +1686,151 @@ impl CreatorKeysContract {
         );
 
         Ok(profile.supply)
+    }
+
+    /// Creator-only airdrop that mints keys to a list of recipient wallets.
+    ///
+    /// The creator pays the bonding curve cost for every key across all
+    /// recipients plus the protocol fee on that total; the creator fee is
+    /// waived (the creator cannot pay themselves a fee). Supply increases by
+    /// the total airdropped amount, moving the curve exactly as if the keys
+    /// had been bought one by one.
+    ///
+    /// At most [`MAX_AIRDROP_RECIPIENTS`] recipient entries are accepted per
+    /// call. All recipients are credited atomically: if any validation fails,
+    /// no keys are minted.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `caller` is not `creator`.
+    /// - [`ContractError::AirdropRecipientLimitExceeded`] if `recipients`
+    ///   holds more than [`MAX_AIRDROP_RECIPIENTS`] entries.
+    /// - [`ContractError::NotPositiveAmount`] if `recipients` is empty, an
+    ///   entry's `amount` is zero, or `payment` is not positive.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::KeyPriceNotSet`] if no key price is configured.
+    /// - [`ContractError::SupplyCapExceeded`] if minting would push supply
+    ///   over the creator's max supply cap.
+    /// - [`ContractError::InsufficientPayment`] if `payment` does not cover
+    ///   the total curve cost plus protocol fee.
+    pub fn airdrop_keys(
+        env: Env,
+        creator: Address,
+        caller: Address,
+        recipients: Vec<AirdropEntry>,
+        payment: i128,
+    ) -> Result<AirdropSummary, ContractError> {
+        caller.require_auth();
+        assert_not_paused(&env)?;
+
+        if caller != creator {
+            return Err(ContractError::Unauthorized);
+        }
+        if recipients.len() > MAX_AIRDROP_RECIPIENTS {
+            return Err(ContractError::AirdropRecipientLimitExceeded);
+        }
+        if recipients.is_empty() || payment <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        let max_supply = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u32>(&constants::storage::max_supply(&creator));
+
+        // First pass: validate every entry and price the whole airdrop before
+        // any storage write, so a failing call cannot leave partial state.
+        let mut new_supply = profile.supply;
+        let mut total_keys: u32 = 0;
+        let mut total_cost: i128 = 0;
+        for entry in recipients.iter() {
+            if entry.amount == 0 {
+                return Err(ContractError::NotPositiveAmount);
+            }
+            for _ in 0..entry.amount {
+                if let Some(cap) = max_supply {
+                    if new_supply >= cap {
+                        return Err(ContractError::SupplyCapExceeded);
+                    }
+                }
+                let price = compute_bonding_curve_price(&env, &creator, base_price, new_supply)?;
+                total_cost = total_cost
+                    .checked_add(price)
+                    .ok_or(ContractError::Overflow)?;
+                new_supply = new_supply.checked_add(1).ok_or(ContractError::Overflow)?;
+                total_keys = total_keys.checked_add(1).ok_or(ContractError::Overflow)?;
+            }
+        }
+
+        let mut protocol_fee: i128 = 0;
+        if let Some(config) = read_protocol_fee_config(&env) {
+            protocol_fee = fee::apply_percentage_fee(total_cost, config.protocol_bps)
+                .ok_or(ContractError::Overflow)?;
+        }
+        let required_payment = total_cost
+            .checked_add(protocol_fee)
+            .ok_or(ContractError::Overflow)?;
+        if payment < required_payment {
+            return Err(ContractError::InsufficientPayment);
+        }
+
+        // Second pass: credit balances. Entries are applied sequentially so a
+        // wallet listed twice accumulates both amounts and is counted as a new
+        // holder at most once.
+        for entry in recipients.iter() {
+            let balance_key = constants::storage::key_balance(&creator, &entry.address);
+            let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+            // Settle dividends before balance changes so earnings are captured at old balance.
+            settle_holder_dividends(&env, &creator, &entry.address, current_balance)?;
+
+            if current_balance == 0 {
+                profile.holder_count = profile
+                    .holder_count
+                    .checked_add(1)
+                    .ok_or(ContractError::Overflow)?;
+            }
+            let new_balance = current_balance
+                .checked_add(entry.amount)
+                .ok_or(ContractError::Overflow)?;
+            env.storage().persistent().set(&balance_key, &new_balance);
+        }
+
+        profile.supply = new_supply;
+        let key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&key, &profile);
+
+        if protocol_fee > 0 {
+            credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+            credit_treasury_balance(&env, protocol_fee)?;
+        }
+
+        let summary = AirdropSummary {
+            total_keys,
+            total_cost: required_payment,
+            recipient_count: recipients.len(),
+        };
+
+        env.events().publish(
+            events::keys_airdropped_topics(&creator),
+            events::KeysAirdroppedEvent {
+                creator_id: creator.clone(),
+                total_keys: summary.total_keys,
+                total_cost: summary.total_cost,
+                recipient_count: summary.recipient_count,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        extend_creator_ttl(&env, &creator);
+
+        Ok(summary)
     }
 
     /// Halts all state-changing operations (buy, sell, register_creator).
