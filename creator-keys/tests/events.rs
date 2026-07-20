@@ -424,3 +424,79 @@ fn test_sell_key_event_payload_tracks_zero_supply_after_last_sale() {
 fn test_sell_key_event_payload_field_order_is_documented() {
     assert_eq!(events::SELL_EVENT_DATA_FIELDS, ["supply"]);
 }
+
+#[test]
+fn test_ttl_extended_event_emitted_after_buy() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let fixture = EventFixture::new(&env);
+    let buyer = Address::generate(&env);
+
+    fixture.register_creator(&env, "alice");
+    fixture.buy_key(&buyer, KEY_PRICE);
+
+    let events = env.events().all();
+    let last = events.last().unwrap();
+
+    let event_name: Symbol = last
+        .1
+        .get(events::TOPIC_EVENT_NAME_INDEX)
+        .unwrap()
+        .into_val(&env);
+    let event_creator: Address = last
+        .1
+        .get(events::TOPIC_CREATOR_INDEX)
+        .unwrap()
+        .into_val(&env);
+    let payload: events::TtlExtendedEvent = last.2.into_val(&env);
+
+    assert_eq!(event_name, events::TTL_EXTENDED_EVENT_NAME);
+    assert_eq!(event_creator, fixture.creator);
+    assert_eq!(payload.creator, fixture.creator);
+    assert_eq!(payload.ledger, env.ledger().sequence());
+    assert_eq!(
+        payload.extend_to,
+        env.ledger().sequence() + creator_keys::CREATOR_TTL_LEDGERS
+    );
+}
+
+#[test]
+fn test_ttl_extended_event_emitted_after_sell() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let fixture = EventFixture::new(&env);
+    let seller = Address::generate(&env);
+
+    fixture.register_creator(&env, "alice");
+    fixture.buy_key(&seller, KEY_PRICE);
+    fixture.sell_key(&seller);
+
+    let events = env.events().all();
+    let last = events.last().unwrap();
+
+    let event_name: Symbol = last
+        .1
+        .get(events::TOPIC_EVENT_NAME_INDEX)
+        .unwrap()
+        .into_val(&env);
+    let event_creator: Address = last
+        .1
+        .get(events::TOPIC_CREATOR_INDEX)
+        .unwrap()
+        .into_val(&env);
+    let payload: events::TtlExtendedEvent = last.2.into_val(&env);
+
+    assert_eq!(event_name, events::TTL_EXTENDED_EVENT_NAME);
+    assert_eq!(event_creator, fixture.creator);
+    assert_eq!(payload.creator, fixture.creator);
+    assert_eq!(payload.ledger, env.ledger().sequence());
+    assert_eq!(
+        payload.extend_to,
+        env.ledger().sequence() + creator_keys::CREATOR_TTL_LEDGERS
+    );
+}
+
+#[test]
+fn test_ttl_extended_event_payload_field_order_is_documented() {
+    assert_eq!(events::TTL_EXTENDED_DATA_FIELDS, ["creator", "extend_to", "ledger"]);
+}
