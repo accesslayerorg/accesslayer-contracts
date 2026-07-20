@@ -9,7 +9,7 @@ use contract_test_env::{
     compute_expected_creator_fee, register_creator_keys, set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::{CoCreatorConfig, RegisterCreatorParams};
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 const KEY_PRICE: i128 = 1000;
 const CREATOR_BPS: u32 = 9000;
@@ -24,6 +24,7 @@ fn register_creator_with_co_creator(
 ) -> (Address, Address) {
     let creator = Address::generate(env);
     let co_creator = Address::generate(env);
+
     let config = CoCreatorConfig {
         address: co_creator.clone(),
         share_bps,
@@ -171,6 +172,7 @@ fn test_co_creator_fee_split_invariant_on_sell() {
     let share_bps = 3000_u32;
     let (creator, co_creator) =
         register_creator_with_co_creator(&env, &client, "sell_test", share_bps);
+
     let trader = Address::generate(&env);
 
     // Buy a key first
@@ -194,7 +196,7 @@ fn test_co_creator_fee_split_invariant_on_sell() {
     assert_eq!(
         creator_increase + co_creator_increase,
         sell_quote.creator_fee,
-        "Sell fee split invariant violated: creator={creator_increase}, co_creator={co_creator_increase}, expected_total={}", 
+        "Sell fee split invariant violated: creator={creator_increase}, co_creator={co_creator_increase}, expected_total={}",
         sell_quote.creator_fee
     );
 
@@ -280,6 +282,7 @@ fn test_co_creator_fee_split_with_odd_price_amounts() {
     let share_bps = 3333_u32; // 33.33%
     let (creator, co_creator) =
         register_creator_with_co_creator(&env, &client, "odd_price", share_bps);
+
     let buyer = Address::generate(&env);
 
     let creator_balance_before = client.get_creator_fee_balance(&creator);
@@ -296,7 +299,7 @@ fn test_co_creator_fee_split_with_odd_price_amounts() {
     assert_eq!(
         creator_increase + co_creator_increase,
         quote.creator_fee,
-        "Fee split with odd price amounts lost XLM: creator={creator_increase}, co_creator={co_creator_increase}, total={}", 
+        "Fee split with odd price amounts lost XLM: creator={creator_increase}, co_creator={co_creator_increase}, total={}",
         quote.creator_fee
     );
 }
