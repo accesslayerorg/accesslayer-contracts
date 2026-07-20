@@ -272,7 +272,7 @@ fn test_no_party_receives_more_than_their_share() {
 fn test_co_creator_fee_split_with_odd_price_amounts() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    
+
     // Use an odd key price that may produce rounding edge cases
     let odd_key_price = 997_i128;
     set_pricing_and_fees(&env, &client, odd_key_price, CREATOR_BPS, PROTOCOL_BPS);
