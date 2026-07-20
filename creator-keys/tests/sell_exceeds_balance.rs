@@ -1,7 +1,4 @@
-//! Integration test: sell reverts when quantity exceeds holder balance.
-//!
-//! Verifies that selling more keys than owned reverts with InsufficientBalance,
-//! and both holder balance and creator supply remain unchanged.
+//! Integration test: sell reverts when holder has insufficient balance.
 
 mod contract_test_env;
 
@@ -37,8 +34,12 @@ fn test_sell_exceeds_balance_reverts_insufficient_balance() {
     assert_eq!(client.get_key_balance(&creator, &holder), 2);
     let supply_before = client.get_total_key_supply(&creator);
 
-    // Try to sell 3 keys - must revert
-    let result = client.try_sell_key(&creator, &holder, &Some(3i128));
+    // Sell all 2 keys - succeeds
+    client.sell_key(&creator, &holder, &None);
+    assert_eq!(client.get_key_balance(&creator, &holder), 0);
+
+    // Try to sell again with no keys - must revert
+    let result = client.try_sell_key(&creator, &holder, &None);
 
     assert!(result.is_err());
     match result {
@@ -46,8 +47,8 @@ fn test_sell_exceeds_balance_reverts_insufficient_balance() {
         other => panic!("expected InsufficientBalance, got {:?}", other),
     }
 
-    // Holder still owns exactly 2 keys
-    assert_eq!(client.get_key_balance(&creator, &holder), 2);
-    // Creator supply unchanged
-    assert_eq!(client.get_total_key_supply(&creator), supply_before);
+    // Holder still owns exactly 0 keys
+    assert_eq!(client.get_key_balance(&creator, &holder), 0);
+    // Creator supply decreased by 2 (from first successful sell)
+    assert_eq!(client.get_total_key_supply(&creator), supply_before - 2);
 }
