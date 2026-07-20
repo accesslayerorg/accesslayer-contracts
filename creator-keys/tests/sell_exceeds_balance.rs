@@ -6,13 +6,18 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_key_price_for_tests,
-    test_env_with_auths,
+    register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
 };
 use creator_keys::ContractError;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
-fn setup(env: &Env) -> (creator_keys::CreatorKeysContractClient<'_>, Address, Address) {
+fn setup(
+    env: &Env,
+) -> (
+    creator_keys::CreatorKeysContractClient<'_>,
+    Address,
+    Address,
+) {
     let (client, _) = register_creator_keys(env);
     set_key_price_for_tests(env, &client, 100_i128);
     let creator = register_test_creator(env, &client, "alice");
