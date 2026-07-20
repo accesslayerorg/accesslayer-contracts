@@ -1558,9 +1558,13 @@ impl CreatorKeysContract {
 
         // Check liquid balance (total balance - staked balance)
         let staked_balance_key = constants::storage::staked_balance(&creator, &seller);
-        let staked_balance: u32 = env.storage().persistent().get(&staked_balance_key).unwrap_or(0);
+        let staked_balance: u32 = env
+            .storage()
+            .persistent()
+            .get(&staked_balance_key)
+            .unwrap_or(0);
         let liquid_balance = current_balance.saturating_sub(staked_balance);
-        
+
         if liquid_balance == 0 {
             return Err(ContractError::InsufficientBalance);
         }
@@ -3022,7 +3026,11 @@ impl CreatorKeysContract {
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
 
         let staked_balance_key = constants::storage::staked_balance(&creator, &holder);
-        let current_staked: u32 = env.storage().persistent().get(&staked_balance_key).unwrap_or(0);
+        let current_staked: u32 = env
+            .storage()
+            .persistent()
+            .get(&staked_balance_key)
+            .unwrap_or(0);
 
         // Check if holder has enough liquid balance to stake
         let liquid_balance = current_balance.saturating_sub(current_staked);
@@ -3034,7 +3042,9 @@ impl CreatorKeysContract {
         let new_staked = current_staked
             .checked_add(amount)
             .ok_or(ContractError::Overflow)?;
-        env.storage().persistent().set(&staked_balance_key, &new_staked);
+        env.storage()
+            .persistent()
+            .set(&staked_balance_key, &new_staked);
 
         Ok(())
     }
@@ -3065,7 +3075,11 @@ impl CreatorKeysContract {
         let _profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
         let staked_balance_key = constants::storage::staked_balance(&creator, &holder);
-        let current_staked: u32 = env.storage().persistent().get(&staked_balance_key).unwrap_or(0);
+        let current_staked: u32 = env
+            .storage()
+            .persistent()
+            .get(&staked_balance_key)
+            .unwrap_or(0);
 
         if current_staked < amount {
             return Err(ContractError::InsufficientBalance);
@@ -3075,11 +3089,13 @@ impl CreatorKeysContract {
         let new_staked = current_staked
             .checked_sub(amount)
             .ok_or(ContractError::Overflow)?;
-        
+
         if new_staked == 0 {
             env.storage().persistent().remove(&staked_balance_key);
         } else {
-            env.storage().persistent().set(&staked_balance_key, &new_staked);
+            env.storage()
+                .persistent()
+                .set(&staked_balance_key, &new_staked);
         }
 
         Ok(())
@@ -3090,7 +3106,10 @@ impl CreatorKeysContract {
     /// Staked keys are locked and cannot be sold until unstaked.
     pub fn get_staked_balance(env: Env, creator: Address, holder: Address) -> u32 {
         let staked_balance_key = constants::storage::staked_balance(&creator, &holder);
-        env.storage().persistent().get(&staked_balance_key).unwrap_or(0)
+        env.storage()
+            .persistent()
+            .get(&staked_balance_key)
+            .unwrap_or(0)
     }
 
     /// Returns the liquid balance for a holder.
@@ -3099,10 +3118,14 @@ impl CreatorKeysContract {
     pub fn get_liquid_balance(env: Env, creator: Address, holder: Address) -> u32 {
         let balance_key = constants::storage::key_balance(&creator, &holder);
         let total_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        
+
         let staked_balance_key = constants::storage::staked_balance(&creator, &holder);
-        let staked_balance: u32 = env.storage().persistent().get(&staked_balance_key).unwrap_or(0);
-        
+        let staked_balance: u32 = env
+            .storage()
+            .persistent()
+            .get(&staked_balance_key)
+            .unwrap_or(0);
+
         total_balance.saturating_sub(staked_balance)
     }
 }
