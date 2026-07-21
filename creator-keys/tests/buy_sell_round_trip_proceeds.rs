@@ -66,7 +66,10 @@ fn test_buy_then_sell_round_trip_returns_correct_xlm_to_seller() {
 
     let supply_after_buy = client.buy_key(&creator, &trader, &buy_quote.total_amount, &None);
 
-    assert_eq!(supply_after_buy, 1, "buy should succeed and leave supply at 1");
+    assert_eq!(
+        supply_after_buy, 1,
+        "buy should succeed and leave supply at 1"
+    );
     assert_eq!(client.get_total_key_supply(&creator), 1);
     assert_eq!(client.get_key_balance(&creator, &trader), 1);
     assert_eq!(
@@ -85,10 +88,8 @@ fn test_buy_then_sell_round_trip_returns_correct_xlm_to_seller() {
     let expected_sell_price = compute_expected_sell_price(1, KEY_PRICE);
     let expected_creator_fee =
         compute_expected_creator_fee(expected_sell_price, CREATOR_BPS, PROTOCOL_BPS);
-    let expected_protocol_fee =
-        compute_expected_protocol_fee(expected_sell_price, PROTOCOL_BPS);
-    let expected_sell_proceeds =
-        expected_sell_price - expected_creator_fee - expected_protocol_fee;
+    let expected_protocol_fee = compute_expected_protocol_fee(expected_sell_price, PROTOCOL_BPS);
+    let expected_sell_proceeds = expected_sell_price - expected_creator_fee - expected_protocol_fee;
 
     assert_eq!(
         sell_quote.price, expected_sell_price,
@@ -107,8 +108,7 @@ fn test_buy_then_sell_round_trip_returns_correct_xlm_to_seller() {
     );
 
     // Cross-check with execution-path fee helper used by sell_key.
-    let (exec_creator_fee, exec_protocol_fee) =
-        client.compute_fees_for_payment(&sell_quote.price);
+    let (exec_creator_fee, exec_protocol_fee) = client.compute_fees_for_payment(&sell_quote.price);
     assert_eq!(
         sell_quote.total_amount,
         sell_quote.price - exec_creator_fee - exec_protocol_fee,
