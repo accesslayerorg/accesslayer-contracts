@@ -1306,6 +1306,7 @@ impl CreatorKeysContract {
     /// - `max_keys_per_wallet`: optional maximum keys per wallet cap. If provided, must be greater than zero.
     /// - `co_creator`: optional immutable collaborator split. If provided, `share_bps`
     ///   must be in the inclusive range `1..=9999`.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_creator(
         env: Env,
         params: RegisterCreatorParams,
