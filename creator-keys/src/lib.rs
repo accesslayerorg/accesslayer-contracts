@@ -1818,11 +1818,13 @@ impl CreatorKeysContract {
         for entry in recipients.iter() {
             let balance_key = constants::storage::key_balance(&creator, &entry.address);
             let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-            
+
             // Check if recipient is already at per-wallet cap
             if let Some(cap) = max_keys_per_wallet {
                 if current_balance >= cap {
-                    skipped_count = skipped_count.checked_add(1).ok_or(ContractError::Overflow)?;
+                    skipped_count = skipped_count
+                        .checked_add(1)
+                        .ok_or(ContractError::Overflow)?;
                     continue; // Skip this recipient - they're already at cap
                 }
             }
