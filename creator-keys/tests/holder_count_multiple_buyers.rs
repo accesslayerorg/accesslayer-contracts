@@ -27,6 +27,7 @@ fn holder_count_tracks_distinct_buyers_and_decrements_on_exit() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let buyer_a = Address::generate(&env);

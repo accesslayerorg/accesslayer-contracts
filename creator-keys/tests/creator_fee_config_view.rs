@@ -38,6 +38,7 @@ fn test_get_creator_fee_config_registered_no_fee_config() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let view = client.get_creator_fee_config(&creator);
@@ -65,6 +66,7 @@ fn test_get_creator_fee_config_registered_with_fee_config() {
             creator: creator.clone(),
             handle: handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -103,6 +105,7 @@ fn test_get_creator_fee_config_is_read_only() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
@@ -132,6 +135,7 @@ fn test_get_creator_fee_config_updates_after_fee_reconfiguration() {
             creator: creator.clone(),
             handle: handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -174,12 +178,14 @@ fn test_get_creator_fee_config_multiple_creators_independent() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.register_creator(
         &creator_keys::RegisterCreatorParams {
             creator: creator2.clone(),
             handle: handle2.clone(),
         },
+        &None,
         &None,
         &None,
         &None,

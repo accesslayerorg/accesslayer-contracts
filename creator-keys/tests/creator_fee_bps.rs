@@ -23,6 +23,7 @@ fn test_get_creator_fee_bps_returns_configured_value() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
@@ -44,6 +45,7 @@ fn test_get_creator_fee_bps_is_read_only() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -73,6 +75,7 @@ fn test_get_creator_fee_bps_tracks_fee_config_updates() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
