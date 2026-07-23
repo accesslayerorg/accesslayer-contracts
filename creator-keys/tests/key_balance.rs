@@ -40,6 +40,7 @@ fn test_key_balance_increments_on_buy() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert_eq!(client.get_key_balance(&creator, &buyer), 0);
@@ -70,6 +71,7 @@ fn test_key_balance_is_per_buyer() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -109,12 +111,14 @@ fn test_key_balance_is_per_creator() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.register_creator(
         &creator_keys::RegisterCreatorParams {
             creator: creator_b.clone(),
             handle: String::from_str(&env, "bob"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -152,6 +156,7 @@ fn test_key_balance_zero_for_unregistered_creator_even_when_other_balances_exist
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&registered_creator, &buyer, &100i128, &None);
 
@@ -177,6 +182,7 @@ fn test_key_balance_zero_for_registered_creator_and_unseen_wallet() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -208,6 +214,7 @@ fn test_key_balance_returns_zero_for_uninitialized_holder() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,

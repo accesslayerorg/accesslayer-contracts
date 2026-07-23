@@ -35,6 +35,7 @@ fn test_get_locked_allocation_returns_claimed_true_after_claim() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Assert claimed field is false before claim

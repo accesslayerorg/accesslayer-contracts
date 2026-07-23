@@ -347,6 +347,10 @@ pub mod constants {
         pub fn max_supply(creator: &Address) -> DataKey {
             DataKey::MaxSupply(creator.clone())
         }
+
+        pub fn max_keys_per_wallet(creator: &Address) -> DataKey {
+            DataKey::MaxKeysPerWallet(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -534,6 +538,7 @@ pub enum DataKey {
     CoCreator(Address),
     CoCreatorFeeBalance(Address, Address),
     Whitelist(Address),
+    MaxKeysPerWallet(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -624,12 +629,14 @@ pub struct AirdropEntry {
 ///
 /// `total_cost` is the full amount charged to the creator: the bonding curve
 /// cost for every minted key plus the protocol fee on that cost.
+/// `skipped_count` is the number of recipients skipped due to per-wallet cap.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct AirdropSummary {
     pub total_keys: u32,
     pub total_cost: i128,
     pub recipient_count: u32,
+    pub skipped_count: u32,
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
@@ -1296,13 +1303,16 @@ impl CreatorKeysContract {
     /// - `locked_allocation`: optional time-locked key allocation for creator self-vesting.
     ///   If provided, `unlock_ledger` must be strictly greater than current ledger.
     /// - `max_supply`: optional maximum supply cap. If provided, must be greater than zero.
+    /// - `max_keys_per_wallet`: optional maximum keys per wallet cap. If provided, must be greater than zero.
     /// - `co_creator`: optional immutable collaborator split. If provided, `share_bps`
     ///   must be in the inclusive range `1..=9999`.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_creator(
         env: Env,
         params: RegisterCreatorParams,
         locked_allocation: Option<LockedAllocation>,
         max_supply: Option<u32>,
+        max_keys_per_wallet: Option<u32>,
         curve_preset: Option<CurvePreset>,
         co_creator: Option<CoCreatorConfig>,
         whitelist: Option<WhitelistConfig>,
@@ -1371,6 +1381,16 @@ impl CreatorKeysContract {
             env.storage()
                 .persistent()
                 .set(&constants::storage::max_supply(&creator), &cap);
+        }
+
+        // Handle max keys per wallet cap
+        if let Some(cap) = max_keys_per_wallet {
+            if cap == 0 {
+                return Err(ContractError::NotPositiveAmount);
+            }
+            env.storage()
+                .persistent()
+                .set(&constants::storage::max_keys_per_wallet(&creator), &cap);
         }
 
         // Handle curve preset
@@ -1743,6 +1763,10 @@ impl CreatorKeysContract {
             .storage()
             .persistent()
             .get::<DataKey, u32>(&constants::storage::max_supply(&creator));
+        let max_keys_per_wallet = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u32>(&constants::storage::max_keys_per_wallet(&creator));
 
         // First pass: validate every entry and price the whole airdrop before
         // any storage write, so a failing call cannot leave partial state.
@@ -1752,6 +1776,14 @@ impl CreatorKeysContract {
         for entry in recipients.iter() {
             if entry.amount == 0 {
                 return Err(ContractError::NotPositiveAmount);
+            }
+            // Check if recipient is already at per-wallet cap
+            let balance_key = constants::storage::key_balance(&creator, &entry.address);
+            let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            if let Some(cap) = max_keys_per_wallet {
+                if current_balance >= cap {
+                    continue; // Skip this recipient - they're already at cap
+                }
             }
             for _ in 0..entry.amount {
                 if let Some(cap) = max_supply {
@@ -1782,10 +1814,21 @@ impl CreatorKeysContract {
 
         // Second pass: credit balances. Entries are applied sequentially so a
         // wallet listed twice accumulates both amounts and is counted as a new
-        // holder at most once.
+        // holder at most once. Skip recipients already at per-wallet cap.
+        let mut skipped_count: u32 = 0;
         for entry in recipients.iter() {
             let balance_key = constants::storage::key_balance(&creator, &entry.address);
             let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+            // Check if recipient is already at per-wallet cap
+            if let Some(cap) = max_keys_per_wallet {
+                if current_balance >= cap {
+                    skipped_count = skipped_count
+                        .checked_add(1)
+                        .ok_or(ContractError::Overflow)?;
+                    continue; // Skip this recipient - they're already at cap
+                }
+            }
 
             // Settle dividends before balance changes so earnings are captured at old balance.
             settle_holder_dividends(&env, &creator, &entry.address, current_balance)?;
@@ -1814,7 +1857,8 @@ impl CreatorKeysContract {
         let summary = AirdropSummary {
             total_keys,
             total_cost: required_payment,
-            recipient_count: recipients.len(),
+            recipient_count: recipients.len().saturating_sub(skipped_count),
+            skipped_count,
         };
 
         env.events().publish(
@@ -1824,6 +1868,7 @@ impl CreatorKeysContract {
                 total_keys: summary.total_keys,
                 total_cost: summary.total_cost,
                 recipient_count: summary.recipient_count,
+                skipped_count: summary.skipped_count,
                 ledger: env.ledger().sequence(),
             },
         );

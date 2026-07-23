@@ -19,6 +19,7 @@ fn setup_with_creator(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Add
         &None,
         &None,
         &None,
+        &None,
     );
     (client, creator, admin)
 }
@@ -192,12 +193,14 @@ fn test_holder_key_count_view_zero_keys_different_creators() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.register_creator(
         &creator_keys::RegisterCreatorParams {
             creator: creator_b.clone(),
             handle: String::from_str(&env, "bob"),
         },
+        &None,
         &None,
         &None,
         &None,

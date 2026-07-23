@@ -30,6 +30,7 @@ fn creator_can_create_poll_and_view_empty_result() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let question = String::from_str(&env, "Should we launch premium content?");
@@ -62,6 +63,7 @@ fn holder_vote_uses_liquid_key_balance_as_weight() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -103,6 +105,7 @@ fn changing_vote_before_expiry_updates_tally() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -202,6 +205,7 @@ fn vote_after_expiry_reverts_with_poll_expired() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let holder = Address::generate(&env);
@@ -243,6 +247,7 @@ fn non_holder_vote_reverts_with_not_a_holder() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let non_holder = Address::generate(&env);
@@ -273,6 +278,7 @@ fn zero_liquid_balance_after_sell_reverts_with_not_a_holder() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -325,6 +331,7 @@ fn zero_liquid_balance_after_transfer_reverts_with_not_a_holder() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -384,6 +391,7 @@ fn staked_keys_zero_liquid_balance_rejected() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let holder = Address::generate(&env);
@@ -428,6 +436,7 @@ fn invalid_vote_option_reverts() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,

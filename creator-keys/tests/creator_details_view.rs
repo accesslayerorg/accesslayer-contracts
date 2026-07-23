@@ -39,6 +39,7 @@ fn test_get_creator_details_registered_returns_correct_data() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let details = client.get_creator_details(&creator);

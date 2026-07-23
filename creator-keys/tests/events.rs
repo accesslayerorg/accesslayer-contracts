@@ -51,6 +51,7 @@ impl<'a> EventFixture<'a> {
             &None,
             &None,
             &None,
+            &None,
         );
     }
 
@@ -241,6 +242,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
             creator: fixture.creator.clone(),
             handle: handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,

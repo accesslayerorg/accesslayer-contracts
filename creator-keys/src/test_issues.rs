@@ -31,6 +31,7 @@ mod issue_tests {
                     &None,
                     &None,
                     &None,
+                    &None,
                 );
             }
             None => {
@@ -39,6 +40,7 @@ mod issue_tests {
                         creator: creator.clone(),
                         handle: handle.clone(),
                     },
+                    &None,
                     &None,
                     &None,
                     &None,

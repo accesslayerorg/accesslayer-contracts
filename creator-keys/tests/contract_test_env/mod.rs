@@ -115,6 +115,7 @@ pub fn register_test_creator(
         &None,
         &None,
         &None,
+        &None,
     );
     creator
 }
@@ -145,6 +146,7 @@ pub fn register_test_creator_with_fee_config(
             creator: creator.clone(),
             handle: String::from_str(env, handle),
         },
+        &None,
         &None,
         &None,
         &None,
