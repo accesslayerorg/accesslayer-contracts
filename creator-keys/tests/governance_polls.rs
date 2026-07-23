@@ -155,6 +155,7 @@ fn changing_vote_before_expiry_removes_previous_weight_without_double_counting()
         &None,
         &None,
         &None,
+        &None,
     );
 
     let holder = Address::generate(&env);
