@@ -104,7 +104,7 @@ fn test_update_protocol_fee_recipient_reverts_for_non_admin() {
     let env = test_env_with_auths();
     let (client, admin) = full_setup(&env);
 
-    let old_recipient = setup_fee_recipient(&env, &client, &admin);
+    setup_fee_recipient(&env, &client, &admin);
     let new_recipient = Address::generate(&env);
 
     let non_admin = Address::generate(&env);
