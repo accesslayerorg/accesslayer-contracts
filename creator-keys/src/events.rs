@@ -179,6 +179,9 @@ pub const CREATOR_FEE_RECIPIENT_UPDATED_EVENT_NAME: Symbol = symbol_short!("c_fe
 /// Event name for co-creator fee accrual.
 pub const CO_CREATOR_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("co_fee");
 
+/// Event name for creator key TTL extension.
+pub const TTL_EXTENDED_EVENT_NAME: Symbol = symbol_short!("ttl_ext");
+
 /// Stable field order for dividend distributed event payloads.
 pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
     ["creator", "total_amount", "snapshot_supply", "ledger"];
@@ -189,6 +192,9 @@ pub const DIVIDEND_CLAIMED_DATA_FIELDS: [&str; 3] = ["creator", "claimant", "amo
 /// Stable field order for co-creator fee earned event payloads.
 pub const CO_CREATOR_FEE_EARNED_DATA_FIELDS: [&str; 4] =
     ["creator_id", "co_creator", "amount", "ledger"];
+
+/// Stable field order for TTL extended event payloads.
+pub const TTL_EXTENDED_DATA_FIELDS: [&str; 3] = ["creator", "extend_to", "ledger"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -262,6 +268,22 @@ pub struct CoCreatorFeeEarned {
     pub ledger: u32,
 }
 
+/// Stable TTL extended event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TTL_EXTENDED_EVENT_NAME, creator)`
+/// - data: `TtlExtendedEvent`
+///
+/// This event is emitted when a creator's storage entries have their TTL extended
+/// after a successful buy, sell, or other operation that keeps the creator active.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TtlExtendedEvent {
+    pub creator: Address,
+    pub extend_to: u32,
+    pub ledger: u32,
+}
+
 pub fn co_creator_fee_earned_topics(
     creator_id: &Address,
     co_creator: &Address,
@@ -271,6 +293,11 @@ pub fn co_creator_fee_earned_topics(
         creator_id.clone(),
         co_creator.clone(),
     )
+}
+
+/// Shared TTL extended event topics tuple.
+pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
+    (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
 /// Event name for key transfer.

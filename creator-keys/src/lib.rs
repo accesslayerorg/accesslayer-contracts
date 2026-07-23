@@ -1281,6 +1281,15 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
             }
         }
     }
+
+    env.events().publish(
+        events::ttl_extended_topics(creator),
+        events::TtlExtendedEvent {
+            creator: creator.clone(),
+            extend_to,
+            ledger: current_ledger,
+        },
+    );
 }
 
 #[contract]
