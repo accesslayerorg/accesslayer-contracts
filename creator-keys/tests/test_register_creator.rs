@@ -23,6 +23,7 @@ fn test_register_creator_minimum_handle_length_success() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Happy path: the function succeeds
@@ -49,6 +50,7 @@ fn test_register_creator_below_minimum_handle_length_fails() {
             creator: creator.clone(),
             handle: handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,

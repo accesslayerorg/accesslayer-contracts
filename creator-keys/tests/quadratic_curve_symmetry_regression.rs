@@ -97,6 +97,7 @@ fn test_quadratic_curve_symmetry() {
         },
         &None,
         &None,
+        &None,
         &Some(CurvePreset::Quadratic),
         &None,
         &None,

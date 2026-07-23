@@ -59,6 +59,7 @@ fn register_creator_with_co_creator(
         &None,
         &None,
         &None,
+        &None,
         &Some(config.clone()),
         &None,
     );
@@ -98,6 +99,7 @@ fn test_register_creator_rejects_invalid_co_creator_share_bps() {
                 creator: creator.clone(),
                 handle: String::from_str(&env, handle),
             },
+            &None,
             &None,
             &None,
             &None,

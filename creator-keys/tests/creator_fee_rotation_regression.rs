@@ -23,6 +23,7 @@ fn test_creator_fee_recipient_rotation_regression() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Initial fee recipient is the creator themselves

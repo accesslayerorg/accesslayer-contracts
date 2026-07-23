@@ -299,11 +299,12 @@ pub struct KeysTransferredEvent {
 pub const KEYS_AIRDROPPED_EVENT_NAME: Symbol = symbol_short!("airdrop");
 
 /// Stable field order for airdrop event payloads.
-pub const KEYS_AIRDROPPED_DATA_FIELDS: [&str; 5] = [
+pub const KEYS_AIRDROPPED_DATA_FIELDS: [&str; 6] = [
     "creator_id",
     "total_keys",
     "total_cost",
     "recipient_count",
+    "skipped_count",
     "ledger",
 ];
 
@@ -314,7 +315,8 @@ pub const KEYS_AIRDROPPED_DATA_FIELDS: [&str; 5] = [
 /// - data: `KeysAirdroppedEvent`
 ///
 /// `total_cost` is the full amount charged to the creator (curve cost plus
-/// protocol fee) and `ledger` is the Soroban ledger sequence number at airdrop
+/// protocol fee), `skipped_count` is the number of recipients skipped due to
+/// per-wallet cap, and `ledger` is the Soroban ledger sequence number at airdrop
 /// time so off-chain indexers can reconstruct the timeline.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -323,6 +325,7 @@ pub struct KeysAirdroppedEvent {
     pub total_keys: u32,
     pub total_cost: i128,
     pub recipient_count: u32,
+    pub skipped_count: u32,
     pub ledger: u32,
 }
 

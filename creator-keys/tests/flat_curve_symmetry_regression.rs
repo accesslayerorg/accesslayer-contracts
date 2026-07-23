@@ -93,6 +93,7 @@ fn test_flat_curve_symmetry() {
         },
         &None,
         &None,
+        &None,
         &Some(CurvePreset::Flat),
         &None,
         &None,

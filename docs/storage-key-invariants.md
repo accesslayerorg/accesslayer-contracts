@@ -6,7 +6,7 @@ For quote-specific storage behavior (`get_buy_quote`, `get_sell_quote`), see [qu
 
 For Soroban TTL and rent-bump expectations specific to creator profiles and holder balances, see [creator-state-storage-ttl.md](./creator-state-storage-ttl.md).
 
-For staking position storage layout and stake ID assignment, see [stake-position-storage.md](./stake-position-storage.md).
+For key staking storage keys and the data model, see [key-staking-storage.md](./key-staking-storage.md).
 
 ## Overview
 

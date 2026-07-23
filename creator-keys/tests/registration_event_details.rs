@@ -36,6 +36,7 @@ fn test_register_creator_event_field_values_match_fixtures() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // 4. Capture the emitted event
@@ -104,6 +105,7 @@ fn test_register_creator_event_fields_update_with_fee_config() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let event1: events::CreatorRegisteredEvent =
@@ -119,6 +121,7 @@ fn test_register_creator_event_fields_update_with_fee_config() {
             creator: creator2.clone(),
             handle: String::from_str(&env, "creator_2"),
         },
+        &None,
         &None,
         &None,
         &None,
