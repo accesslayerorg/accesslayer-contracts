@@ -79,7 +79,8 @@ pub const BUY_EVENT_DATA_FIELDS: [&str; 5] =
     ["buyer", "creator_id", "quantity", "price_paid", "ledger"];
 
 /// Stable field order for sell event payloads.
-pub const SELL_EVENT_DATA_FIELDS: [&str; 1] = ["supply"];
+pub const SELL_EVENT_DATA_FIELDS: [&str; 5] =
+    ["seller", "creator_id", "quantity", "proceeds", "ledger"];
 
 /// Stable field order for buyback event payloads.
 pub const BUYBACK_EVENT_DATA_FIELDS: [&str; 5] =
@@ -145,6 +146,31 @@ pub struct KeysBoughtEvent {
     pub ledger: u32,
 }
 
+/// Stable sell event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(SELL_EVENT_NAME, creator, seller)`
+/// - data: `KeysSoldEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysSoldEvent {
+    /// Address of the seller performing the sale.
+    pub seller: Address,
+    /// Address of the creator whose keys are being sold.
+    pub creator_id: Address,
+    /// Number of keys being sold.
+    pub quantity: u32,
+    /// Proceeds received by the seller (after fees).
+    pub proceeds: i128,
+    /// Ledger sequence number at the time of the sale.
+    pub ledger: u32,
+}
+
+/// Shared sell event topics tuple.
+pub fn sell_event_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (SELL_EVENT_NAME, creator.clone(), seller.clone())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct KeysBoughtBackEvent {
@@ -196,6 +222,9 @@ pub const CREATOR_FEE_RECIPIENT_UPDATED_EVENT_NAME: Symbol = symbol_short!("c_fe
 /// Event name for co-creator fee accrual.
 pub const CO_CREATOR_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("co_fee");
 
+/// Event name for contract initialization.
+pub const INIT_EVENT_NAME: Symbol = symbol_short!("init");
+
 /// Stable field order for dividend distributed event payloads.
 pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
     ["creator", "total_amount", "snapshot_supply", "ledger"];
@@ -206,6 +235,10 @@ pub const DIVIDEND_CLAIMED_DATA_FIELDS: [&str; 3] = ["creator", "claimant", "amo
 /// Stable field order for co-creator fee earned event payloads.
 pub const CO_CREATOR_FEE_EARNED_DATA_FIELDS: [&str; 4] =
     ["creator_id", "co_creator", "amount", "ledger"];
+
+/// Stable field order for initialization event payloads.
+pub const INIT_DATA_FIELDS: [&str; 4] =
+    ["admin", "protocol_fee_bps", "protocol_fee_recipient", "initialized_at_ledger"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -288,6 +321,29 @@ pub fn co_creator_fee_earned_topics(
         creator_id.clone(),
         co_creator.clone(),
     )
+}
+
+/// Stable initialization event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(INIT_EVENT_NAME, admin)`
+/// - data: `ContractInitializedEvent`
+///
+/// This event is emitted exactly once on the first successful call to
+/// `set_fee_config` when the contract is initialized. Re-initialization
+/// attempts revert before reaching the event emission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ContractInitializedEvent {
+    pub admin: Address,
+    pub protocol_fee_bps: u32,
+    pub protocol_fee_recipient: Address,
+    pub initialized_at_ledger: u32,
+}
+
+/// Shared initialization event topics tuple.
+pub fn init_event_topics(admin: &Address) -> (Symbol, Address) {
+    (INIT_EVENT_NAME, admin.clone())
 }
 
 /// Event name for key transfer.

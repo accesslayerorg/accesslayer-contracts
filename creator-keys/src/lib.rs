@@ -886,6 +886,16 @@ fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
         .get(&constants::storage::FEE_CONFIG)
 }
 
+/// Reads the current protocol fee basis points from storage.
+///
+/// Panics with a descriptive message if the fee config is not set (contract not initialized).
+/// Use this helper wherever protocol fee bps is needed to eliminate duplication of storage key logic.
+pub fn read_protocol_fee_bps(env: &Env) -> u32 {
+    read_protocol_fee_config(env)
+        .map(|config| config.protocol_bps)
+        .expect("Contract not initialized: protocol fee config not set")
+}
+
 /// Validates that an address is not the Stellar zero address.
 ///
 /// The zero address (`GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`)
@@ -1613,11 +1623,30 @@ impl CreatorKeysContract {
         // supply/holder_count invariants for subsequent reads.
         env.storage().persistent().set(&key, &profile);
         env.storage().persistent().set(&balance_key, &new_balance);
+
+        // Calculate proceeds (price minus fees) before accruing fees
+        let proceeds = if let Some(config) = read_protocol_fee_config(&env) {
+            let (creator_fee, protocol_fee) =
+                fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
+                    .ok_or(ContractError::Overflow)?;
+            price.checked_sub(creator_fee).ok_or(ContractError::Overflow)?
+                .checked_sub(protocol_fee)
+                .ok_or(ContractError::Overflow)?
+        } else {
+            price
+        };
+
         accrue_sell_trade_fees(&env, &creator, price)?;
 
         env.events().publish(
-            (events::SELL_EVENT_NAME, creator.clone(), seller),
-            profile.supply,
+            events::sell_event_topics(&creator, &seller),
+            events::KeysSoldEvent {
+                seller: seller.clone(),
+                creator_id: creator.clone(),
+                quantity: 1,
+                proceeds,
+                ledger: env.ledger().sequence(),
+            },
         );
 
         // Extend TTL for creator storage after successful sell
@@ -2173,8 +2202,8 @@ impl CreatorKeysContract {
     /// This value is sourced from the current protocol fee configuration and is
     /// expressed in stable basis-point units.
     pub fn get_protocol_treasury_share_bps(env: Env) -> Result<u32, ContractError> {
-        let config = read_required_protocol_fee_config(&env)?;
-        Ok(config.protocol_bps)
+        read_required_protocol_fee_config(&env)?;
+        Ok(read_protocol_fee_bps(&env))
     }
 
     /// Read-only view: returns the stored protocol fee basis points value.
@@ -2182,8 +2211,8 @@ impl CreatorKeysContract {
     /// Does not mutate contract state. Fails with
     /// [`ContractError::FeeConfigNotSet`] if no fee configuration has been stored.
     pub fn get_protocol_fee_bps(env: Env) -> Result<u32, ContractError> {
-        let config = read_required_protocol_fee_config(&env)?;
-        Ok(config.protocol_bps)
+        read_required_protocol_fee_config(&env)?;
+        Ok(read_protocol_fee_bps(&env))
     }
 
     /// Sets the global protocol/creator fee split. Contract initialization
@@ -2204,10 +2233,16 @@ impl CreatorKeysContract {
         admin.require_auth();
         fee::assert_valid_fee_bps(creator_bps, protocol_bps)?;
 
-        let config = fee::FeeConfig {
+       let config = fee::FeeConfig {
             creator_bps,
             protocol_bps,
         };
+        let is_first_init = env
+            .storage()
+            .persistent()
+            .get::<DataKey, fee::FeeConfig>(&constants::storage::FEE_CONFIG)
+            .is_none();
+
         if env
             .storage()
             .persistent()
@@ -2220,6 +2255,24 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .set(&constants::storage::FEE_CONFIG, &config);
+
+        // Emit initialization event on first successful fee config set
+        if is_first_init {
+            let protocol_fee_recipient: Address = env
+                .storage()
+                .persistent()
+                .get(&constants::storage::PROTOCOL_FEE_RECIPIENT)
+                .ok_or(ContractError::FeeConfigNotSet)?;
+            env.events().publish(
+                events::init_event_topics(&admin),
+                events::ContractInitializedEvent {
+                    admin: admin.clone(),
+                    protocol_fee_bps: protocol_bps,
+                    protocol_fee_recipient,
+                    initialized_at_ledger: env.ledger().sequence(),
+                },
+            );
+        }
 
         // Increment protocol state version on config update
         let current_version = env

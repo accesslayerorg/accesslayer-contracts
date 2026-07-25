@@ -27,6 +27,7 @@ fn test_is_protocol_config_initialized_returns_true_after_fee_config_is_set() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     assert!(client.is_protocol_config_initialized());
@@ -41,6 +42,7 @@ fn test_is_protocol_config_initialized_is_read_only() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     let first_read = client.is_protocol_config_initialized();

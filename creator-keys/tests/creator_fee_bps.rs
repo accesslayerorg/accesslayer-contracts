@@ -25,6 +25,7 @@ fn test_get_creator_fee_bps_returns_configured_value() {
         &None,
         &None,
     );
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     assert_eq!(client.get_creator_fee_bps(&creator), 9000);
@@ -52,6 +53,7 @@ fn test_get_creator_fee_bps_is_read_only() {
         &None,
         &None,
     );
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &7500u32, &2500u32);
 
     let first = client.get_creator_fee_bps(&creator);
@@ -82,6 +84,7 @@ fn test_get_creator_fee_bps_tracks_fee_config_updates() {
         &None,
         &None,
     );
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let before_update = client.get_creator_fee_bps(&creator);

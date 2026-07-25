@@ -25,6 +25,7 @@ fn test_get_creator_treasury_share_returns_configured_value() {
         &None,
         &None,
     );
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     assert_eq!(client.get_creator_treasury_share(&creator), 9000);
@@ -52,6 +53,7 @@ fn test_get_creator_treasury_share_is_read_only() {
         &None,
         &None,
     );
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     let first = client.get_creator_treasury_share(&creator);

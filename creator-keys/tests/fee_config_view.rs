@@ -24,6 +24,7 @@ fn test_get_protocol_fee_view_returns_configured_values() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let view = client.get_protocol_fee_view();
@@ -41,6 +42,7 @@ fn test_get_protocol_fee_view_is_read_only() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     let v1 = client.get_protocol_fee_view();
@@ -60,6 +62,7 @@ fn test_get_protocol_fee_view_updates_after_reconfiguration() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
     let v1 = client.get_protocol_fee_view();
     assert_eq!(v1.protocol_bps, 1000);
@@ -80,6 +83,7 @@ fn test_protocol_fee_bps_multiple_sequential_updates() {
     let admin = soroban_sdk::Address::generate(&env);
 
     // First update
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
     let v1 = client.get_protocol_fee_view();
     assert_eq!(v1.protocol_bps, 1000);

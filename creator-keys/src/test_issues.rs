@@ -115,6 +115,7 @@ mod issue_tests {
 
         let admin = Address::generate(&env);
         client.set_key_price(&admin, &KEY_PRICE);
+        client.set_protocol_fee_recipient(&admin, &admin);
         client.set_fee_config(&admin, &10_000, &0);
 
         let creator = register_creator(&env, &client, None);

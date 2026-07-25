@@ -12,6 +12,7 @@ fn test_set_and_get_fee_config() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let config = client.get_fee_config();
@@ -29,6 +30,7 @@ fn test_compute_fees_for_payment() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     let (creator, protocol) = client.compute_fees_for_payment(&1000i128);
@@ -59,6 +61,7 @@ fn test_set_fee_config_max_protocol_bps_succeeds() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &5000u32, &5000u32);
     let config = client.get_fee_config().unwrap();
     assert_eq!(config.creator_bps, 5000);
@@ -74,6 +77,7 @@ fn test_set_fee_config_max_creator_bps_succeeds() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
 
+    client.set_protocol_fee_recipient(&admin, &admin);
     client.set_fee_config(&admin, &10000u32, &0u32);
     let config = client.get_fee_config().unwrap();
     assert_eq!(config.creator_bps, 10000);

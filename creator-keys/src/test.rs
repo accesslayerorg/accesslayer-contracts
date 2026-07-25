@@ -1034,6 +1034,206 @@ fn test_get_fee_config_persists_across_repeated_reads() {
 }
 
 #[test]
+fn test_initialization_event_emitted_on_first_fee_config() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let protocol_fee_recipient = Address::generate(&env);
+    let creator_bps = 9000;
+    let protocol_bps = 1000;
+
+    // Set protocol fee recipient first (required for init event)
+    client.set_protocol_fee_recipient(&admin, &protocol_fee_recipient);
+
+    // Set fee config - should emit initialization event
+    client.set_fee_config(&admin, &creator_bps, &protocol_bps);
+
+    // Verify the event was emitted
+    let events = env.events().all();
+    assert_eq!(events.len(), 2); // protocol_fee_recipient set + init event
+
+    let init_event = &events[1];
+    assert_eq!(init_event.topics[0], events::INIT_EVENT_NAME);
+    assert_eq!(init_event.topics[1], admin);
+
+    let event_data: events::ContractInitializedEvent = init_event.data.clone().try_into_val(&env).unwrap();
+    assert_eq!(event_data.admin, admin);
+    assert_eq!(event_data.protocol_fee_bps, protocol_bps);
+    assert_eq!(event_data.protocol_fee_recipient, protocol_fee_recipient);
+    assert_eq!(event_data.initialized_at_ledger, env.ledger().sequence());
+}
+
+#[test]
+fn test_initialization_event_not_emitted_on_reinitialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let protocol_fee_recipient = Address::generate(&env);
+    let creator_bps = 9000;
+    let protocol_bps = 1000;
+
+    // Set protocol fee recipient first
+    client.set_protocol_fee_recipient(&admin, &protocol_fee_recipient);
+
+    // First initialization - should emit event
+    client.set_fee_config(&admin, &creator_bps, &protocol_bps);
+    let events_after_first = env.events().all();
+    assert_eq!(events_after_first.len(), 2);
+
+    // Try to set same config again - should not emit another event
+    client.set_fee_config(&admin, &creator_bps, &protocol_bps);
+    let events_after_second = env.events().all();
+    assert_eq!(events_after_second.len(), 2); // Still only 2 events
+}
+
+#[test]
+fn test_initialization_event_requires_protocol_fee_recipient() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator_bps = 9000;
+    let protocol_bps = 1000;
+
+    // Try to set fee config without protocol fee recipient - should fail
+    let result = client.try_set_fee_config(&admin, &creator_bps, &protocol_bps);
+    assert_eq!(result, Err(Ok(ContractError::FeeConfigNotSet)));
+}
+
+// --- Creator fee computation tests (#580) ---
+
+#[test]
+fn test_creator_fee_500_bps_on_1000_stroops() {
+    // 500 bps (5%) on 1000 stroop transaction → fee is 50
+    let result = fee::apply_percentage_fee(1000, 500);
+    assert_eq!(result, Some(50), "500 bps on 1000 should return 50");
+}
+
+#[test]
+fn test_creator_fee_250_bps_on_1000_stroops() {
+    // 250 bps (2.5%) on a 1000 stroop transaction → fee is 25
+    let result = fee::apply_percentage_fee(1000, 250);
+    assert_eq!(result, Some(25), "250 bps on 1000 should return 25");
+}
+
+#[test]
+fn test_creator_fee_100_bps_on_999_stroops_floors() {
+    // 100 bps (1%) on a 999 stroop transaction → fee floors to 9 (not 9.99)
+    let result = fee::apply_percentage_fee(999, 100);
+    assert_eq!(result, Some(9), "100 bps on 999 should floor to 9");
+}
+
+#[test]
+fn test_creator_fee_0_bps_always_zero() {
+    // 0 bps → fee is always 0
+    assert_eq!(fee::apply_percentage_fee(1000, 0), Some(0), "0 bps on 1000 should return 0");
+    assert_eq!(fee::apply_percentage_fee(999, 0), Some(0), "0 bps on 999 should return 0");
+    assert_eq!(fee::apply_percentage_fee(1, 0), Some(0), "0 bps on 1 should return 0");
+}
+
+// --- Sell event integration test (#581) ---
+
+#[test]
+fn test_sell_event_emitted_with_correct_fields() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let seller = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    // Initialize contract
+    client.set_key_price(&admin, &100);
+    client.set_fee_config(&admin, &9000, &1000);
+    client.register_creator(
+        &crate::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None
+    );
+
+    // Set up holder with 2 keys via buy transactions
+    client.buy_key(&creator, &seller, &100, &None);
+    client.buy_key(&creator, &seller, &100, &None);
+
+    // Clear previous events
+    env.events().all();
+
+    // Sell 1 key
+    let quote = client.get_sell_quote(&creator, &seller).unwrap();
+    client.sell_key(&creator, &seller, &Some(quote.total_amount));
+
+    // Extract contract events from the result
+    let events = env.events().all();
+    assert_eq!(events.len(), 1, "Exactly one sell event should be emitted");
+
+    let sell_event = &events[0];
+    assert_eq!(sell_event.topics[0], events::SELL_EVENT_NAME);
+    assert_eq!(sell_event.topics[1], creator);
+    assert_eq!(sell_event.topics[2], seller);
+
+    let event_data: events::KeysSoldEvent = sell_event.data.clone().try_into_val(&env).unwrap();
+    assert_eq!(event_data.seller, seller, "seller field should match");
+    assert_eq!(event_data.creator_id, creator, "creator_id field should match");
+    assert_eq!(event_data.quantity, 1, "quantity should be 1");
+    assert_eq!(event_data.ledger, env.ledger().sequence(), "ledger should match current ledger");
+
+    // Verify proceeds equals sell price minus fees
+    let expected_creator_fee = (quote.price * 9000) / 10000;
+    let expected_protocol_fee = (quote.price * 1000) / 10000;
+    let expected_proceeds = quote.price - expected_creator_fee - expected_protocol_fee;
+    assert_eq!(event_data.proceeds, expected_proceeds, "proceeds should equal sell price minus fees");
+}
+
+// --- Protocol fee bps helper tests (#582) ---
+
+#[test]
+fn test_read_protocol_fee_bps_returns_configured_bps() {
+    let env = Env::default();
+    let contract_id = env.register(CreatorKeysContract, ());
+
+    let config = fee::FeeConfig {
+        creator_bps: 8500,
+        protocol_bps: 1500,
+    };
+
+    let result = env.as_contract(&contract_id, || {
+        env.storage().persistent().set(&DataKey::FeeConfig, &config);
+        read_protocol_fee_bps(&env)
+    });
+
+    assert_eq!(result, 1500, "Should return configured protocol fee bps");
+}
+
+#[test]
+#[should_panic(expected = "Contract not initialized")]
+fn test_read_protocol_fee_bps_panics_when_uninitialized() {
+    let env = Env::default();
+    let contract_id = env.register(CreatorKeysContract, ());
+
+    env.as_contract(&contract_id, || {
+        // No fee config set - should panic
+        read_protocol_fee_bps(&env);
+    });
+}
+
+#[test]
 fn test_register_creator() {
     let env = Env::default();
     env.mock_all_auths();
