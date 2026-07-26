@@ -49,7 +49,15 @@ fn test_sell_event_seller_address_matches_caller() {
     // Extract and verify the sell event
     let event_log = env.events().all();
     let (_, topics, _) = event_log
-        .last()
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            let name: Symbol = topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .unwrap_or_default()
+                .into_val(&env);
+            name == events::SELL_EVENT_NAME
+        })
         .expect("sell event should be present in event log");
 
     // Verify event name is sell
@@ -108,7 +116,19 @@ fn test_sell_event_seller_address_field_is_non_zero() {
 
     // Verify the seller address field is present and non-zero
     let event_log = env.events().all();
-    let (_, topics, _) = event_log.last().expect("sell event should be present");
+    let (_, topics, _) = event_log
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .map(|v| {
+                    let name: Symbol = v.into_val(&env);
+                    name == events::SELL_EVENT_NAME
+                })
+                .unwrap_or(false)
+        })
+        .expect("sell event should be present");
 
     let seller_field: Option<Val> = topics.get(events::TOPIC_BUYER_INDEX);
     assert!(

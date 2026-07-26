@@ -451,4 +451,255 @@ mod issue_tests {
     fn test_bonding_curve_step_5() {
         test_bonding_curve_step_helper(5, 100, 150, 350);
     }
+
+    // =========================================================================
+    // Storage key collision tests (#597)
+    //
+    // Confirm that two distinct inputs never produce the same storage key.
+    // =========================================================================
+
+    #[test]
+    fn test_holder_balance_key_different_holders_differ_for_same_creator() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder_a = Address::generate(&env);
+        let holder_b = Address::generate(&env);
+
+        let key_a = constants::storage::holder_balance_key(&creator, &holder_a);
+        let key_b = constants::storage::holder_balance_key(&creator, &holder_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different holders must produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_holder_balance_key_argument_order_matters() {
+        let env = Env::default();
+        let addr_a = Address::generate(&env);
+        let addr_b = Address::generate(&env);
+
+        let key_ab = constants::storage::holder_balance_key(&addr_a, &addr_b);
+        let key_ba = constants::storage::holder_balance_key(&addr_b, &addr_a);
+
+        assert_ne!(
+            key_ab, key_ba,
+            "swapping creator and holder must produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_holder_balance_key_never_equals_creator_key() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+        let creator_key = constants::storage::creator(&creator);
+
+        assert_ne!(
+            balance_key, creator_key,
+            "holder balance key must not collide with creator profile key"
+        );
+    }
+
+    #[test]
+    fn test_holder_balance_key_never_equals_dividend_accumulator_key() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+        let dividend_key = constants::storage::dividend_accumulator(&creator);
+
+        assert_ne!(
+            balance_key, dividend_key,
+            "holder balance key must not collide with dividend accumulator key"
+        );
+    }
+
+    #[test]
+    fn test_holder_dividend_checkpoint_different_holders_differ() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder_a = Address::generate(&env);
+        let holder_b = Address::generate(&env);
+
+        let key_a = constants::storage::holder_dividend_checkpoint(&creator, &holder_a);
+        let key_b = constants::storage::holder_dividend_checkpoint(&creator, &holder_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different holders must produce different dividend checkpoint keys"
+        );
+    }
+
+    #[test]
+    fn test_holder_dividend_pending_different_holders_differ() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder_a = Address::generate(&env);
+        let holder_b = Address::generate(&env);
+
+        let key_a = constants::storage::holder_dividend_pending(&creator, &holder_a);
+        let key_b = constants::storage::holder_dividend_pending(&creator, &holder_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different holders must produce different dividend pending keys"
+        );
+    }
+
+    #[test]
+    fn test_co_creator_fee_balance_different_pairs_differ() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let co_a = Address::generate(&env);
+        let co_b = Address::generate(&env);
+
+        let key_a = constants::storage::co_creator_fee_balance(&creator, &co_a);
+        let key_b = constants::storage::co_creator_fee_balance(&creator, &co_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different co-creator addresses must produce different fee balance keys"
+        );
+    }
+
+    #[test]
+    fn test_co_creator_fee_balance_different_creators_differ() {
+        let env = Env::default();
+        let creator_a = Address::generate(&env);
+        let creator_b = Address::generate(&env);
+        let co_creator = Address::generate(&env);
+
+        let key_a = constants::storage::co_creator_fee_balance(&creator_a, &co_creator);
+        let key_b = constants::storage::co_creator_fee_balance(&creator_b, &co_creator);
+
+        assert_ne!(
+            key_a, key_b,
+            "different creators with same co-creator must produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_creator_fee_balance_different_creators_differ() {
+        let env = Env::default();
+        let creator_a = Address::generate(&env);
+        let creator_b = Address::generate(&env);
+
+        let key_a = constants::storage::creator_fee_balance(&creator_a);
+        let key_b = constants::storage::creator_fee_balance(&creator_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different creators must produce different fee balance keys"
+        );
+    }
+
+    #[test]
+    fn test_holder_balance_key_never_equals_creator_fee_balance_key() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+        let fee_key = constants::storage::creator_fee_balance(&creator);
+
+        assert_ne!(
+            balance_key, fee_key,
+            "holder balance key must not collide with creator fee balance key"
+        );
+    }
+
+    #[test]
+    fn test_holder_dividend_checkpoint_never_equals_holder_balance_key() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let checkpoint_key = constants::storage::holder_dividend_checkpoint(&creator, &holder);
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+
+        assert_ne!(
+            checkpoint_key, balance_key,
+            "dividend checkpoint key must not collide with holder balance key"
+        );
+    }
+
+    #[test]
+    fn test_holder_dividend_pending_never_equals_holder_balance_key() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let pending_key = constants::storage::holder_dividend_pending(&creator, &holder);
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+
+        assert_ne!(
+            pending_key, balance_key,
+            "dividend pending key must not collide with holder balance key"
+        );
+    }
+
+    #[test]
+    fn test_curve_preset_different_creators_differ() {
+        let env = Env::default();
+        let creator_a = Address::generate(&env);
+        let creator_b = Address::generate(&env);
+
+        let key_a = constants::storage::curve_preset(&creator_a);
+        let key_b = constants::storage::curve_preset(&creator_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different creators must produce different curve preset keys"
+        );
+    }
+
+    #[test]
+    fn test_max_supply_different_creators_differ() {
+        let env = Env::default();
+        let creator_a = Address::generate(&env);
+        let creator_b = Address::generate(&env);
+
+        let key_a = constants::storage::max_supply(&creator_a);
+        let key_b = constants::storage::max_supply(&creator_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different creators must produce different max supply keys"
+        );
+    }
+
+    #[test]
+    fn test_max_keys_per_wallet_different_creators_differ() {
+        let env = Env::default();
+        let creator_a = Address::generate(&env);
+        let creator_b = Address::generate(&env);
+
+        let key_a = constants::storage::max_keys_per_wallet(&creator_a);
+        let key_b = constants::storage::max_keys_per_wallet(&creator_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different creators must produce different max keys per wallet keys"
+        );
+    }
+
+    #[test]
+    fn test_locked_allocation_different_creators_differ() {
+        let env = Env::default();
+        let creator_a = Address::generate(&env);
+        let creator_b = Address::generate(&env);
+
+        let key_a = constants::storage::locked_allocation(&creator_a);
+        let key_b = constants::storage::locked_allocation(&creator_b);
+
+        assert_ne!(
+            key_a, key_b,
+            "different creators must produce different locked allocation keys"
+        );
+    }
 }

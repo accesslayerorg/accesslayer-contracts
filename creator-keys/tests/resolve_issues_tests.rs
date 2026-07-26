@@ -1,6 +1,7 @@
 use creator_keys::{events, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{
     testutils::Address as _, testutils::Events, testutils::Ledger, Address, Env, IntoVal, String,
+    Symbol,
 };
 
 fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Address) {
@@ -98,7 +99,19 @@ fn test_buy_event_fields_on_success() {
 
     // Extract the contract events
     let events = env.events().all();
-    let buy_event = events.last().unwrap();
+    let buy_event = events
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .map(|v| {
+                    let name: Symbol = v.into_val(&env);
+                    name == events::BUY_EVENT_NAME
+                })
+                .unwrap_or(false)
+        })
+        .unwrap();
 
     // Assert topics
     let topic_symbol: soroban_sdk::Symbol = buy_event

@@ -219,7 +219,7 @@ fn sell_fee_split_invariant_across_price_range() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
 
-    let test_prices = vec![1, 2, 3, 10, 99, 100, 101, 999, 1000, 10000];
+    let test_prices = [1, 2, 3, 10, 99, 100, 101, 999, 1000, 10000];
 
     for (i, price) in test_prices.iter().enumerate() {
         let creator = register_test_creator(&env, &client, &format!("creator{}", i));

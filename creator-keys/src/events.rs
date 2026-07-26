@@ -49,6 +49,9 @@ pub const TRANSFER_EVENT_NAME: Symbol = symbol_short!("transfer");
 /// Event name for creator key buyback.
 pub const BUYBACK_EVENT_NAME: Symbol = symbol_short!("buyback");
 
+/// Event name for referral fee earned.
+pub const REFERRAL_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("referral");
+
 /// Event name for governance poll creation.
 pub const POLL_CREATED_EVENT_NAME: Symbol = symbol_short!("poll_new");
 
@@ -303,6 +306,17 @@ pub struct CreatorFeeRecipientUpdatedEvent {
     pub new_recipient: Address,
 }
 
+/// Event name for global fee configuration update.
+pub const FEE_CONFIG_UPDATED_EVENT_NAME: Symbol = symbol_short!("fee_upd");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeConfigUpdatedEvent {
+    pub old_bps: u32,
+    pub new_bps: u32,
+    pub updated_at_ledger: u32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct CoCreatorFeeEarned {
@@ -323,27 +337,33 @@ pub fn co_creator_fee_earned_topics(
     )
 }
 
-/// Stable initialization event payload for downstream indexers.
+/// Stable referral fee earned event payload for downstream indexers.
 ///
 /// Event shape:
-/// - topics: `(INIT_EVENT_NAME, admin)`
-/// - data: `ContractInitializedEvent`
+/// - topics: `(REFERRAL_FEE_EARNED_EVENT_NAME, creator_id, referrer)`
+/// - data: `ReferralFeeEarnedEvent`
 ///
-/// This event is emitted exactly once on the first successful call to
-/// `set_fee_config` when the contract is initialized. Re-initialization
-/// attempts revert before reaching the event emission.
+/// Emitted when a referrer earns a share of the protocol fee from a buy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct ContractInitializedEvent {
-    pub admin: Address,
-    pub protocol_fee_bps: u32,
-    pub protocol_fee_recipient: Address,
-    pub initialized_at_ledger: u32,
+pub struct ReferralFeeEarnedEvent {
+    pub creator_id: Address,
+    pub buyer: Address,
+    pub referrer: Address,
+    pub amount: i128,
+    pub ledger: u32,
 }
 
-/// Shared initialization event topics tuple.
-pub fn init_event_topics(admin: &Address) -> (Symbol, Address) {
-    (INIT_EVENT_NAME, admin.clone())
+/// Shared referral fee earned event topics tuple.
+pub fn referral_fee_earned_topics(
+    creator_id: &Address,
+    referrer: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        REFERRAL_FEE_EARNED_EVENT_NAME,
+        creator_id.clone(),
+        referrer.clone(),
+    )
 }
 
 /// Event name for key transfer.
@@ -410,6 +430,9 @@ pub fn keys_airdropped_topics(creator: &Address) -> (Symbol, Address) {
 /// Event name for treasury withdrawal by the protocol admin.
 pub const TREASURY_WITHDRAWAL_EVENT_NAME: Symbol = symbol_short!("treas_out");
 
+/// Event name for creator storage TTL extension.
+pub const TTL_EXTENDED_EVENT_NAME: Symbol = symbol_short!("ttl_ext");
+
 /// Stable field order for treasury withdrawal event payloads.
 pub const TREASURY_WITHDRAWAL_DATA_FIELDS: [&str; 4] =
     ["amount", "recipient", "remaining_balance", "ledger"];
@@ -434,6 +457,11 @@ pub struct TreasuryWithdrawalEvent {
 /// Shared treasury withdrawal event topics tuple.
 pub fn treasury_withdrawal_event_topics(recipient: &Address) -> (Symbol, Address) {
     (TREASURY_WITHDRAWAL_EVENT_NAME, recipient.clone())
+}
+
+/// Shared TTL extension event topics tuple.
+pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
+    (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
 #[contracterror]
