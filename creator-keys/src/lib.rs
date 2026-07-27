@@ -1326,14 +1326,25 @@ fn compute_claimable_dividend(env: &Env, creator: &Address, holder: &Address) ->
 /// This function extends the TTL of the creator's primary storage entries
 /// to prevent active creator state from expiring. Called after successful
 /// buy and sell operations. Emits a [`events::TTL_EXTENDED_EVENT_NAME`] event
-/// when the creator key's TTL was actually extended (checked via the SDK's
-/// threshold-vs-expiration logic).
+/// only when the creator key's remaining TTL has dropped below
+/// `CREATOR_TTL_LEDGERS`, meaning an actual storage bump is needed.
+///
+/// When the remaining TTL is still at or above `CREATOR_TTL_LEDGERS` the
+/// entire function is a no-op — no storage writes and no event — so that
+/// frequent trades on healthy state do not produce unnecessary events.
 fn extend_creator_ttl(env: &Env, creator: &Address) {
     let current_ledger = env.ledger().sequence();
+    let creator_key = constants::storage::creator(creator);
+
+    // Only extend when the remaining TTL has dropped below the full window.
+    let remaining = env.storage().persistent().get_ttl(&creator_key);
+    if !ttl::should_extend(remaining, CREATOR_TTL_LEDGERS) {
+        return;
+    }
+
     let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
     let threshold = current_ledger;
 
-    let creator_key = constants::storage::creator(creator);
     env.storage()
         .persistent()
         .extend_ttl(&creator_key, threshold, extend_to);
