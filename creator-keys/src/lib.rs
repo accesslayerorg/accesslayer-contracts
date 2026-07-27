@@ -366,6 +366,10 @@ pub mod constants {
         pub fn creator_volume(creator: &Address) -> DataKey {
             DataKey::CreatorVolume(creator.clone())
         }
+
+        pub fn ttl_extend_to(creator: &Address) -> DataKey {
+            DataKey::TTLExtendTo(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -445,6 +449,19 @@ pub struct CreatorDetailsView {
     /// maintaining a separate off-chain index.
     pub registered_at: u32,
 }
+
+/// Persistent tracker for the ledger to which a creator's storage TTL was last extended.
+///
+/// Used by [`extend_creator_ttl`] to avoid redundant extension calls and event
+/// emissions when the TTL is already fully healthy. This is a separate key from
+/// the creator profile because the Soroban SDK's persistent storage `get_ttl`
+/// method is only available in the test environment, not in contract code.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct TtlExtendTo {
+    pub extend_to: u32,
+}
+
 /// Stable, non-optional view of a creator's fee configuration.
 ///
 /// Returned by [`CreatorKeysContract::get_creator_fee_config`] for indexer-friendly consumption.
@@ -580,6 +597,11 @@ pub enum DataKey {
     ReferralFeeBps,
     DiscountTiers,
     CreatorVolume(Address),
+    /// Tracks the last extend_to ledger for a creator's storage TTL.
+    ///
+    /// Stored so [`extend_creator_ttl`] can make a no-op decision directly
+    /// from storage instead of relying on the test-only `get_ttl` host function.
+    TTLExtendTo(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1332,17 +1354,37 @@ fn compute_claimable_dividend(env: &Env, creator: &Address, holder: &Address) ->
 /// When the remaining TTL is still at or above `CREATOR_TTL_LEDGERS` the
 /// entire function is a no-op — no storage writes and no event — so that
 /// frequent trades on healthy state do not produce unnecessary events.
+///
+/// # Decision logic
+///
+/// The contract cannot call the host's `get_ttl` directly (it is only available
+/// via the test SDK). Instead, the function stores the most recent `extend_to`
+/// ledger value under [`DataKey::TTLExtendTo`] and checks whether that stored
+/// value is still ahead of `current_ledger + CREATOR_TTL_LEDGERS`. If it is,
+/// the TTL is still healthy and the entire call is a no-op.
 fn extend_creator_ttl(env: &Env, creator: &Address) {
     let current_ledger = env.ledger().sequence();
     let creator_key = constants::storage::creator(creator);
 
-    // Only extend when the remaining TTL has dropped below the full window.
-    let remaining = env.storage().persistent().get_ttl(&creator_key);
+    // Read the last extend_to ledger we stored. Defaults to 0 (no prior
+    // extension) so the first call always extends.
+    let ttl_extend_to_key = constants::storage::ttl_extend_to(creator);
+    let last_extend_to: u32 = env
+        .storage()
+        .persistent()
+        .get::<DataKey, TtlExtendTo>(&ttl_extend_to_key)
+        .map(|s| s.extend_to)
+        .unwrap_or(0);
+
+    let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
+
+    // Remaining TTL = last_extend_to - current_ledger.  If this is >=
+    // CREATOR_TTL_LEDGERS the TTL is still healthy and we skip.
+    let remaining = last_extend_to.saturating_sub(current_ledger);
     if !ttl::should_extend(remaining, CREATOR_TTL_LEDGERS) {
         return;
     }
 
-    let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
     let threshold = current_ledger;
 
     env.storage()
@@ -1402,6 +1444,11 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
             }
         }
     }
+
+    // Persist the new extend_to value so future calls can detect a healthy TTL.
+    env.storage()
+        .persistent()
+        .set(&ttl_extend_to_key, &TtlExtendTo { extend_to });
 
     env.events()
         .publish(events::ttl_extended_topics(creator), extend_to);
@@ -1571,6 +1618,13 @@ impl CreatorKeysContract {
                 .persistent()
                 .extend_ttl(&whitelist_key, current_ledger, extend_to);
         }
+
+        // Initialise the TTL extension tracker so the first buy does not
+        // emit a redundant extension event.
+        env.storage().persistent().set(
+            &constants::storage::ttl_extend_to(&creator),
+            &TtlExtendTo { extend_to },
+        );
 
         env.events().publish(
             events::register_event_topics(&profile.creator),
