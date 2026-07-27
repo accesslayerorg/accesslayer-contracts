@@ -12,8 +12,8 @@
 
 use creator_keys::{constants, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, Env, IntoVal, String, Val,
+    testutils::{Address as _, Events, Ledger},
+    Address, Env, IntoVal, String, Val, Vec,
 };
 use std::string::String as StdString;
 
@@ -504,4 +504,41 @@ pub fn compute_expected_holder_dividend(
     let net_amount = amount - protocol_amount;
     let per_key = net_amount / total_supply as i128;
     per_key * holder_balance as i128
+}
+
+/// Finds the most recent event emitted by `contract_id` matching `topics` and asserts
+/// its decoded data equals `expected_data`.
+///
+/// Filtering by contract id and topics (rather than just topics) keeps assertions
+/// correct in tests that register more than one contract instance. Panics with a
+/// message naming the contract, topics, and the expected/actual payloads when no
+/// matching event exists or the decoded data doesn't match, so a field-level
+/// regression on any event is easy to diagnose from the test output alone.
+pub fn assert_event<T, Topics>(env: &Env, contract_id: &Address, topics: Topics, expected_data: T)
+where
+    Topics: IntoVal<Env, Vec<Val>> + core::fmt::Debug,
+    T: PartialEq + core::fmt::Debug,
+    Val: IntoVal<Env, T>,
+{
+    let expected_topics: Vec<Val> = topics.into_val(env);
+
+    let all_events = env.events().all();
+    let matching = all_events
+        .iter()
+        .rev()
+        .find(|(id, event_topics, _)| id == contract_id && *event_topics == expected_topics);
+
+    let (_, _, data) = matching.unwrap_or_else(|| {
+        panic!(
+            "no event found for contract={contract_id:?} topics={expected_topics:?}; \
+             recorded events={all_events:?}"
+        )
+    });
+
+    let actual_data: T = data.into_val(env);
+    assert_eq!(
+        actual_data, expected_data,
+        "event data mismatch for contract={contract_id:?} topics={expected_topics:?}: \
+         expected {expected_data:?}, got {actual_data:?}"
+    );
 }
