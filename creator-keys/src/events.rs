@@ -258,11 +258,16 @@ pub struct AllocationClaimedEvent {
     pub ledger: u32,
 }
 
+/// Stable field order for protocol fee recipient updated event payloads.
+pub const PROTOCOL_FEE_RECIPIENT_UPDATED_DATA_FIELDS: [&str; 3] =
+    ["old_recipient", "new_recipient", "updated_at_ledger"];
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct ProtocolFeeRecipientUpdatedEvent {
     pub old_recipient: Address,
     pub new_recipient: Address,
+    pub updated_at_ledger: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -429,6 +434,23 @@ pub fn treasury_withdrawal_event_topics(recipient: &Address) -> (Symbol, Address
 /// Shared TTL extension event topics tuple.
 pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
+}
+
+/// Stable field order for TTL extension event payloads.
+pub const TTL_EXTENDED_DATA_FIELDS: [&str; 3] =
+    ["creator_id", "extended_at_ledger", "new_expiry_ledger"];
+
+/// Stable TTL extension event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TTL_EXTENDED_EVENT_NAME, creator_id)`
+/// - data: `TtlExtendedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TtlExtendedEvent {
+    pub creator_id: Address,
+    pub extended_at_ledger: u32,
+    pub new_expiry_ledger: u32,
 }
 
 #[contracterror]

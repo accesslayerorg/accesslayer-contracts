@@ -1392,8 +1392,14 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
         }
     }
 
-    env.events()
-        .publish(events::ttl_extended_topics(creator), extend_to);
+    env.events().publish(
+        events::ttl_extended_topics(creator),
+        events::TtlExtendedEvent {
+            creator_id: creator.clone(),
+            extended_at_ledger: current_ledger,
+            new_expiry_ledger: extend_to,
+        },
+    );
 }
 
 #[contract]
@@ -2618,6 +2624,7 @@ impl CreatorKeysContract {
                 events::ProtocolFeeRecipientUpdatedEvent {
                     old_recipient: old,
                     new_recipient: recipient,
+                    updated_at_ledger: env.ledger().sequence(),
                 },
             );
         }
@@ -3019,6 +3026,7 @@ impl CreatorKeysContract {
             events::ProtocolFeeRecipientUpdatedEvent {
                 old_recipient,
                 new_recipient,
+                updated_at_ledger: env.ledger().sequence(),
             },
         );
 

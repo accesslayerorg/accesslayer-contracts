@@ -5,11 +5,11 @@
 //!
 //! Event shape emitted by `update_protocol_fee_recipient`:
 //! - topics: `(PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME, admin)`
-//! - data:   `ProtocolFeeRecipientUpdatedEvent { old_recipient, new_recipient }`
+//! - data:   `ProtocolFeeRecipientUpdatedEvent { old_recipient, new_recipient, updated_at_ledger }`
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, test_env_with_auths};
+use contract_test_env::{assert_event, register_creator_keys, test_env_with_auths};
 use creator_keys::events;
 use soroban_sdk::{
     testutils::{Address as _, Events},
@@ -23,8 +23,9 @@ fn setup_update(
     Address,
     Address,
     Address,
+    Address,
 ) {
-    let (client, _) = register_creator_keys(env);
+    let (client, contract_id) = register_creator_keys(env);
     let admin = Address::generate(env);
     let old_recipient = Address::generate(env);
     let new_recipient = Address::generate(env);
@@ -33,7 +34,7 @@ fn setup_update(
     client.set_protocol_fee_recipient(&admin, &old_recipient);
     client.update_protocol_fee_recipient(&admin, &new_recipient);
 
-    (client, admin, old_recipient, new_recipient)
+    (client, contract_id, admin, old_recipient, new_recipient)
 }
 
 fn last_event_data(env: &Env) -> events::ProtocolFeeRecipientUpdatedEvent {
@@ -45,7 +46,7 @@ fn last_event_data(env: &Env) -> events::ProtocolFeeRecipientUpdatedEvent {
 #[test]
 fn test_protocol_fee_recipient_updated_event_old_recipient_field() {
     let env = test_env_with_auths();
-    let (_, _, old_recipient, _) = setup_update(&env);
+    let (_, _, _, old_recipient, _) = setup_update(&env);
 
     let payload = last_event_data(&env);
     assert_eq!(
@@ -57,7 +58,7 @@ fn test_protocol_fee_recipient_updated_event_old_recipient_field() {
 #[test]
 fn test_protocol_fee_recipient_updated_event_new_recipient_field() {
     let env = test_env_with_auths();
-    let (_, _, _, new_recipient) = setup_update(&env);
+    let (_, _, _, _, new_recipient) = setup_update(&env);
 
     let payload = last_event_data(&env);
     assert_eq!(
@@ -67,9 +68,30 @@ fn test_protocol_fee_recipient_updated_event_new_recipient_field() {
 }
 
 #[test]
+fn test_protocol_fee_recipient_updated_event_updated_at_ledger_field() {
+    let env = test_env_with_auths();
+    let ledger_before_update = env.ledger().sequence();
+    let (_, contract_id, admin, old_recipient, new_recipient) = setup_update(&env);
+
+    assert_event(
+        &env,
+        &contract_id,
+        (
+            events::PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME,
+            admin.clone(),
+        ),
+        events::ProtocolFeeRecipientUpdatedEvent {
+            old_recipient,
+            new_recipient,
+            updated_at_ledger: ledger_before_update,
+        },
+    );
+}
+
+#[test]
 fn test_protocol_fee_recipient_updated_event_emitted_once_per_update() {
     let env = test_env_with_auths();
-    let (_, _, old_recipient, _) = setup_update(&env);
+    let (_, _, _, old_recipient, _) = setup_update(&env);
 
     let all_events = env.events().all();
     let update_event_count = all_events
