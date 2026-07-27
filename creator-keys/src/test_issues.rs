@@ -743,11 +743,15 @@ mod issue_tests {
 
         // Both keys are DataKey::KeyBalance(Address, Address) variants with 32-byte address payloads
         assert_ne!(key_a, key_b, "different holders must produce distinct keys");
-        
+
         // Debug representation length check for structural equality
         let str_a = soroban_sdk::String::from_str(&env, &std::format!("{:?}", key_a));
         let str_b = soroban_sdk::String::from_str(&env, &std::format!("{:?}", key_b));
-        assert_eq!(str_a.len(), str_b.len(), "keys for different holders must have equal bounds/length");
+        assert_eq!(
+            str_a.len(),
+            str_b.len(),
+            "keys for different holders must have equal bounds/length"
+        );
     }
 
     #[test]
@@ -762,8 +766,17 @@ mod issue_tests {
         let dividend_acc_key = constants::storage::dividend_accumulator(&creator);
         let fee_balance_key = constants::storage::creator_fee_balance(&creator);
 
-        assert_ne!(balance_key, creator_profile_key, "balance key must differ from creator profile key");
-        assert_ne!(balance_key, dividend_acc_key, "balance key must differ from dividend accumulator key");
-        assert_ne!(balance_key, fee_balance_key, "balance key must differ from creator fee balance key");
+        assert_ne!(
+            balance_key, creator_profile_key,
+            "balance key must differ from creator profile key"
+        );
+        assert_ne!(
+            balance_key, dividend_acc_key,
+            "balance key must differ from dividend accumulator key"
+        );
+        assert_ne!(
+            balance_key, fee_balance_key,
+            "balance key must differ from creator fee balance key"
+        );
     }
 }
