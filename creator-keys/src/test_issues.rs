@@ -4,6 +4,7 @@
 
 #[cfg(test)]
 mod issue_tests {
+    extern crate std;
     use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
     use crate::{
@@ -700,5 +701,69 @@ mod issue_tests {
             key_a, key_b,
             "different creators must produce different locked allocation keys"
         );
+    }
+
+    // --- holder_balance_key helper unit tests (#619) ---
+
+    #[test]
+    fn test_holder_balance_key_non_empty_and_valid_variant() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let key = constants::storage::holder_balance_key(&creator, &holder);
+        assert_eq!(
+            key,
+            crate::DataKey::KeyBalance(creator.clone(), holder.clone()),
+            "holder_balance_key must produce a valid DataKey::KeyBalance variant"
+        );
+    }
+
+    #[test]
+    fn test_holder_balance_key_deterministic() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let key1 = constants::storage::holder_balance_key(&creator, &holder);
+        let key2 = constants::storage::holder_balance_key(&creator, &holder);
+
+        assert_eq!(key1, key2, "same inputs must always produce equal keys");
+    }
+
+    #[test]
+    fn test_holder_balance_key_different_holders_produce_equal_length_keys() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder_a = Address::generate(&env);
+        let holder_b = Address::generate(&env);
+
+        let key_a = constants::storage::holder_balance_key(&creator, &holder_a);
+        let key_b = constants::storage::holder_balance_key(&creator, &holder_b);
+
+        // Both keys are DataKey::KeyBalance(Address, Address) variants with 32-byte address payloads
+        assert_ne!(key_a, key_b, "different holders must produce distinct keys");
+        
+        // Debug representation length check for structural equality
+        let str_a = soroban_sdk::String::from_str(&env, &std::format!("{:?}", key_a));
+        let str_b = soroban_sdk::String::from_str(&env, &std::format!("{:?}", key_b));
+        assert_eq!(str_a.len(), str_b.len(), "keys for different holders must have equal bounds/length");
+    }
+
+    #[test]
+    fn test_holder_balance_key_distinguishable_from_other_storage_keys() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+
+        let creator_profile_key = constants::storage::creator(&creator);
+        let dividend_acc_key = constants::storage::dividend_accumulator(&creator);
+        let fee_balance_key = constants::storage::creator_fee_balance(&creator);
+
+        assert_ne!(balance_key, creator_profile_key, "balance key must differ from creator profile key");
+        assert_ne!(balance_key, dividend_acc_key, "balance key must differ from dividend accumulator key");
+        assert_ne!(balance_key, fee_balance_key, "balance key must differ from creator fee balance key");
     }
 }

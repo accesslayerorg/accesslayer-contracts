@@ -2317,8 +2317,7 @@ impl CreatorKeysContract {
     /// Fails with [`ContractError::NotRegistered`] if the creator is not registered.
     /// Reuses current creator storage access patterns.
     pub fn get_creator_fee_recipient(env: Env, creator: Address) -> Result<Address, ContractError> {
-        let profile = read_registered_creator_profile(&env, &creator)?;
-        Ok(profile.fee_recipient)
+        read_creator_fee_recipient(&env, &creator).ok_or(ContractError::NotRegistered)
     }
 
     /// Read-only view: returns accrued creator fee balance for the creator's fee recipient.
@@ -3031,10 +3030,7 @@ impl CreatorKeysContract {
             return Ok(());
         }
 
-        let mut profile = profile;
-        profile.fee_recipient = new_recipient.clone();
-        let key = constants::storage::creator(&creator);
-        env.storage().persistent().set(&key, &profile);
+        write_creator_fee_recipient(&env, &creator, &new_recipient);
 
         env.events().publish(
             (
