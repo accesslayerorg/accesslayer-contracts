@@ -45,6 +45,13 @@ Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs#L50-L83) as `p
 | `31` | `WhitelistOnly` | Buyer address is not in creator whitelist during whitelist window | Triggered in [`check_whitelist`](../creator-keys/src/lib.rs#L683) when whitelist is active and buyer is not allowed. |
 | `32` | `WhitelistTooLarge` | Whitelist configuration address count exceeds maximum limit | Triggered in [`validate_whitelist_config`](../creator-keys/src/lib.rs#L637) when address count `> MAX_WHITELIST_SIZE`. |
 | `33` | `AirdropRecipientLimitExceeded` | Airdrop recipient list length exceeds max limit per transaction | Triggered in [`airdrop_keys`](../creator-keys/src/lib.rs#L1730) when `recipients.len() > MAX_AIRDROP_RECIPIENT_LIMIT`. |
+| `34` | `InvalidReferrer` | Referrer address equals the buyer on a referred buy | Triggered in [`buy_key_with_referrer`](../creator-keys/src/lib.rs) when `referrer == buyer`. |
+| `35` | `WalletCapExceeded` | Purchase would exceed the per-wallet key cap for the creator | Triggered in [`buy_key_with_referrer`](../creator-keys/src/lib.rs) when post-buy wallet balance would exceed `max_keys_per_wallet`. |
+| `36` | `DiscountTierLimitExceeded` | Discount tier list exceeds the maximum number of tiers | Triggered during tier validation when more than `MAX_DISCOUNT_TIERS` tiers are configured. |
+| `37` | `WalletBlacklisted` | Blacklisted wallet attempted a gated operation | Triggered in [`buy_key`](../creator-keys/src/lib.rs), [`sell_key`](../creator-keys/src/lib.rs), or [`register_creator`](../creator-keys/src/lib.rs) when `is_wallet_blacklisted(wallet)` is true. |
+| `38` | `CreatorArchived` | Trade attempted while the creator's lifecycle state is `Archived` | Triggered in [`buy_key`](../creator-keys/src/lib.rs), [`sell_key`](../creator-keys/src/lib.rs), or [`buyback`](../creator-keys/src/lib.rs) when the creator has been archived via `archive_creator` and not yet restored. |
+| `39` | `StateRestoring` | Write attempted while the creator's state is being restored (`RESTORING`) | Triggered in [`buy_key`](../creator-keys/src/lib.rs), [`sell_key`](../creator-keys/src/lib.rs), or [`buyback`](../creator-keys/src/lib.rs) between `begin_creator_restore` and `complete_creator_restore`; read-only views keep serving current values during this window. |
+| `40` | `InvalidLifecycleTransition` | Lifecycle transition requested from an incompatible state | Triggered in [`begin_creator_restore`](../creator-keys/src/lib.rs) when the creator is not `Archived`, or [`complete_creator_restore`](../creator-keys/src/lib.rs) when the creator is not `RESTORING`. |
 
 ---
 

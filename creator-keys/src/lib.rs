@@ -84,6 +84,9 @@ pub enum ContractError {
     WalletCapExceeded = 35,
     DiscountTierLimitExceeded = 36,
     WalletBlacklisted = 37,
+    CreatorArchived = 38,
+    StateRestoring = 39,
+    InvalidLifecycleTransition = 40,
 }
 
 pub mod fee {
@@ -386,6 +389,13 @@ pub mod constants {
         pub fn creator_ttl_live_until(creator: &Address) -> DataKey {
             DataKey::CreatorTtlLiveUntil(creator.clone())
         }
+
+        /// Per-creator archive/restore lifecycle state key.
+        ///
+        /// Absent entries mean [`CreatorLifecycleState::Active`].
+        pub fn creator_lifecycle(creator: &Address) -> DataKey {
+            DataKey::CreatorLifecycle(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -616,6 +626,35 @@ pub enum DataKey {
     /// Wallet addresses the protocol admin has barred from buying, selling,
     /// or registering as a creator.
     Blacklisted(Address),
+    /// Per-creator lifecycle state used by the archive/restore flow.
+    ///
+    /// Absent entries default to [`CreatorLifecycleState::Active`]. See
+    /// [`CreatorLifecycleState`] for the state machine.
+    CreatorLifecycle(Address),
+}
+
+/// Lifecycle state for a creator's archive/restore flow (issue #709).
+///
+/// The protocol admin can archive a creator, begin a restoration of the
+/// archived state, and complete that restoration. While the state is
+/// [`CreatorLifecycleState::Archived`] or
+/// [`CreatorLifecycleState::Restoring`], trading entrypoints (`buy_key`,
+/// `sell_key`, `buyback`) are gated; read-only views keep serving current
+/// values at all times. Absent storage defaults to
+/// [`CreatorLifecycleState::Active`], so creators are active unless explicitly
+/// archived.
+///
+/// State machine:
+/// ```text
+/// Active --archive_creator--> Archived --begin_creator_restore--> Restoring
+/// Restoring --complete_creator_restore--> Active (storage key removed)
+/// ```
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum CreatorLifecycleState {
+    Active = 0,
+    Archived = 1,
+    Restoring = 2,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1036,6 +1075,31 @@ fn assert_is_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
         return Err(ContractError::Unauthorized);
     }
     Ok(())
+}
+
+/// Reads a creator's lifecycle state, defaulting to [`CreatorLifecycleState::Active`]
+/// when no lifecycle entry exists.
+pub fn read_creator_lifecycle(env: &Env, creator: &Address) -> CreatorLifecycleState {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::creator_lifecycle(creator))
+        .unwrap_or(CreatorLifecycleState::Active)
+}
+
+/// Guard rejecting trades for creators whose state is being restored (or is
+/// archived) so writes cannot race the copy-back of archived state.
+///
+/// Read-only views intentionally bypass this guard: the contract continues to
+/// serve current values while restoration is in progress (issue #709).
+fn assert_creator_lifecycle_allows_trading(
+    env: &Env,
+    creator: &Address,
+) -> Result<(), ContractError> {
+    match read_creator_lifecycle(env, creator) {
+        CreatorLifecycleState::Active => Ok(()),
+        CreatorLifecycleState::Archived => Err(ContractError::CreatorArchived),
+        CreatorLifecycleState::Restoring => Err(ContractError::StateRestoring),
+    }
 }
 
 fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
@@ -1708,6 +1772,7 @@ impl CreatorKeysContract {
         buyer.require_auth();
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
+        assert_creator_lifecycle_allows_trading(&env, &creator)?;
 
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -1877,6 +1942,7 @@ impl CreatorKeysContract {
         seller.require_auth();
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
+        assert_creator_lifecycle_allows_trading(&env, &creator)?;
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
@@ -1981,6 +2047,7 @@ impl CreatorKeysContract {
     ) -> Result<u32, ContractError> {
         caller.require_auth();
         assert_not_paused(&env)?;
+        assert_creator_lifecycle_allows_trading(&env, &creator)?;
 
         if caller != creator {
             return Err(ContractError::Unauthorized);
@@ -2296,6 +2363,87 @@ impl CreatorKeysContract {
     /// Read-only view: returns whether `wallet` is currently blacklisted.
     pub fn is_wallet_blacklisted(env: Env, wallet: Address) -> bool {
         is_blacklisted(&env, &wallet)
+    }
+
+    /// Archives a registered creator, gating its trading entrypoints.
+    ///
+    /// Only the protocol admin may call this. Archived creators reject
+    /// `buy_key`, `sell_key`, and `buyback` with
+    /// [`ContractError::CreatorArchived`] while read-only views keep serving
+    /// current values. Use [`CreatorKeysContract::begin_creator_restore`] to
+    /// start copying the archived state back.
+    pub fn archive_creator(
+        env: Env,
+        admin: Address,
+        creator: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        read_registered_creator_profile(&env, &creator)?;
+        env.storage().persistent().set(
+            &constants::storage::creator_lifecycle(&creator),
+            &CreatorLifecycleState::Archived,
+        );
+        env.events()
+            .publish((events::CREATOR_ARCHIVED_EVENT_NAME, creator), ());
+        Ok(())
+    }
+
+    /// Transitions an archived creator's state to [`CreatorLifecycleState::Restoring`].
+    ///
+    /// Only the protocol admin may call this, and only from the
+    /// [`CreatorLifecycleState::Archived`] state. During the RESTORING window,
+    /// trading entrypoints are gated with [`ContractError::StateRestoring`] while
+    /// read-only views keep returning current values; writes resume only after
+    /// [`CreatorKeysContract::complete_creator_restore`].
+    pub fn begin_creator_restore(
+        env: Env,
+        admin: Address,
+        creator: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if read_creator_lifecycle(&env, &creator) != CreatorLifecycleState::Archived {
+            return Err(ContractError::InvalidLifecycleTransition);
+        }
+        env.storage().persistent().set(
+            &constants::storage::creator_lifecycle(&creator),
+            &CreatorLifecycleState::Restoring,
+        );
+        env.events()
+            .publish((events::CREATOR_RESTORE_BEGUN_EVENT_NAME, creator), ());
+        Ok(())
+    }
+
+    /// Completes a restoration, returning the creator to active trading.
+    ///
+    /// Only the protocol admin may call this, and only from the
+    /// [`CreatorLifecycleState::Restoring`] state. The lifecycle storage key is
+    /// removed so absent entries keep meaning "active", keeping storage sparse.
+    pub fn complete_creator_restore(
+        env: Env,
+        admin: Address,
+        creator: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if read_creator_lifecycle(&env, &creator) != CreatorLifecycleState::Restoring {
+            return Err(ContractError::InvalidLifecycleTransition);
+        }
+        env.storage()
+            .persistent()
+            .remove(&constants::storage::creator_lifecycle(&creator));
+        env.events()
+            .publish((events::CREATOR_RESTORE_DONE_EVENT_NAME, creator), ());
+        Ok(())
+    }
+
+    /// Read-only view: returns a creator's lifecycle state.
+    ///
+    /// Returns [`CreatorLifecycleState::Active`] when no lifecycle entry exists,
+    /// so callers never receive an `Option`.
+    pub fn get_creator_lifecycle(env: Env, creator: Address) -> CreatorLifecycleState {
+        read_creator_lifecycle(&env, &creator)
     }
 
     pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {

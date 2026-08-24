@@ -40,6 +40,15 @@ pub const BLACKLIST_ADDED_EVENT_NAME: Symbol = symbol_short!("blk_add");
 /// Event name for a wallet being removed from the admin blacklist.
 pub const BLACKLIST_REMOVED_EVENT_NAME: Symbol = symbol_short!("blk_rem");
 
+/// Event name for a creator being archived by the protocol admin.
+pub const CREATOR_ARCHIVED_EVENT_NAME: Symbol = symbol_short!("archived");
+
+/// Event name for a creator's restore transition beginning (RESTORING state).
+pub const CREATOR_RESTORE_BEGUN_EVENT_NAME: Symbol = symbol_short!("restoring");
+
+/// Event name for a creator's restoration completing (back to active).
+pub const CREATOR_RESTORE_DONE_EVENT_NAME: Symbol = symbol_short!("restored");
+
 /// Event name for creator registration.
 pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
 
