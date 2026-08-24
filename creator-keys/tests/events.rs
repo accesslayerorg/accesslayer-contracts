@@ -159,6 +159,8 @@ struct CreatorRegisteredEventBuilder {
     holder_count: u32,
     creator_bps: u32,
     protocol_bps: u32,
+    fee_recipient: Option<Address>,
+    registered_at_ledger: u32,
 }
 
 impl CreatorRegisteredEventBuilder {
@@ -170,6 +172,8 @@ impl CreatorRegisteredEventBuilder {
             holder_count: 0,
             creator_bps: 0,
             protocol_bps: 0,
+            fee_recipient: None,
+            registered_at_ledger: 0,
         }
     }
 
@@ -203,14 +207,28 @@ impl CreatorRegisteredEventBuilder {
         self
     }
 
+    fn fee_recipient(mut self, fee_recipient: Address) -> Self {
+        self.fee_recipient = Some(fee_recipient);
+        self
+    }
+
+    fn registered_at_ledger(mut self, registered_at_ledger: u32) -> Self {
+        self.registered_at_ledger = registered_at_ledger;
+        self
+    }
+
     fn build(self) -> events::CreatorRegisteredEvent {
+        let creator = self.creator.expect("creator must be set");
+        let fee_recipient = self.fee_recipient.unwrap_or_else(|| creator.clone());
         events::CreatorRegisteredEvent {
-            creator: self.creator.expect("creator must be set"),
+            creator,
             handle: self.handle.expect("handle must be set"),
             supply: self.supply,
             holder_count: self.holder_count,
             creator_bps: self.creator_bps,
             protocol_bps: self.protocol_bps,
+            fee_recipient,
+            registered_at_ledger: self.registered_at_ledger,
         }
     }
 }
@@ -261,6 +279,7 @@ fn test_register_creator_event_data_is_indexer_friendly() {
     let last = events.last().unwrap();
     let payload: events::CreatorRegisteredEvent = last.2.into_val(&env);
 
+    let creator_addr = fixture.creator.clone();
     let expected = CreatorRegisteredEventBuilder::new()
         .creator(fixture.creator)
         .handle(handle)
@@ -268,6 +287,8 @@ fn test_register_creator_event_data_is_indexer_friendly() {
         .holder_count(0)
         .creator_bps(0)
         .protocol_bps(0)
+        .fee_recipient(creator_addr)
+        .registered_at_ledger(env.ledger().sequence())
         .build();
 
     assert_eq!(payload, expected);
@@ -283,7 +304,9 @@ fn test_register_creator_event_payload_field_order_is_documented() {
             "supply",
             "holder_count",
             "creator_bps",
-            "protocol_bps"
+            "protocol_bps",
+            "fee_recipient",
+            "registered_at_ledger"
         ]
     );
 }
@@ -352,17 +375,32 @@ fn test_buy_key_event_payload_tracks_new_supply_across_purchases() {
     fixture.buy_key(&buyer1, KEY_PRICE);
     let first_payload = fixture.last_buy_payload(&env);
     assert_eq!(first_payload.price_paid, KEY_PRICE);
+    assert_eq!(
+        first_payload.new_supply, 1,
+        "first buy new_supply should be 1"
+    );
 
     fixture.buy_key(&buyer2, KEY_PRICE);
     let second_payload = fixture.last_buy_payload(&env);
     assert_eq!(second_payload.price_paid, KEY_PRICE);
+    assert_eq!(
+        second_payload.new_supply, 2,
+        "second buy new_supply should be 2"
+    );
 }
 
 #[test]
 fn test_buy_key_event_payload_field_order_is_documented() {
     assert_eq!(
         events::BUY_EVENT_DATA_FIELDS,
-        ["buyer", "creator_id", "quantity", "price_paid", "ledger"]
+        [
+            "buyer",
+            "creator_id",
+            "quantity",
+            "price_paid",
+            "new_supply",
+            "ledger",
+        ]
     );
 }
 
