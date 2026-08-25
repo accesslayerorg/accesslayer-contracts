@@ -86,6 +86,9 @@ pub enum ContractError {
     WalletBlacklisted = 37,
     SchemaVersionTooOld = 38,
     SchemaVersionUnsupported = 39,
+    CreatorArchived = 40,
+    StateRestoring = 41,
+    InvalidLifecycleTransition = 42,
 }
 
 pub mod fee {

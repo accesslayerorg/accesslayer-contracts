@@ -21,7 +21,7 @@
 //! tests against: `archive_creator`, `begin_creator_restore`,
 //! `complete_creator_restore`, `get_creator_lifecycle`, the
 //! [`creator_keys::CreatorLifecycleState`] enum, and the appended error codes
-//! 38–40 (`CreatorArchived`, `StateRestoring`, `InvalidLifecycleTransition`).
+//! 40–42 (`CreatorArchived`, `StateRestoring`, `InvalidLifecycleTransition`).
 
 mod contract_test_env;
 
