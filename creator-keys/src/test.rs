@@ -417,6 +417,48 @@ fn test_transfer_keys_insufficient_balance_reverts() {
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
 }
 
+#[test]
+fn test_transfer_keys_balance_updates_correctly() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.set_key_price(&admin, &100i128);
+    client.register_creator(
+    &crate::RegisterCreatorParams {
+        creator: creator.clone(),
+        handle: String::from_str(&env, "alice"),
+    },
+    &None,
+    &None,
+    &None,
+    &None,
+    &None
+);
+
+    // Seed sender with 10 keys
+    for _ in 0..10 {
+        client.buy_key(&creator, &sender, &100i128, &None);
+    }
+
+    // Transfer 4 keys to recipient
+    client.transfer_keys(&creator, &sender, &recipient, &4);
+
+    // Assert sender balance is 6 (10 - 4)
+    assert_eq!(client.get_key_balance(&creator, &sender), 6);
+
+    // Assert recipient balance is 4
+    assert_eq!(client.get_key_balance(&creator, &recipient), 4);
+
+    // Assert total supply is unchanged (still 10)
+    assert_eq!(client.get_total_key_supply(&creator), 10);
+}
+
 // --- Max supply cap tests (#394) ---
 
 #[test]
