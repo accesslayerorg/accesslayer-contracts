@@ -431,6 +431,93 @@ pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
+// --- Supply cap events ---
+
+/// Event name for supply cap set.
+pub const SUPPLY_CAP_SET_EVENT_NAME: Symbol = symbol_short!("cap_set");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SupplyCapSetEvent {
+    pub creator_id: Address,
+    pub cap: u32,
+}
+
+pub fn supply_cap_set_topics(creator: &Address) -> (Symbol, Address) {
+    (SUPPLY_CAP_SET_EVENT_NAME, creator.clone())
+}
+
+// --- Multisig pause events ---
+
+/// Event name for pause proposal.
+pub const PAUSE_PROPOSED_EVENT_NAME: Symbol = symbol_short!("pp_prop");
+
+/// Event name for trading paused via multisig.
+pub const TRADING_PAUSED_EVENT_NAME: Symbol = symbol_short!("pp_exec");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PauseProposedEvent {
+    pub creator_id: Address,
+    pub proposer: Address,
+    pub ledger: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradingPausedEvent {
+    pub creator_id: Address,
+    pub approver: Address,
+    pub ledger: u32,
+}
+
+pub fn pause_proposed_topics(creator: &Address) -> (Symbol, Address) {
+    (PAUSE_PROPOSED_EVENT_NAME, creator.clone())
+}
+
+pub fn trading_paused_topics(creator: &Address) -> (Symbol, Address) {
+    (TRADING_PAUSED_EVENT_NAME, creator.clone())
+}
+
+// --- Vesting events ---
+
+/// Event name for vesting schedule created.
+pub const VESTING_CREATED_EVENT_NAME: Symbol = symbol_short!("vest_new");
+
+/// Event name for vested keys claimed.
+pub const KEYS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("vest_clm");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VestingCreatedEvent {
+    pub creator_id: Address,
+    pub beneficiary: Address,
+    pub total_keys: u32,
+    pub start_ledger: u32,
+    pub vesting_period_ledgers: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysClaimedEvent {
+    pub creator_id: Address,
+    pub beneficiary: Address,
+    pub amount: u32,
+    pub ledger: u32,
+}
+
+pub fn vesting_created_topics(creator: &Address) -> (Symbol, Address) {
+    (VESTING_CREATED_EVENT_NAME, creator.clone())
+}
+
+pub fn keys_claimed_topics(creator: &Address, beneficiary: &Address) -> (Symbol, Address, Address) {
+    (
+        KEYS_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        beneficiary.clone(),
+    )
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]

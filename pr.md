@@ -1,98 +1,40 @@
-# Pull Request: Resolved Issues #659, #660, #661, #662
-
 ## Summary
-This PR resolves four critical issues related to protocol fee calculation, bonding curve sell function, TTL extension, and duplicate creator registration. All issues have been addressed with comprehensive unit and integration tests.
 
-## Issues Resolved
+- Add `set_supply_cap` entrypoint so creators can configure a max supply after registration (#766)
+- Add multisig pause mechanism with `propose_pause` / `approve_pause` requiring 2-of-3 admin approval (#761)
+- Add linear vesting schedule with `create_vesting` / `claim_vested` for creator key allocations (#763)
 
-### Issue #661: Protocol Fee Calculation with Basis Points
-**Status:** ✅ Resolved
+Closes #766
+Closes #761
+Closes #763
 
-**Implementation:**
-- Added comprehensive tests in `buy_protocol_fee_recipient_balance.rs`
-- Added tests in `sell_protocol_fee_recipient_balance.rs`
-- Tests cover:
-  - 5% fee (500 bps) deduction on buy transactions
-  - 5% fee (500 bps) deduction on sell transactions
-  - 0 bps fee handling (covered in `zero_creator_fee_regression.rs`)
-  - 100% fee scenarios (covered in `sell_quote_rounding.rs`)
-  - Fee accumulation and balance tracking
-  - Floor division behavior for fee calculation
+## Changes
 
-**Key Test Files:**
-- `creator-keys/tests/buy_protocol_fee_recipient_balance.rs`
-- `creator-keys/tests/sell_protocol_fee_recipient_balance.rs`
-- `creator-keys/tests/zero_creator_fee_regression.rs`
-- `creator-keys/tests/fee_rounding_invariants.rs`
+### #766 — Supply cap configuration
+- Added `set_supply_cap(creator, cap)` callable only by the creator
+- Panics with `CapAlreadySet` if a cap already exists or new cap is below current supply
+- Emits `supply_cap_set` event with key_id and cap value
 
-### Issue #659: Bonding Curve Sell Function Boundary Values
-**Status:** ✅ Resolved
+### #761 — Multi-sig pause/unpause
+- Added `set_multisig_admins(creator, admins)` to configure up to 3 admin addresses
+- Added `propose_pause(creator, caller)` callable by any admin to initiate a pause proposal
+- Added `approve_pause(creator, caller)` callable by a second admin to execute the pause
+- Pause executes automatically when 2-of-3 threshold is reached; proposals reset after execution
+- Emits `pause_proposed` and `trading_paused` events
 
-**Implementation:**
-- Added `sell_proceeds_decreasing_monotonically.rs` for boundary testing
-- Tests cover:
-  - Selling the last key (supply 1 → 0) with correct payout
-  - Higher supply yields lower per-key payout (bonding curve property)
-  - Monotonically decreasing proceeds across sequential sells
-  - Supply decrementation validation
+### #763 — Vesting schedule
+- Added `create_vesting(creator, beneficiary, total_keys, vesting_period_ledgers)` admin function
+- Added `claim_vested(creator, beneficiary)` callable by the beneficiary
+- Computes vested amount as `total_keys * elapsed_ledgers / vesting_period_ledgers` (floored)
+- Panics with `NothingToClaim` if no new keys have vested
+- Emits `vesting_created` and `keys_claimed` events
 
-**Key Test Files:**
-- `creator-keys/tests/sell_proceeds_decreasing_monotonically.rs`
-- `creator-keys/tests/sell_key.rs` (includes `test_sell_key_removes_holder_when_last_key_is_sold`)
-
-### Issue #660: TTL Extension on Buy Transactions
-**Status:** ✅ Resolved
-
-**Implementation:**
-- Added comprehensive integration test in `ttl_extension_on_buy.rs`
-- Tests cover:
-  - TTL extension when near expiry threshold
-  - TTL extension event emission with correct topics and payload
-  - TTL not extended when already above threshold
-  - Validation that TTL increases after buy
-  - Event structure validation
-
-**Key Test Files:**
-- `creator-keys/tests/ttl_extension_on_buy.rs`
-
-### Issue #662: Duplicate Creator Registration Prevention
-**Status:** ✅ Resolved
-
-**Implementation:**
-- Enhanced `creator_registration.rs` with duplicate prevention tests
-- Tests cover:
-  - First registration succeeds and persists creator state
-  - Second registration from same wallet panics with `AlreadyRegistered` error
-  - Different wallet can register independently
-  - Registration with different handle still fails for duplicate wallet
-  - State unchanged after duplicate attempt
-  - No state mutation on panic
-
-**Key Test Files:**
-- `creator-keys/tests/creator_registration.rs`
-
-## Additional Improvements
-- Added new documentation:
-  - `docs/bonding_curve_guide.md`
-  - `docs/integration-test-guide.md`
-  - `docs/storage-layout.md`
-- Enhanced test utilities in `contract_test_env`
-- Added comprehensive event validation tests
-- Improved fee calculation helper functions
-
-## Testing
-All tests pass successfully. The test suite now includes:
-- 125+ test files in `creator-keys/tests/`
-- 541+ snapshot test files
-- Comprehensive coverage of edge cases and boundary conditions
-
-## Merge Details
-- Merged from upstream: `accesslayerorg/accesslayer-contracts`
-- Base branch: `main`
-- Fast-forward merge completed successfully
-- No conflicts encountered
-
-## Commit Author
-All commits will be authored by:
-- **Name:** devpeter
-- **Email:** devpeter999olatunbossemma17@gmail.com
+## New error variants (appended to end of enum)
+- `CapAlreadySet = 37`
+- `MultisigAdminLimitExceeded = 38`
+- `ProposalNotFound = 39`
+- `AlreadyApproved = 40`
+- `ApprovalThresholdNotMet = 41`
+- `VestingNotFound = 42`
+- `NothingToClaim = 43`
+- `VestingNotStarted = 44`
