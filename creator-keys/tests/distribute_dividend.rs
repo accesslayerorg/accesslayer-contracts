@@ -109,7 +109,7 @@ fn test_distribute_dividend_no_fee_config_fails() {
 fn test_distribute_dividend_while_paused_fails() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    set_pricing_and_fees(
+    let admin = set_pricing_and_fees(
         &env,
         &client,
         100,
@@ -120,8 +120,6 @@ fn test_distribute_dividend_while_paused_fails() {
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &100, &None);
 
-    let admin = Address::generate(&env);
-    client.set_protocol_admin(&admin, &admin);
     client.pause(&admin);
 
     let distributor = Address::generate(&env);

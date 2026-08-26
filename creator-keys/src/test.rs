@@ -2388,3 +2388,66 @@ fn test_compute_net_buyback_cost_zero_gross_price() {
     let result = fee::compute_net_buyback_cost(0, 1000);
     assert_eq!(result, Some(0), "zero gross price should return zero");
 }
+
+#[test]
+fn test_buy_and_sell_events_contain_matching_creator_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let handle = String::from_str(&env, "alice");
+
+    client.set_key_price(&admin, &100);
+    client.set_fee_config(&admin, &9000, &1000);
+    client.register_creator(
+        &crate::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: handle.clone(),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None
+    );
+
+    // Perform buy and extract the buy event
+    client.buy_key(&creator, &buyer, &100, &None);
+
+    let all_events = env.events().all();
+    assert_eq!(all_events.len(), 1, "expected exactly one buy event");
+
+    let (_contract_id, _topics, data): (
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    ) = all_events.get(0).unwrap();
+
+    let buy_event: events::KeysBoughtEvent = data.try_into_val(&env).unwrap();
+    assert_eq!(
+        buy_event.creator_id, creator,
+        "buy event creator_id field must match the creator address"
+    );
+
+    // Perform sell and extract the sell event
+    client.sell_key(&creator, &buyer, &None);
+
+    let all_events = env.events().all();
+    assert_eq!(all_events.len(), 1, "expected exactly one sell event");
+
+    let (_contract_id, _topics, data): (
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    ) = all_events.get(0).unwrap();
+
+    let sell_event: events::KeysSoldEvent = data.try_into_val(&env).unwrap();
+    assert_eq!(
+        sell_event.creator_id, creator,
+        "sell event creator_id field must match the creator address"
+    );
+}

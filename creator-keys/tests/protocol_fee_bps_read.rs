@@ -15,6 +15,7 @@ fn test_get_protocol_fee_bps_returns_stored_value() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000, &1000);
 
     let bps = client.get_protocol_fee_bps();
@@ -27,6 +28,7 @@ fn test_get_protocol_fee_bps_returns_updated_value() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000, &1000);
     assert_eq!(client.get_protocol_fee_bps(), 1000);
 
@@ -58,6 +60,7 @@ fn test_get_protocol_fee_bps_does_not_mutate_state() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9500, &500);
 
     let first = client.get_protocol_fee_bps();
@@ -75,6 +78,7 @@ fn test_get_protocol_fee_bps_persists_across_operations() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &8500, &1500);
 
     let creator = soroban_sdk::Address::generate(&env);

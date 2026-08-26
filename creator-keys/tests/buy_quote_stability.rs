@@ -5,7 +5,7 @@ mod contract_test_env;
 use contract_test_env::{
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
-use soroban_sdk::Vec;
+use soroban_sdk::{testutils::Address as _, Address, Vec};
 
 #[test]
 fn test_buy_quote_is_stable_across_multiple_calls() {
@@ -51,6 +51,9 @@ fn test_buy_quote_stability_with_different_fee_configs() {
     let (client, _) = register_creator_keys(&env);
     let creator = register_test_creator(&env, &client, "alice");
 
+    let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
+
     // Test cases for different fee configurations
     let configs = [
         (1000, 9500, 500),  // 5% protocol fee
@@ -59,7 +62,8 @@ fn test_buy_quote_stability_with_different_fee_configs() {
     ];
 
     for (price, c_bps, p_bps) in configs {
-        set_pricing_and_fees(&env, &client, price, c_bps, p_bps);
+        client.set_key_price(&admin, &price);
+        client.set_fee_config(&admin, &c_bps, &p_bps);
 
         let supply_before = client.get_creator_supply(&creator);
 

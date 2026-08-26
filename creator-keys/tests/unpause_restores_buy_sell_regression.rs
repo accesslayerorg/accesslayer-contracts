@@ -24,9 +24,7 @@ fn setup_with_admin(
     Address,
 ) {
     let (client, _) = register_creator_keys(env);
-    set_pricing_and_fees(env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
-    let admin = Address::generate(env);
-    client.set_protocol_admin(&admin, &admin);
+    let admin = set_pricing_and_fees(env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(env, &client, "alice");
     (client, admin, creator)
 }

@@ -186,6 +186,7 @@ fn sell_fee_split_invariant_across_multiple_fee_configs() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
     let key_price = 1000_i128;
+    let admin = set_pricing_and_fees(&env, &client, key_price, 9000, 1000);
 
     let test_cases = [
         (10000, 0),   // 100% creator
@@ -200,7 +201,7 @@ fn sell_fee_split_invariant_across_multiple_fee_configs() {
         }
 
         let creator = register_test_creator(&env, &client, &format!("creator{}", i));
-        set_pricing_and_fees(&env, &client, key_price, *creator_bps, *protocol_bps);
+        client.set_fee_config(&admin, creator_bps, protocol_bps);
         let holder = setup_holder_with_key(&env, &client, &creator, key_price);
 
         assert_sell_fee_split_invariant(
@@ -220,10 +221,11 @@ fn sell_fee_split_invariant_across_price_range() {
     let (client, _) = register_creator_keys(&env);
 
     let test_prices = [1, 2, 3, 10, 99, 100, 101, 999, 1000, 10000];
+    let admin = set_pricing_and_fees(&env, &client, 1_i128, 9000, 1000);
 
     for (i, price) in test_prices.iter().enumerate() {
         let creator = register_test_creator(&env, &client, &format!("creator{}", i));
-        set_pricing_and_fees(&env, &client, *price, 9000, 1000);
+        client.set_key_price(&admin, price);
         let holder = setup_holder_with_key(&env, &client, &creator, *price);
 
         assert_sell_fee_split_invariant(&client, &creator, &holder, *price, 9000, 1000);
@@ -266,6 +268,8 @@ fn sell_fee_split_invariant_zero_net_boundary() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
 
+    let admin = set_pricing_and_fees(&env, &client, 1_i128, 9000, 1000);
+
     // Test cases where seller gets zero net due to fees
     let zero_net_cases = [
         (1, 9000, 1000), // Price 1, 90/10 split
@@ -276,7 +280,8 @@ fn sell_fee_split_invariant_zero_net_boundary() {
 
     for (i, (price, creator_bps, protocol_bps)) in zero_net_cases.iter().enumerate() {
         let creator = register_test_creator(&env, &client, &format!("creator{}", i));
-        set_pricing_and_fees(&env, &client, *price, *creator_bps, *protocol_bps);
+        client.set_key_price(&admin, price);
+        client.set_fee_config(&admin, creator_bps, protocol_bps);
         let holder = setup_holder_with_key(&env, &client, &creator, *price);
 
         let quote = client.get_sell_quote(&creator, &holder);

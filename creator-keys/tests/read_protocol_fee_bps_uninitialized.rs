@@ -29,6 +29,7 @@ fn test_read_protocol_fee_bps_succeeds_when_initialized() {
     let (client, contract_id) = register_creator_keys(&env);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000, &1000);
 
     let bps = env.as_contract(&contract_id, || read_protocol_fee_bps(&env));

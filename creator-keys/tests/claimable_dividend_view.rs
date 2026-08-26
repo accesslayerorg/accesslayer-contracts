@@ -125,7 +125,7 @@ fn test_get_claimable_dividend_accumulates_across_distributions() {
 fn test_get_claimable_dividend_works_while_paused() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    set_pricing_and_fees(
+    let admin = set_pricing_and_fees(
         &env,
         &client,
         100,
@@ -139,8 +139,6 @@ fn test_get_claimable_dividend_works_while_paused() {
     let distributor = Address::generate(&env);
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
 
-    let admin = Address::generate(&env);
-    client.set_protocol_admin(&admin, &admin);
     client.pause(&admin);
 
     // Read-only view must work even when protocol is paused.

@@ -20,6 +20,11 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      - name: Rust versions
+        run: |
+          rustc --version
+          cargo fmt --version
+
       - name: Format check
         run: cargo fmt --all -- --check
 

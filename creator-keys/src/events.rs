@@ -34,6 +34,15 @@ pub const PAUSE_EVENT_NAME: Symbol = symbol_short!("pause");
 /// Event name for protocol unpause.
 pub const UNPAUSE_EVENT_NAME: Symbol = symbol_short!("unpause");
 
+/// Event name for a wallet being added to the admin blacklist.
+pub const BLACKLIST_ADDED_EVENT_NAME: Symbol = symbol_short!("blk_add");
+
+/// Event name for a wallet being removed from the admin blacklist.
+pub const BLACKLIST_REMOVED_EVENT_NAME: Symbol = symbol_short!("blk_rem");
+
+/// Event name for the protocol-wide buy deadline ledger being set or cleared.
+pub const GLOBAL_DEADLINE_SET_EVENT_NAME: Symbol = symbol_short!("dl_set");
+
 /// Event name for creator registration.
 pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
 
@@ -68,21 +77,30 @@ pub const TOPIC_CREATOR_INDEX: u32 = 1;
 pub const TOPIC_BUYER_INDEX: u32 = 2;
 
 /// Stable field order for registration event payloads.
-pub const REGISTER_EVENT_DATA_FIELDS: [&str; 6] = [
+pub const REGISTER_EVENT_DATA_FIELDS: [&str; 8] = [
     "creator",
     "handle",
     "supply",
     "holder_count",
     "creator_bps",
     "protocol_bps",
+    "fee_recipient",
+    "registered_at_ledger",
 ];
 
 /// Stable field order for buy event payloads.
-pub const BUY_EVENT_DATA_FIELDS: [&str; 5] =
-    ["buyer", "creator_id", "quantity", "price_paid", "ledger"];
+pub const BUY_EVENT_DATA_FIELDS: [&str; 6] = [
+    "buyer",
+    "creator_id",
+    "quantity",
+    "price_paid",
+    "new_supply",
+    "ledger",
+];
 
 /// Stable field order for sell event payloads.
-pub const SELL_EVENT_DATA_FIELDS: [&str; 1] = ["supply"];
+pub const SELL_EVENT_DATA_FIELDS: [&str; 5] =
+    ["seller", "creator_id", "quantity", "proceeds", "ledger"];
 
 /// Stable field order for buyback event payloads.
 pub const BUYBACK_EVENT_DATA_FIELDS: [&str; 5] =
@@ -110,6 +128,10 @@ pub struct CreatorRegisteredEvent {
     pub holder_count: u32,
     pub creator_bps: u32,
     pub protocol_bps: u32,
+    /// Address that receives creator fee payouts for this creator.
+    pub fee_recipient: Address,
+    /// Ledger sequence number at the time of registration.
+    pub registered_at_ledger: u32,
 }
 
 /// Shared registration event topics tuple.
@@ -144,7 +166,25 @@ pub struct KeysBoughtEvent {
     pub quantity: u32,
     /// Price paid for the keys (before fees).
     pub price_paid: i128,
+    /// Total supply of keys for this creator after the purchase.
+    pub new_supply: u32,
     /// Ledger sequence number at the time of the purchase.
+    pub ledger: u32,
+}
+
+/// Stable sell event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysSoldEvent {
+    /// Address of the seller performing the sale.
+    pub seller: Address,
+    /// Address of the creator whose keys are being sold.
+    pub creator_id: Address,
+    /// Number of keys sold in this transaction.
+    pub quantity: u32,
+    /// Net proceeds received by the seller after fees.
+    pub proceeds: i128,
+    /// Ledger sequence number at the time of the sale.
     pub ledger: u32,
 }
 
@@ -271,6 +311,22 @@ pub struct CreatorFeeRecipientUpdatedEvent {
     pub creator_id: Address,
     pub old_recipient: Address,
     pub new_recipient: Address,
+}
+
+/// Event name for contract initialization (first fee config set).
+pub const CONTRACT_INITIALIZED_EVENT_NAME: Symbol = symbol_short!("init");
+
+/// Stable contract initialization event payload for downstream indexers.
+///
+/// Emitted exactly once on the first successful `set_fee_config` call.
+/// Re-initialization attempts revert before reaching event emission.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ContractInitializedEvent {
+    pub admin: Address,
+    pub protocol_fee_bps: u32,
+    pub protocol_fee_recipient: Address,
+    pub initialized_at_ledger: u32,
 }
 
 /// Event name for global fee configuration update.

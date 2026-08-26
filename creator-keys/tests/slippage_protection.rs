@@ -34,10 +34,7 @@ fn setup_sell(
     Address,
     Address,
 ) {
-    let (client, contract_id, creator, holder) = {
-        let (client, contract_id, creator, buyer) = setup_buy(env);
-        (client, contract_id, creator, buyer)
-    };
+    let (client, contract_id, creator, holder) = setup_buy(env);
     let buy_quote = client.get_buy_quote(&creator);
     client.buy_key(&creator, &holder, &buy_quote.total_amount, &None);
     (client, contract_id, creator, holder)
@@ -134,4 +131,81 @@ fn test_slippage_none_passthrough_preserves_existing_behavior() {
         sell_quote.total_amount,
         buy_quote.price - buy_quote.creator_fee - buy_quote.protocol_fee
     );
+}
+
+// ---------------------------------------------------------------------------
+// Issue #676 Unit Tests: Slippage Protection Guard for buy_key max_price
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_buy_slippage_max_price_u128_max_always_succeeds() {
+    let env = test_env_with_auths();
+    let (client, _, creator, buyer) = setup_buy(&env);
+    let buy_quote = client.get_buy_quote(&creator);
+
+    // Setting max_price to max value (i128::MAX) never triggers the slippage guard
+    let max_price = Some(i128::MAX);
+    let supply = client.buy_key(&creator, &buyer, &buy_quote.total_amount, &max_price);
+    assert_eq!(supply, 1);
+    assert_eq!(client.get_key_balance(&creator, &buyer), 1);
+}
+
+#[test]
+fn test_buy_slippage_max_price_zero_panics_unless_key_is_free() {
+    let env = test_env_with_auths();
+    let (client, contract_id) = register_creator_keys(&env);
+    let _admin = set_pricing_and_fees(&env, &client, KEY_PRICE, 9000, 1000);
+    let creator = register_test_creator(&env, &client, "bob");
+    let buyer = Address::generate(&env);
+
+    // Case 1: Key is NOT free (price > 0). max_price = Some(0) panics with SlippageExceeded
+    let before = capture_snapshot(&client, &creator, &buyer);
+    let result = client.try_buy_key(&creator, &buyer, &KEY_PRICE, &Some(0));
+    let after = capture_snapshot(&client, &creator, &buyer);
+
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+    before.assert_unchanged(&after);
+
+    // Case 2: Key IS free (price == 0). max_price = Some(0) succeeds without triggering guard
+    let free_creator = register_test_creator(&env, &client, "free_creator");
+    contract_test_env::set_stored_key_price(&env, &contract_id, 0);
+    let free_buyer = Address::generate(&env);
+
+    let supply = client.buy_key(&free_creator, &free_buyer, &100, &Some(0));
+    assert_eq!(supply, 1);
+    assert_eq!(client.get_key_balance(&free_creator, &free_buyer), 1);
+}
+
+#[test]
+fn test_buy_slippage_boundary_exact_cost_and_exceeded_by_one_stroop() {
+    let env = test_env_with_auths();
+    let (client, _, creator, _buyer) = setup_buy(&env);
+    let buy_quote = client.get_buy_quote(&creator);
+    let actual_price = buy_quote.price;
+
+    // 1. Actual cost equal to max_price succeeds
+    let buyer1 = Address::generate(&env);
+    let supply = client.buy_key(
+        &creator,
+        &buyer1,
+        &buy_quote.total_amount,
+        &Some(actual_price),
+    );
+    assert_eq!(supply, 1);
+
+    // 2. Actual cost exceeding max_price by 1 stroop (max_price = actual_price - 1)
+    // panics with SlippageExceeded
+    let buyer2 = Address::generate(&env);
+    let before = capture_snapshot(&client, &creator, &buyer2);
+    let result = client.try_buy_key(
+        &creator,
+        &buyer2,
+        &buy_quote.total_amount,
+        &Some(actual_price - 1),
+    );
+    let after = capture_snapshot(&client, &creator, &buyer2);
+
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+    // 3. Assert no state is mutated when the guard panics
+    before.assert_unchanged(&after);
 }

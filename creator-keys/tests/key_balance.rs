@@ -230,4 +230,77 @@ fn test_key_balance_returns_zero_for_uninitialized_holder() {
         Ok(Ok(0)),
         "wallet that has never bought keys must return zero, not an error"
     );
+    assert_eq!(
+        client.get_balance(&creator, &uninitialized_wallet),
+        0,
+        "get_balance for never-transacted wallet must return 0"
+    );
+}
+
+#[test]
+fn test_get_balance_never_transacted_wallet_returns_zero_and_does_not_panic() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let creator = soroban_sdk::Address::generate(&env);
+    let wallet_no_history = soroban_sdk::Address::generate(&env);
+
+    // Direct invocation must return 0 without panic
+    assert_eq!(client.get_balance(&creator, &wallet_no_history), 0);
+    assert_eq!(client.get_key_balance(&creator, &wallet_no_history), 0);
+
+    // Soroban try_* client invocation must return Ok(Ok(0)) without error
+    assert_eq!(
+        client.try_get_balance(&creator, &wallet_no_history),
+        Ok(Ok(0))
+    );
+    assert_eq!(
+        client.try_get_key_balance(&creator, &wallet_no_history),
+        Ok(Ok(0))
+    );
+}
+
+#[test]
+fn test_get_balance_wallet_bought_then_sold_all_keys_returns_zero_and_does_not_panic() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = soroban_sdk::Address::generate(&env);
+    let creator = soroban_sdk::Address::generate(&env);
+    let trader = soroban_sdk::Address::generate(&env);
+
+    client.set_key_price(&admin, &100i128);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Buy 2 keys
+    client.buy_key(&creator, &trader, &100i128, &None);
+    client.buy_key(&creator, &trader, &100i128, &None);
+    assert_eq!(client.get_balance(&creator, &trader), 2);
+
+    // Sell all 2 keys
+    client.sell_key(&creator, &trader, &None);
+    client.sell_key(&creator, &trader, &None);
+
+    // Balance after selling all keys must return 0 without panicking
+    assert_eq!(client.get_balance(&creator, &trader), 0);
+    assert_eq!(client.get_key_balance(&creator, &trader), 0);
+    assert_eq!(client.try_get_balance(&creator, &trader), Ok(Ok(0)));
+    assert_eq!(client.try_get_key_balance(&creator, &trader), Ok(Ok(0)));
 }

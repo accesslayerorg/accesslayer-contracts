@@ -53,6 +53,7 @@ fn test_get_protocol_fee_recipient_reflects_set_entrypoint() {
     let admin = Address::generate(&env);
     let recipient = Address::generate(&env);
 
+    client.set_protocol_admin(&admin, &admin);
     client.set_protocol_fee_recipient(&admin, &recipient);
 
     assert_eq!(
@@ -92,6 +93,7 @@ fn test_get_protocol_fee_recipient_tracks_overwrites() {
     let first = Address::generate(&env);
     let second = Address::generate(&env);
 
+    client.set_protocol_admin(&admin, &admin);
     client.set_protocol_fee_recipient(&admin, &first);
     assert_eq!(
         client.get_protocol_fee_recipient(),
