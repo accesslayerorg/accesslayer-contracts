@@ -574,6 +574,53 @@ pub fn keys_claimed_topics(creator: &Address, beneficiary: &Address) -> (Symbol,
     )
 }
 
+// --- Timelock events ---
+
+/// Event name for config change proposed.
+pub const CONFIG_CHANGE_PROPOSED_EVENT_NAME: Symbol = symbol_short!("tl_prop");
+
+/// Event name for config change executed.
+pub const CONFIG_CHANGE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("tl_exec");
+
+/// Event name for config change cancelled.
+pub const CONFIG_CHANGE_CANCELLED_EVENT_NAME: Symbol = symbol_short!("tl_canc");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfigChangeProposedEvent {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub change_type: u32,
+    pub proposed_at: u32,
+    pub execution_not_before: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfigChangeExecutedEvent {
+    pub proposal_id: u32,
+    pub executed_at: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfigChangeCancelledEvent {
+    pub proposal_id: u32,
+    pub cancelled_at: u32,
+}
+
+pub fn config_change_proposed_topics(proposer: &Address) -> (Symbol, Address) {
+    (CONFIG_CHANGE_PROPOSED_EVENT_NAME, proposer.clone())
+}
+
+pub fn config_change_executed_topics() -> Symbol {
+    CONFIG_CHANGE_EXECUTED_EVENT_NAME
+}
+
+pub fn config_change_cancelled_topics() -> Symbol {
+    CONFIG_CHANGE_CANCELLED_EVENT_NAME
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -591,7 +638,7 @@ pub enum PollError {
 
 #[derive(Clone)]
 #[contracttype]
-enum PollDataKey {
+pub enum PollDataKey {
     NextPollId(Address),
     Poll(Address, u32),
     Vote(Address, u32, Address),
@@ -624,22 +671,22 @@ pub struct PollResult {
     pub expired: bool,
 }
 
-fn poll_storage_key(creator_id: &Address, poll_id: u32) -> PollDataKey {
+pub fn poll_storage_key(creator_id: &Address, poll_id: u32) -> PollDataKey {
     PollDataKey::Poll(creator_id.clone(), poll_id)
 }
 
-fn vote_storage_key(creator_id: &Address, poll_id: u32, voter: &Address) -> PollDataKey {
+pub fn vote_storage_key(creator_id: &Address, poll_id: u32, voter: &Address) -> PollDataKey {
     PollDataKey::Vote(creator_id.clone(), poll_id, voter.clone())
 }
 
-fn read_poll(env: &Env, creator_id: &Address, poll_id: u32) -> Result<Poll, PollError> {
+pub fn read_poll(env: &Env, creator_id: &Address, poll_id: u32) -> Result<Poll, PollError> {
     env.storage()
         .persistent()
         .get(&poll_storage_key(creator_id, poll_id))
         .ok_or(PollError::PollNotFound)
 }
 
-fn is_poll_expired(env: &Env, poll: &Poll) -> bool {
+pub fn is_poll_expired(env: &Env, poll: &Poll) -> bool {
     env.ledger().sequence() >= poll.expires_at
 }
 

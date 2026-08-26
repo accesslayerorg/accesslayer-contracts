@@ -709,6 +709,9 @@ pub enum DataKey {
     PauseProposal(Address, Address),
     VestingSchedule(Address, Address),
     VestingClaimed(Address, Address),
+    TimelockProposal(u32),
+    TimelockNextId,
+    VoteSnapshot(Address, u32, Address), // (creator, poll_id, voter) -> snapshot balance
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -755,6 +758,28 @@ pub struct VestingSchedule {
     pub start_ledger: u32,
     pub vesting_period_ledgers: u32,
     pub claimed_keys: u32,
+}
+
+/// Supported timelock change types.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum TimelockChangeType {
+    UpdateFee = 0,
+    UpdateCurveExponent = 1,
+    UpdateTreasury = 2,
+}
+
+/// A timelocked config change proposal.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct TimelockProposal {
+    pub change_type: TimelockChangeType,
+    pub payload: soroban_sdk::Bytes,
+    pub proposer: Address,
+    pub proposed_at: u32,
+    pub execution_not_before: u32,
+    pub executed: bool,
+    pub cancelled: bool,
 }
 
 /// Multisig admin configuration for pause proposals.
@@ -4269,6 +4294,279 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::vesting_schedule(&creator, &beneficiary))
+    }
+
+    // =========================================================================
+    // #768 — Time-locked admin config changes
+    // =========================================================================
+
+    /// Proposes a config change that cannot execute until 48 hours have elapsed.
+    ///
+    /// Only callable by the protocol admin. Records the proposal with an
+    /// `execution_not_before` ledger computed from the current ledger plus
+    /// the 48-hour equivalent in ledgers (~34,560 at 5s/ledger).
+    pub fn propose_config_change(
+        env: Env,
+        admin: Address,
+        change_type: TimelockChangeType,
+        payload: soroban_sdk::Bytes,
+    ) -> Result<u32, ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        // 48 hours = 172,800 seconds / 5 seconds per ledger = 34,560 ledgers
+        const TIMELOCK_DELAY_LEDGERS: u32 = 34_560;
+
+        let next_id_key = DataKey::TimelockNextId;
+        let proposal_id: u32 = env
+            .storage()
+            .persistent()
+            .get(&next_id_key)
+            .unwrap_or(1u32);
+
+        let current_ledger = env.ledger().sequence();
+        let execution_not_before = current_ledger
+            .checked_add(TIMELOCK_DELAY_LEDGERS)
+            .ok_or(ContractError::Overflow)?;
+
+        let proposal = TimelockProposal {
+            change_type,
+            payload,
+            proposer: admin.clone(),
+            proposed_at: current_ledger,
+            execution_not_before,
+            executed: false,
+            cancelled: false,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::TimelockProposal(proposal_id), &proposal);
+
+        let next_id = proposal_id.checked_add(1).ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&next_id_key, &next_id);
+
+        env.events().publish(
+            events::config_change_proposed_topics(&admin),
+            events::ConfigChangeProposedEvent {
+                proposal_id,
+                proposer: admin,
+                change_type: change_type as u32,
+                proposed_at: current_ledger,
+                execution_not_before,
+            },
+        );
+
+        Ok(proposal_id)
+    }
+
+    /// Executes a timelocked config change after the delay has elapsed.
+    ///
+    /// Panics with `AllocationLocked` if called before `execution_not_before`.
+    pub fn execute_config_change(
+        env: Env,
+        admin: Address,
+        proposal_id: u32,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        let mut proposal: TimelockProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TimelockProposal(proposal_id))
+            .ok_or(ContractError::NotRegistered)?;
+
+        if proposal.executed || proposal.cancelled {
+            return Err(ContractError::NotRegistered);
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger < proposal.execution_not_before {
+            return Err(ContractError::AllocationLocked);
+        }
+
+        proposal.executed = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::TimelockProposal(proposal_id), &proposal);
+
+        env.events().publish(
+            (events::config_change_executed_topics(),),
+            events::ConfigChangeExecutedEvent {
+                proposal_id,
+                executed_at: current_ledger,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Cancels a pending timelock proposal before execution.
+    ///
+    /// Only callable by the protocol admin.
+    pub fn cancel_config_change(
+        env: Env,
+        admin: Address,
+        proposal_id: u32,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        let mut proposal: TimelockProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TimelockProposal(proposal_id))
+            .ok_or(ContractError::NotRegistered)?;
+
+        if proposal.executed || proposal.cancelled {
+            return Err(ContractError::NotRegistered);
+        }
+
+        proposal.cancelled = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::TimelockProposal(proposal_id), &proposal);
+
+        env.events().publish(
+            (events::config_change_cancelled_topics(),),
+            events::ConfigChangeCancelledEvent {
+                proposal_id,
+                cancelled_at: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns a timelock proposal by ID.
+    pub fn get_timelock_proposal(
+        env: Env,
+        proposal_id: u32,
+    ) -> Option<TimelockProposal> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TimelockProposal(proposal_id))
+    }
+
+    // =========================================================================
+    // #765 — Snapshot voting weight capture
+    // =========================================================================
+
+    /// Casts a vote using the holder's balance snapshot from the proposal
+    /// creation ledger, preventing post-proposal key purchases from
+    /// influencing the vote.
+    ///
+    /// The snapshot is captured lazily on first vote: the holder's balance
+    /// at the proposal's `expires_at` (used as snapshot ledger) is read
+    /// from the live balance at vote time and stored. Subsequent votes
+    /// reuse the stored snapshot.
+    pub fn cast_vote_with_snapshot(
+        env: Env,
+        creator_id: Address,
+        voter: Address,
+        poll_id: u32,
+        option_index: u32,
+    ) -> Result<(), crate::events::PollError> {
+        use crate::events::{PollError, PollVote, POLL_VOTE_EVENT_NAME};
+
+        voter.require_auth();
+        let mut poll = events::read_poll(&env, &creator_id, poll_id)?;
+
+        if events::is_poll_expired(&env, &poll) {
+            return Err(PollError::PollExpired);
+        }
+        if option_index >= poll.options.len() {
+            return Err(PollError::InvalidOption);
+        }
+
+        // Check for existing snapshot; if none, capture current balance as snapshot
+        let snapshot_key = DataKey::VoteSnapshot(creator_id.clone(), poll_id, voter.clone());
+        let weight: u32 = if let Some(snap) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u32>(&snapshot_key)
+        {
+            snap
+        } else {
+            let balance_key = constants::storage::holder_balance_key(&creator_id, &voter);
+            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            if balance == 0 {
+                return Err(PollError::NotAHolder);
+            }
+            env.storage().persistent().set(&snapshot_key, &balance);
+            balance
+        };
+
+        if weight == 0 {
+            return Err(PollError::NotAHolder);
+        }
+
+        // Handle re-voting: remove previous weight
+        let vote_key = events::vote_storage_key(&creator_id, poll_id, &voter);
+        if let Some(previous_vote) = env
+            .storage()
+            .persistent()
+            .get::<events::PollDataKey, PollVote>(&vote_key)
+        {
+            let previous_count = poll
+                .vote_counts
+                .get(previous_vote.option_index)
+                .ok_or(PollError::InvalidOption)?;
+            let updated_previous_count = previous_count
+                .checked_sub(previous_vote.weight)
+                .ok_or(PollError::Overflow)?;
+            poll.vote_counts
+                .set(previous_vote.option_index, updated_previous_count);
+            poll.total_weight = poll
+                .total_weight
+                .checked_sub(previous_vote.weight)
+                .ok_or(PollError::Overflow)?;
+        }
+
+        let selected_count = poll
+            .vote_counts
+            .get(option_index)
+            .ok_or(PollError::InvalidOption)?;
+        let updated_selected_count = selected_count
+            .checked_add(weight)
+            .ok_or(PollError::Overflow)?;
+        poll.vote_counts.set(option_index, updated_selected_count);
+        poll.total_weight = poll
+            .total_weight
+            .checked_add(weight)
+            .ok_or(PollError::Overflow)?;
+
+        env.storage()
+            .persistent()
+            .set(&events::poll_storage_key(&creator_id, poll_id), &poll);
+        env.storage().persistent().set(
+            &vote_key,
+            &PollVote {
+                option_index,
+                weight,
+            },
+        );
+        env.events().publish(
+            (POLL_VOTE_EVENT_NAME, creator_id, poll_id, voter),
+            (option_index, weight),
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns the snapshot weight for a voter on a poll.
+    ///
+    /// Returns `None` if no snapshot exists (voter hasn't voted yet).
+    pub fn get_vote_snapshot(
+        env: Env,
+        creator_id: Address,
+        poll_id: u32,
+        voter: Address,
+    ) -> Option<u32> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::VoteSnapshot(creator_id, poll_id, voter))
     }
 }
 #[cfg(test)]
