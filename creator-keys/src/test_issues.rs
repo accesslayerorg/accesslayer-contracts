@@ -35,7 +35,6 @@ mod issue_tests {
                     &None,
                     &None,
                     &None,
-                    &None,
                 );
             }
             None => {
@@ -44,7 +43,6 @@ mod issue_tests {
                         creator: creator.clone(),
                         handle: handle.clone(),
                     },
-                    &None,
                     &None,
                     &None,
                     &None,
@@ -748,7 +746,6 @@ mod issue_tests {
             &Some(CurvePreset::Flat),
             &None,
             &None,
-            &None,
         );
         for supply in [0u64, 1u64, 50u64] {
             let price = client.query_price(&flat_creator, &supply);
@@ -767,7 +764,6 @@ mod issue_tests {
             &None,
             &None,
             &Some(CurvePreset::Quadratic),
-            &None,
             &None,
             &None,
         );
@@ -940,7 +936,6 @@ mod issue_tests {
             &Some(CurvePreset::Flat),
             &None,
             &None,
-            &None,
         );
         assert_eq!(client.get_price(&flat_creator, &0u64), base_price);
         assert_eq!(client.get_price(&flat_creator, &1u64), base_price);
@@ -956,7 +951,6 @@ mod issue_tests {
             &None,
             &None,
             &Some(CurvePreset::Quadratic),
-            &None,
             &None,
             &None,
         );

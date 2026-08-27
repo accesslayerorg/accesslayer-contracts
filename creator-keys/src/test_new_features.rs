@@ -32,7 +32,6 @@ fn register_creator(env: &Env, client: &CreatorKeysContractClient, creator: &Add
         &None,
         &None,
         &None,
-        &None,
     );
 }
 

@@ -113,6 +113,13 @@ pub enum ContractError {
     /// Emitted when `set_royalty` is called with a fee basis points value
     /// that exceeds [`MAX_ROYALTY_BPS`].
     RoyaltyExceedsLimit = 55,
+    /// Emitted when a buyer's resulting balance would exceed the per-wallet
+    /// holding cap set by the creator.
+    MaxHoldingExceeded = 56,
+    /// Emitted when a seller attempts to sell before their lockup period ends.
+    LockupPeriodActive = 57,
+    /// Emitted when an invalid holder cap configuration is provided.
+    InvalidHolderCap = 58,
 }
 
 pub mod fee {
@@ -343,8 +350,6 @@ pub mod constants {
         pub const TREASURY_BALANCE: DataKey = DataKey::TreasuryBalance;
         pub const RETENTION_POLICY: DataKey = DataKey::RetentionPolicy;
         pub const GLOBAL_DEADLINE_LEDGER: DataKey = DataKey::GlobalDeadlineLedger;
-        pub const PROTOCOL_FEE_BPS: DataKey = DataKey::ProtocolFeeBps;
-        pub const LOCKUP_DURATION_SECS: DataKey = DataKey::LockupDurationSecs;
 
         pub fn curve_preset(creator: &Address) -> DataKey {
             DataKey::CurvePreset(creator.clone())
@@ -414,14 +419,6 @@ pub mod constants {
             DataKey::ReferralFeeBps
         }
 
-        pub fn royalty_config(creator: &Address) -> DataKey {
-            DataKey::RoyaltyConfig(creator.clone())
-        }
-
-        pub fn curve_exponent(creator: &Address) -> DataKey {
-            DataKey::CurveExponent(creator.clone())
-        }
-
         /// Absolute live-until ledger the contract last set for `creator`'s
         /// profile key, used to decide whether to emit the TTL-extension event.
         pub fn creator_ttl_live_until(creator: &Address) -> DataKey {
@@ -456,6 +453,25 @@ pub mod constants {
 
         pub fn vesting_claimed(creator: &Address, beneficiary: &Address) -> DataKey {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
+        }
+
+        pub const PROTOCOL_FEE_BPS: DataKey = DataKey::ProtocolFeeBps;
+        pub const LOCKUP_DURATION_SECS: DataKey = DataKey::LockupDurationSecs;
+
+        pub fn royalty_config(creator: &Address) -> DataKey {
+            DataKey::RoyaltyConfig(creator.clone())
+        }
+
+        pub fn curve_exponent(creator: &Address) -> DataKey {
+            DataKey::CurveExponent(creator.clone())
+        }
+
+        pub fn holder_cap_bps(creator: &Address) -> DataKey {
+            DataKey::HolderCapBps(creator.clone())
+        }
+
+        pub fn last_buy_timestamp(creator: &Address, buyer: &Address) -> DataKey {
+            DataKey::LastBuyTimestamp(creator.clone(), buyer.clone())
         }
     }
 
@@ -802,6 +818,18 @@ pub enum DataKey {
     ReferralEarnings(Address),
     WhitelistMap(Address, Address),
     WhitelistMode(Address),
+    /// Protocol fee basis points (separate from legacy FeeConfig).
+    ProtocolFeeBps,
+    /// Sell lockup duration in seconds.
+    LockupDurationSecs,
+    /// Per-creator royalty fee configuration.
+    RoyaltyConfig(Address),
+    /// Per-creator bonding curve exponent for curve migration.
+    CurveExponent(Address),
+    /// Per-creator per-wallet holding cap in basis points.
+    HolderCapBps(Address),
+    /// Timestamp of last buy for a (creator, buyer) pair, used for lockup enforcement.
+    LastBuyTimestamp(Address, Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
