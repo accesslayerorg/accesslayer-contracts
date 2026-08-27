@@ -958,3 +958,57 @@ impl CreatorKeysContract {
         })
     }
 }
+
+/// Event name for batch buy completion.
+pub const BATCH_BUY_COMPLETED_EVENT_NAME: Symbol = symbol_short!("bat_buy");
+
+/// Stable batch buy completed event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BatchBuyCompletedEvent {
+    pub buyer: Address,
+    pub total_price_paid: i128,
+    pub order_count: u32,
+    pub ledger: u32,
+}
+
+/// Shared batch buy completed event topics tuple.
+pub fn batch_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
+    (BATCH_BUY_COMPLETED_EVENT_NAME, buyer.clone())
+}
+
+/// Event name for bonding curve migration.
+pub const CURVE_MIGRATED_EVENT_NAME: Symbol = symbol_short!("curve_mig");
+
+/// Stable curve migrated event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveMigratedEvent {
+    pub admin: Address,
+    pub new_exponent: u32,
+    pub key_count: u32,
+    pub ledger: u32,
+}
+
+/// Shared curve migrated event topics tuple.
+pub fn curve_migrated_topics(admin: &Address) -> (Symbol, Address) {
+    (CURVE_MIGRATED_EVENT_NAME, admin.clone())
+}
+
+/// Event name for royalty configuration update.
+pub const ROYALTY_UPDATED_EVENT_NAME: Symbol = symbol_short!("roy_upd");
+
+/// Stable royalty updated event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RoyaltyUpdatedEvent {
+    pub creator: Address,
+    pub buy_fee_bps: u32,
+    pub sell_fee_bps: u32,
+    pub ledger: u32,
+}
+
+/// Shared royalty updated event topics tuple.
+pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
+}

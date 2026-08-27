@@ -75,6 +75,10 @@ distinguishable from other key types.
 | `CreatorVolume(Address)` | Per-creator | `i128` | *(not currently written by any entrypoint)* | `get_creator_volume` |
 | `RetentionPolicy` | Global | `RetentionPolicy` | `set_retention_policy` (admin) | `read_retention_policy`, `get_retention_policy` |
 | `CreatorTtlLiveUntil(Address)` | Per-creator | `u32` | `register_creator` (initial write), `extend_creator_ttl` (updated after every trade) | `extend_creator_ttl` (TTL-extension event gate) |
+| `ProtocolFeeBps` | Global | `u32` (basis points, default 100 = 1%) | `set_protocol_fee` (admin) | `collect_protocol_trade_fee`, `compute_trade_fee`, `get_protocol_trade_fee` |
+| `HolderCapBps(Address)` | Per-creator | `u32` (basis points, 1%–25%) | `set_holder_cap` (creator) | `buy_key` (cap enforcement), `get_holder_cap` |
+| `LastBuyTimestamp(Address, Address)` | Per-creator-holder (composite) | `u64` (ledger timestamp) | `buy_key` (updated on every purchase) | `sell_key` (lockup enforcement) |
+| `LockupDurationSecs` | Global | `u64` (seconds, default 86400 = 24h) | `set_lockup_duration` (admin) | `sell_key` (lockup enforcement), `get_lockup_duration` |
 
 > **Note:** `CreatorVolume(Address)` is read by `get_creator_volume` but has no
 > writer in the current implementation, so it always resolves to its `0`

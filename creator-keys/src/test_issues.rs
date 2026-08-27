@@ -958,4 +958,229 @@ mod issue_tests {
         assert_eq!(client.get_price(&quad_creator, &1u64), base_price + slope);
         assert!(client.get_price(&quad_creator, &1u64) > base_price);
     }
+
+    // =========================================================================
+    // Tests for batch buy (#758)
+    // =========================================================================
+
+    #[test]
+    fn test_batch_buy_single_order() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let creator = register_creator(&env, &client, None);
+        let buyer = Address::generate(&env);
+
+        let orders = soroban_sdk::Vec::from_array(&env, [(creator.clone(), 3u32)]);
+        let results = client.batch_buy(&buyer, &orders);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results.get(0).unwrap().quantity, 3);
+        assert!(results.get(0).unwrap().price_paid > 0);
+        assert_eq!(client.get_key_balance(&creator, &buyer), 3);
+    }
+
+    #[test]
+    fn test_batch_buy_multiple_orders() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let creator1 = register_creator(&env, &client, None);
+        let creator2 = register_creator(&env, &client, None);
+        let buyer = Address::generate(&env);
+
+        let orders = soroban_sdk::Vec::from_array(
+            &env,
+            [(creator1.clone(), 2u32), (creator2.clone(), 1u32)],
+        );
+        let results = client.batch_buy(&buyer, &orders);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(client.get_key_balance(&creator1, &buyer), 2);
+        assert_eq!(client.get_key_balance(&creator2, &buyer), 1);
+    }
+
+    #[test]
+    fn test_batch_buy_reverts_on_empty() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let buyer = Address::generate(&env);
+        let orders: soroban_sdk::Vec<(Address, u32)> = soroban_sdk::Vec::new(&env);
+
+        let result = client.try_batch_buy(&buyer, &orders);
+        assert_eq!(result, Err(Ok(ContractError::BatchSizeExceeded)));
+    }
+
+    #[test]
+    fn test_batch_buy_reverts_on_exceeding_limit() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let buyer = Address::generate(&env);
+        let c1 = register_creator(&env, &client, None);
+        let c2 = register_creator(&env, &client, None);
+        let c3 = register_creator(&env, &client, None);
+        let c4 = register_creator(&env, &client, None);
+        let c5 = register_creator(&env, &client, None);
+        let c6 = register_creator(&env, &client, None);
+        let orders = soroban_sdk::Vec::from_array(
+            &env,
+            [
+                (c1, 1u32),
+                (c2, 1u32),
+                (c3, 1u32),
+                (c4, 1u32),
+                (c5, 1u32),
+                (c6, 1u32),
+            ],
+        );
+
+        let result = client.try_batch_buy(&buyer, &orders);
+        assert_eq!(result, Err(Ok(ContractError::BatchSizeExceeded)));
+    }
+
+    // =========================================================================
+    // Tests for set_royalty (#755)
+    // =========================================================================
+
+    #[test]
+    fn test_set_royalty_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let creator = register_creator(&env, &client, None);
+        client.set_royalty(&creator, &100, &200);
+
+        let config = client.get_royalty_config(&creator).unwrap();
+        assert_eq!(config.buy_fee_bps, 100);
+        assert_eq!(config.sell_fee_bps, 200);
+    }
+
+    #[test]
+    fn test_set_royalty_reverts_when_exceeds_limit() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let creator = register_creator(&env, &client, None);
+        let result = client.try_set_royalty(&creator, &501, &0);
+        assert_eq!(result, Err(Ok(ContractError::RoyaltyExceedsLimit)));
+    }
+
+    #[test]
+    fn test_set_royalty_reverts_for_unregistered() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let nobody = Address::generate(&env);
+        let result = client.try_set_royalty(&nobody, &100, &100);
+        assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+    }
+
+    // =========================================================================
+    // Tests for migrate_curve (#756)
+    // =========================================================================
+
+    #[test]
+    fn test_migrate_curve_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+        client.set_curve_slope(&admin, &1);
+
+        let creator = register_creator(&env, &client, None);
+        let key_ids = soroban_sdk::Vec::from_array(&env, [creator.clone()]);
+
+        client.migrate_curve(&admin, &3, &key_ids);
+
+        let exponent = client.get_curve_exponent(&creator);
+        assert_eq!(exponent, Some(3));
+    }
+
+    #[test]
+    fn test_migrate_curve_reverts_on_invalid_exponent() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let creator = register_creator(&env, &client, None);
+        let key_ids = soroban_sdk::Vec::from_array(&env, [creator]);
+
+        let result = client.try_migrate_curve(&admin, &0, &key_ids);
+        assert_eq!(result, Err(Ok(ContractError::InvalidExponent)));
+
+        let result = client.try_migrate_curve(&admin, &6, &key_ids);
+        assert_eq!(result, Err(Ok(ContractError::InvalidExponent)));
+    }
+
+    #[test]
+    fn test_migrate_curve_reverts_on_unauthorized() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let creator = register_creator(&env, &client, None);
+        let key_ids = soroban_sdk::Vec::from_array(&env, [creator]);
+        let non_admin = Address::generate(&env);
+
+        let result = client.try_migrate_curve(&non_admin, &2, &key_ids);
+        assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    }
 }
