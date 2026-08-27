@@ -1,12 +1,7 @@
 #![cfg(test)]
 
-use crate::{
-    ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
-};
-use soroban_sdk::{
-    testutils::Address as _,
-    Address, Env, String,
-};
+use crate::{ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams};
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let env = Env::default();
@@ -70,10 +65,17 @@ fn test_referral_system_fee_split_and_validation() {
     let referrer = Address::generate(&env);
 
     // Buyer or creator as referrer panics with InvalidReferrer
-    let res_buyer_ref = client.try_buy_key_with_referrer(&creator, &buyer, &1000i128, &None, &Some(buyer.clone()));
+    let res_buyer_ref =
+        client.try_buy_key_with_referrer(&creator, &buyer, &1000i128, &None, &Some(buyer.clone()));
     assert_eq!(res_buyer_ref, Err(Ok(ContractError::InvalidReferrer)));
 
-    let res_creator_ref = client.try_buy_key_with_referrer(&creator, &buyer, &1000i128, &None, &Some(creator.clone()));
+    let res_creator_ref = client.try_buy_key_with_referrer(
+        &creator,
+        &buyer,
+        &1000i128,
+        &None,
+        &Some(creator.clone()),
+    );
     assert_eq!(res_creator_ref, Err(Ok(ContractError::InvalidReferrer)));
 
     // Valid referral buy
