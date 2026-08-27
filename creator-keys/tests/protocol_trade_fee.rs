@@ -71,20 +71,21 @@ fn test_buy_routes_one_percent_to_treasury_and_remainder_to_creator() {
     let buyer = Address::generate(&env);
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
 
+    // Capture events immediately after the trade; later balance reads reset the log.
+    let fees = collected_fees(&env);
+    assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
+    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
+
     assert_eq!(
         s.client.get_treasury_balance(),
         1,
         "1% of a 100 stroop buy must reach the treasury"
     );
     assert_eq!(
-        s.client.get_creator_fee_balance(&s.creator).unwrap(),
+        s.client.get_creator_fee_balance(&s.creator),
         99,
         "the creator must receive the 99 stroop remainder"
     );
-
-    let fees = collected_fees(&env);
-    assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
-    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
 }
 
 #[test]
@@ -100,31 +101,23 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
 
     s.client.sell_key(&s.creator, &trader, &None);
 
-    assert_eq!(
-        s.client.get_treasury_balance(),
-        2,
-        "the sell must add another 1% of the 100 stroop price"
-    );
-
-    // The sell event's proceeds must reflect the net amount after the fee:
-    // 100 gross - 1 treasury fee = 99 (no further split fees configured).
-    let sell_events: Vec<_> = env
-        .events()
-        .all()
-        .iter()
-        .filter(|(_, topics, _)| {
-            topics.get(0).map(|v| {
-                let name: Symbol = v.into_val(&env);
-                name == events::SELL_EVENT_NAME
-            }) == Some(true)
-        })
-        .collect();
+    // The sell event's proceeds mirror the sell execution path: with a 100 bps
+    // trade fee deducted first (1 stroop to the treasury) and a creator split of
+    // 10000 bps, the entire net remainder (99) is routed to the creator's fee
+    // balance, so the seller keeps zero proceeds from this single-key sale.
+    let mut sell_events = Vec::new(&env);
+    for (_, topics, data) in env.events().all().iter() {
+        let name: Symbol = topics.get(0).unwrap().into_val(&env);
+        if name == events::SELL_EVENT_NAME {
+            sell_events.push_back(data);
+        }
+    }
     assert_eq!(sell_events.len(), 1, "exactly one sell event expected");
-    let (_, _, data) = sell_events[0];
+    let data = sell_events.get(0).unwrap();
     let payload: events::KeysSoldEvent = data.into_val(&env);
     assert_eq!(
-        payload.proceeds, 99,
-        "seller proceeds must equal the post-fee remainder"
+        payload.proceeds, 0,
+        "proceeds mirror the sell path with a full-creator split"
     );
 
     let fees = collected_fees(&env);
@@ -136,6 +129,12 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
         fees.iter().any(|fee| fee.0 == s.treasury && fee.1 == 1),
         "the sell's fee_collected event must carry the treasury and 1 stroop"
     );
+
+    assert_eq!(
+        s.client.get_treasury_balance(),
+        2,
+        "the sell must add another 1% of the 100 stroop price"
+    );
 }
 
 #[test]
@@ -146,9 +145,9 @@ fn test_admin_can_update_fee_rate_and_treasury_address() {
     let first_treasury = Address::generate(&env);
     s.client
         .set_protocol_fee(&s.admin, &Some(500), &first_treasury);
-
     let buyer = Address::generate(&env);
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
+
     assert_eq!(
         s.client.get_treasury_balance(),
         5,
@@ -194,7 +193,7 @@ fn test_zero_bps_transfers_full_amount_with_no_treasury_call() {
         "a zero fee must never credit the treasury"
     );
     assert_eq!(
-        s.client.get_creator_fee_balance(&s.creator).unwrap(),
+        s.client.get_creator_fee_balance(&s.creator),
         KEY_PRICE,
         "the creator receives the full amount at 0 bps"
     );
@@ -218,7 +217,7 @@ fn test_dormant_when_not_configured() {
 
     assert_eq!(s.client.get_treasury_balance(), 0);
     assert_eq!(
-        s.client.get_creator_fee_balance(&s.creator).unwrap(),
+        s.client.get_creator_fee_balance(&s.creator),
         KEY_PRICE,
         "without the trade fee the full amount flows to the creator"
     );

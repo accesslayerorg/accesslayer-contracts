@@ -58,7 +58,7 @@ fn test_airdrop_over_limit_reverts_with_clear_error() {
 
     assert_eq!(
         result,
-        Err(Ok(ContractError::InvalidFeeConfig)),
+        Err(Ok(ContractError::AirdropRecipientLimitExceeded)),
         "51 recipients must revert with AirdropRecipientLimitExceeded"
     );
 }

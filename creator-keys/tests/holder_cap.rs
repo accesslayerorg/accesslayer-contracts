@@ -57,7 +57,7 @@ fn test_buy_pushing_holder_above_cap_panics() {
     let result = client.try_buy_key(&creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         result,
-        Ok(Err(ContractError::MaxHoldingExceeded)),
+        Err(Ok(ContractError::MaxHoldingExceeded)),
         "a buy past 10% of supply must be rejected"
     );
     assert_eq!(client.get_key_balance(&creator, &buyer), 2);
@@ -120,10 +120,10 @@ fn test_set_holder_cap_rejects_values_outside_one_and_twenty_five_percent() {
     let (client, creator) = setup(&env);
 
     let too_small = client.try_set_holder_cap(&creator, &Some(99));
-    assert_eq!(too_small, Ok(Err(ContractError::InvalidHolderCap)));
+    assert_eq!(too_small, Err(Ok(ContractError::InvalidHolderCap)));
 
     let too_large = client.try_set_holder_cap(&creator, &Some(2501));
-    assert_eq!(too_large, Ok(Err(ContractError::InvalidHolderCap)));
+    assert_eq!(too_large, Err(Ok(ContractError::InvalidHolderCap)));
 
     assert_eq!(client.get_holder_cap(&creator), None);
 }

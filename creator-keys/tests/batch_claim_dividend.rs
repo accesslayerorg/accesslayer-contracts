@@ -131,7 +131,7 @@ fn test_batch_claim_exceeds_limit_reverts() {
     }
 
     let result = client.try_batch_claim_dividend(&creators, &holder);
-    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ContractError::BatchClaimExceedsLimit)));
 }
 
 #[test]

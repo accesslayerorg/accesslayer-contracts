@@ -487,7 +487,6 @@ pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
-
 // --- Supply cap events ---
 
 /// Event name for supply cap set.

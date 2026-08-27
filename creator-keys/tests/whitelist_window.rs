@@ -130,7 +130,7 @@ fn test_whitelist_over_500_addresses_reverts_at_registration() {
         }),
     );
 
-    assert_eq!(result, Err(Ok(ContractError::WhitelistOnly)));
+    assert_eq!(result, Err(Ok(ContractError::WhitelistTooLarge)));
     assert!(!client.is_creator_registered(&creator));
 }
 

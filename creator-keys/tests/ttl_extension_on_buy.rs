@@ -296,6 +296,17 @@ fn admin_fee_update_extends_instance_ttl() {
         env.storage().persistent().get_ttl(&fee_config_key)
     });
 
+    // Keep the protocol-state-version key alive across the far-future ledger
+    // jump: `set_fee_config` reads and writes it, and advancing the ledger past
+    // its default TTL would archive it and make the later update fail.
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().extend_ttl(
+            &storage::PROTOCOL_STATE_VERSION,
+            CREATOR_TTL_LEDGERS,
+            CREATOR_TTL_LEDGERS,
+        );
+    });
+
     let mut ledger = env.ledger().get();
     ledger.sequence_number += ttl_before.saturating_sub(1).max(1);
     env.ledger().set(ledger);

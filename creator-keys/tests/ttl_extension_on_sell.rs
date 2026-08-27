@@ -112,6 +112,21 @@ fn repeated_sells_reset_the_ttl_window_rather_than_accumulate() {
 
     // Burn a chunk of the freshly granted window, then sell again.
     let elapsed = CREATOR_TTL_LEDGERS / 4;
+    // This test jumps the ledger twice; re-extend the contract instance and the
+    // KEY_PRICE entry (which sell_key reads) so the cumulative time travel does
+    // not archive them, mirroring how `setup` keeps live keys invocable.
+    env.deployer().extend_ttl(
+        contract_id.clone(),
+        CREATOR_TTL_LEDGERS,
+        CREATOR_TTL_LEDGERS,
+    );
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().extend_ttl(
+            &storage::KEY_PRICE,
+            CREATOR_TTL_LEDGERS,
+            CREATOR_TTL_LEDGERS,
+        );
+    });
     advance_ledgers(&env, elapsed);
     let ttl_after_elapsing = creator_ttl_remaining(&env, &contract_id, &creator);
     assert!(
