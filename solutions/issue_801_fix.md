@@ -1,0 +1,1 @@
+Solution proposal for Add an early unstake function allowing stakers to exit before their lock expires by forfeiting a penalty
