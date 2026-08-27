@@ -487,7 +487,6 @@ pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
-
 // --- Supply cap events ---
 
 /// Event name for supply cap set.
@@ -1003,4 +1002,46 @@ pub struct RoyaltyUpdatedEvent {
 /// Shared royalty updated event topics tuple.
 pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for batch transfer completion.
+pub const BATCH_TRANSFER_COMPLETED_EVENT_NAME: Symbol = symbol_short!("bat_xfer");
+
+/// Stable field order for batch transfer completed event payloads.
+pub const BATCH_TRANSFER_COMPLETED_DATA_FIELDS: [&str; 5] = [
+    "creator_id",
+    "from",
+    "transfers",
+    "total_transferred",
+    "ledger",
+];
+
+/// Stable batch transfer completed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BATCH_TRANSFER_COMPLETED_EVENT_NAME, creator_id, from)`
+/// - data:   `BatchTransferCompletedEvent`
+///
+/// `transfers` is the ordered list of `(recipient, quantity)` pairs processed
+/// in the batch. `total_transferred` is the sum of all quantities.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BatchTransferCompletedEvent {
+    pub creator_id: Address,
+    pub from: Address,
+    pub transfers: Vec<(Address, u32)>,
+    pub total_transferred: u32,
+    pub ledger: u32,
+}
+
+/// Shared batch transfer completed event topics tuple.
+pub fn batch_transfer_completed_topics(
+    creator: &Address,
+    from: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        BATCH_TRANSFER_COMPLETED_EVENT_NAME,
+        creator.clone(),
+        from.clone(),
+    )
 }

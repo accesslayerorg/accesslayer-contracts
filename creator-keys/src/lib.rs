@@ -98,6 +98,12 @@ pub enum ContractError {
     NothingToClaim = 48,
     NotWhitelisted = 49,
     CircuitBreakerTriggered = 50,
+    /// Emitted when a `batch_transfer_keys` call contains more than the allowed
+    /// number of `(recipient, quantity)` pairs.
+    BatchTransferSizeExceeded = 51,
+    /// Emitted when a `batch_transfer_keys` call contains a recipient address
+    /// that is the same as the sender (self-transfer inside a batch).
+    InvalidRecipient = 52,
 }
 
 pub mod fee {
@@ -691,6 +697,12 @@ pub const MAX_DISCOUNT_TIERS: u32 = 5;
 
 /// Maximum number of entries in a single batch buy call.
 pub const MAX_BATCH_BUY_SIZE: usize = 5;
+
+/// Maximum number of `(recipient, quantity)` pairs accepted by a single
+/// [`CreatorKeysContract::batch_transfer_keys`] call.
+///
+/// Larger lists revert with [`ContractError::BatchTransferSizeExceeded`].
+pub const MAX_BATCH_TRANSFER_SIZE: u32 = 10;
 
 /// Maximum royalty fee basis points (5%).
 pub const MAX_ROYALTY_BPS: u32 = 500;
@@ -2328,7 +2340,8 @@ impl CreatorKeysContract {
 
                 if referral_amount > 0 {
                     let ref_key = constants::storage::referral_earnings(&referrer_addr);
-                    let current_earnings: i128 = env.storage().persistent().get(&ref_key).unwrap_or(0);
+                    let current_earnings: i128 =
+                        env.storage().persistent().get(&ref_key).unwrap_or(0);
                     let new_earnings = current_earnings
                         .checked_add(referral_amount)
                         .ok_or(ContractError::Overflow)?;
@@ -4226,6 +4239,132 @@ impl CreatorKeysContract {
         Ok(())
     }
 
+    /// Transfers keys from the caller to multiple recipients in a single atomic transaction.
+    ///
+    /// Accepts up to [`MAX_BATCH_TRANSFER_SIZE`] `(recipient, quantity)` pairs.
+    /// All transfers are processed atomically: if any single step fails the entire
+    /// batch panics and no state changes are persisted.
+    ///
+    /// Dividend checkpoints are settled for the sender and for each recipient
+    /// before any balance is modified, so the dividend accounting remains
+    /// consistent across the full batch.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::BatchTransferSizeExceeded`] if `transfers` contains more
+    ///   than [`MAX_BATCH_TRANSFER_SIZE`] entries.
+    /// - [`ContractError::ZeroTransferAmount`] if any entry has a zero quantity.
+    /// - [`ContractError::InvalidRecipient`] if any recipient equals the sender
+    ///   (self-transfer is not allowed inside a batch).
+    /// - [`ContractError::InsufficientBalance`] if the sender's balance is less
+    ///   than the sum of all requested quantities.
+    pub fn batch_transfer_keys(
+        env: Env,
+        creator: Address,
+        from: Address,
+        transfers: Vec<(Address, u32)>,
+    ) -> Result<(), ContractError> {
+        from.require_auth();
+        assert_not_paused(&env)?;
+
+        // Validate batch size: must be between 1 and MAX_BATCH_TRANSFER_SIZE.
+        if transfers.len() > MAX_BATCH_TRANSFER_SIZE {
+            return Err(ContractError::BatchTransferSizeExceeded);
+        }
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+        // --- Pre-flight validation pass ---
+        // Compute total quantity and validate each entry before touching any state.
+        let mut total_quantity: u32 = 0;
+        for (to, qty) in transfers.iter() {
+            if qty == 0 {
+                return Err(ContractError::ZeroTransferAmount);
+            }
+            if to == from {
+                return Err(ContractError::InvalidRecipient);
+            }
+            total_quantity = total_quantity
+                .checked_add(qty)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // Read sender balance and settle dividends before any mutations.
+        let from_balance_key = constants::storage::holder_balance_key(&creator, &from);
+        let from_balance: u32 = env
+            .storage()
+            .persistent()
+            .get(&from_balance_key)
+            .unwrap_or(0);
+        settle_holder_dividends(&env, &creator, &from, from_balance)?;
+
+        if from_balance < total_quantity {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        // --- Apply all transfers ---
+        let mut remaining_from_balance = from_balance;
+        for (to, qty) in transfers.iter() {
+            let to_balance_key = constants::storage::holder_balance_key(&creator, &to);
+            let to_balance: u32 = env.storage().persistent().get(&to_balance_key).unwrap_or(0);
+
+            // Settle dividends for each recipient before their balance changes.
+            settle_holder_dividends(&env, &creator, &to, to_balance)?;
+
+            // Decrement sender running balance.
+            remaining_from_balance = remaining_from_balance
+                .checked_sub(qty)
+                .ok_or(ContractError::InsufficientBalance)?;
+
+            // Increment recipient balance.
+            let new_to_balance = to_balance.checked_add(qty).ok_or(ContractError::Overflow)?;
+            env.storage()
+                .persistent()
+                .set(&to_balance_key, &new_to_balance);
+            extend_key_ttl_to_full_window(&env, &to_balance_key);
+
+            // Increment holder count when recipient crosses zero → positive.
+            if to_balance == 0 {
+                profile.holder_count = profile
+                    .holder_count
+                    .checked_add(1)
+                    .ok_or(ContractError::Overflow)?;
+            }
+        }
+
+        // Write final sender balance.
+        env.storage()
+            .persistent()
+            .set(&from_balance_key, &remaining_from_balance);
+        extend_key_ttl_to_full_window(&env, &from_balance_key);
+
+        // Decrement holder count if sender balance reaches zero.
+        if remaining_from_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_sub(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // Write updated profile (holder_count may have changed).
+        let profile_key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&profile_key, &profile);
+
+        env.events().publish(
+            events::batch_transfer_completed_topics(&creator, &from),
+            events::BatchTransferCompletedEvent {
+                creator_id: creator,
+                from,
+                transfers,
+                total_transferred: total_quantity,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
     /// Returns the current withdrawable treasury balance.
     ///
     /// The treasury balance accumulates from the protocol fee portion of every
@@ -4427,11 +4566,7 @@ impl CreatorKeysContract {
     ///
     /// Only callable by the creator. Panics with `CapAlreadySet` if a cap is
     /// already set and the new cap is lower than the current supply.
-    pub fn set_supply_cap(
-        env: Env,
-        creator: Address,
-        cap: u32,
-    ) -> Result<(), ContractError> {
+    pub fn set_supply_cap(env: Env, creator: Address, cap: u32) -> Result<(), ContractError> {
         creator.require_auth();
 
         let profile = read_registered_creator_profile(&env, &creator)?;
@@ -4506,11 +4641,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by any admin in the multisig list. If this is the first
     /// proposal, it records the proposer and awaits a second approval.
-    pub fn propose_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn propose_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4557,11 +4688,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by a second admin. When the approval threshold (2 of 3) is
     /// reached, the pause executes automatically and all proposals are reset.
-    pub fn approve_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn approve_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4801,9 +4928,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_enabled_topics(&creator),
-            events::WhitelistEnabledEvent {
-                creator,
-            },
+            events::WhitelistEnabledEvent { creator },
         );
 
         Ok(())
@@ -4822,9 +4947,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_disabled_topics(&creator),
-            events::WhitelistDisabledEvent {
-                creator,
-            },
+            events::WhitelistDisabledEvent { creator },
         );
 
         Ok(())
@@ -4847,10 +4970,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_whitelisted_topics(&creator),
-            events::AddressWhitelistedEvent {
-                creator,
-                address,
-            },
+            events::AddressWhitelistedEvent { creator, address },
         );
 
         Ok(())
@@ -4873,10 +4993,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_removed_topics(&creator),
-            events::AddressRemovedEvent {
-                creator,
-                address,
-            },
+            events::AddressRemovedEvent { creator, address },
         );
 
         Ok(())
@@ -4916,10 +5033,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         if current_balance > 0 && new_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_sub(1)
-                .unwrap_or(0);
+            profile.holder_count = profile.holder_count.checked_sub(1).unwrap_or(0);
         }
 
         profile.supply = new_supply;
@@ -4958,7 +5072,10 @@ impl CreatorKeysContract {
     ) -> Option<VestingSchedule> {
         env.storage()
             .persistent()
-            .get(&constants::storage::vesting_schedule(&creator, &beneficiary))
+            .get(&constants::storage::vesting_schedule(
+                &creator,
+                &beneficiary,
+            ))
     }
 
     // =========================================================================
@@ -4983,11 +5100,7 @@ impl CreatorKeysContract {
         const TIMELOCK_DELAY_LEDGERS: u32 = 34_560;
 
         let next_id_key = DataKey::TimelockNextId;
-        let proposal_id: u32 = env
-            .storage()
-            .persistent()
-            .get(&next_id_key)
-            .unwrap_or(1u32);
+        let proposal_id: u32 = env.storage().persistent().get(&next_id_key).unwrap_or(1u32);
 
         let current_ledger = env.ledger().sequence();
         let execution_not_before = current_ledger
@@ -5105,10 +5218,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns a timelock proposal by ID.
-    pub fn get_timelock_proposal(
-        env: Env,
-        proposal_id: u32,
-    ) -> Option<TimelockProposal> {
+    pub fn get_timelock_proposal(env: Env, proposal_id: u32) -> Option<TimelockProposal> {
         env.storage()
             .persistent()
             .get(&DataKey::TimelockProposal(proposal_id))
