@@ -142,8 +142,7 @@ fn test_global_pause_activated_event_emitted_on_activation() {
     f.client.global_pause(&f.signers[0]);
     // No activation yet -> no activation event.
     assert!(!env.events().all().iter().any(|(_, topics, _)| {
-        topics
-            == global_pause_activated_topics(&f.signers[0]).into_val(&env)
+        topics == global_pause_activated_topics(&f.signers[0]).into_val(&env)
             || topics == global_pause_activated_topics(&f.signers[1]).into_val(&env)
     }));
 
