@@ -12,8 +12,10 @@ fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury, &100i128);
+    client.set_protocol_admin(&admin, &admin);
+    client.set_key_price(&admin, &100i128);
     client.set_fee_config(&admin, &9000u32, &1000u32);
+    client.set_treasury_address(&admin, &treasury);
 
     (env, client, admin, treasury)
 }
@@ -24,6 +26,8 @@ fn register_creator(env: &Env, client: &CreatorKeysContractClient, creator: &Add
             creator: creator.clone(),
             handle: String::from_str(env, "alice"),
         },
+        &None,
+        &None,
         &None,
         &None,
         &None,
