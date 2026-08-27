@@ -824,4 +824,138 @@ mod issue_tests {
         let fee_b = crate::fee::apply_percentage_fee(price_b, bps_b).unwrap();
         assert_eq!(fee_b, 0, "Fee 0.525 stroops must floor to 0 stroops");
     }
+
+    // =============================================================================
+    // Tests for Issue #720: get_price returning base price at zero supply
+    // =============================================================================
+
+    #[test]
+    fn test_get_price_at_supply_zero_returns_base_price_and_greater_at_supply_one() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+
+        let base_price = 1000i128;
+        let slope = 50i128;
+        client.set_key_price(&admin, &base_price);
+        client.set_curve_slope(&admin, &slope);
+
+        let creator = register_creator(&env, &client, None);
+
+        // Supply 0 returns base price; supply 1 returns base price + slope > base price.
+        // Assert no panic for either call.
+        let price_0 = client.get_price(&creator, &0u64);
+        assert_eq!(
+            price_0, base_price,
+            "get_price at supply 0 must return configured base price"
+        );
+
+        let price_1 = client.get_price(&creator, &1u64);
+        assert!(
+            price_1 > base_price,
+            "get_price at supply 1 must be strictly greater than base price"
+        );
+        assert_eq!(
+            price_1,
+            base_price + slope,
+            "get_price at supply 1 must equal base_price + slope"
+        );
+
+        // Also assert try_get_price returns Ok for both without panic.
+        let try_price_0 = client.try_get_price(&creator, &0u64);
+        assert_eq!(try_price_0, Ok(Ok(base_price)));
+
+        let try_price_1 = client.try_get_price(&creator, &1u64);
+        assert_eq!(try_price_1, Ok(Ok(base_price + slope)));
+    }
+
+    #[test]
+    fn test_get_price_various_base_prices_at_supply_zero() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let slope = 10i128;
+        client.set_curve_slope(&admin, &slope);
+
+        let test_prices = [1i128, 10, 100, 500, 1000, 10000, 50000];
+
+        for base_price in test_prices {
+            client.set_key_price(&admin, &base_price);
+            let creator = register_creator(&env, &client, None);
+
+            let price_0 = client.get_price(&creator, &0u64);
+            assert_eq!(
+                price_0, base_price,
+                "supply 0 must return base price {}",
+                base_price
+            );
+
+            let price_1 = client.get_price(&creator, &1u64);
+            assert!(
+                price_1 > base_price,
+                "supply 1 price ({}) must be strictly greater than base price ({})",
+                price_1,
+                base_price
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_price_presets_at_supply_zero_and_one() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+
+        let base_price = 2000i128;
+        let slope = 100i128;
+        client.set_key_price(&admin, &base_price);
+        client.set_curve_slope(&admin, &slope);
+
+        // Linear preset
+        let linear_creator = register_creator(&env, &client, None);
+        assert_eq!(client.get_price(&linear_creator, &0u64), base_price);
+        assert_eq!(client.get_price(&linear_creator, &1u64), base_price + slope);
+        assert!(client.get_price(&linear_creator, &1u64) > base_price);
+
+        // Flat preset
+        let flat_creator = Address::generate(&env);
+        client.register_creator(
+            &crate::RegisterCreatorParams {
+                creator: flat_creator.clone(),
+                handle: String::from_str(&env, "flat"),
+            },
+            &None,
+            &None,
+            &None,
+            &Some(CurvePreset::Flat),
+            &None,
+            &None,
+        );
+        assert_eq!(client.get_price(&flat_creator, &0u64), base_price);
+        assert_eq!(client.get_price(&flat_creator, &1u64), base_price);
+
+        // Quadratic preset
+        let quad_creator = Address::generate(&env);
+        client.register_creator(
+            &crate::RegisterCreatorParams {
+                creator: quad_creator.clone(),
+                handle: String::from_str(&env, "quad"),
+            },
+            &None,
+            &None,
+            &None,
+            &Some(CurvePreset::Quadratic),
+            &None,
+            &None,
+        );
+        assert_eq!(client.get_price(&quad_creator, &0u64), base_price);
+        assert_eq!(client.get_price(&quad_creator, &1u64), base_price + slope);
+        assert!(client.get_price(&quad_creator, &1u64) > base_price);
+    }
 }

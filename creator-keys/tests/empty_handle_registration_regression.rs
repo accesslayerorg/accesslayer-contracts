@@ -2,6 +2,10 @@
 //!
 //! Confirms that the shortest possible invalid input (empty string) is caught by the
 //! handle validation guard and that no creator state is written as a result.
+//!
+//! The expected variant moved from `HandleTooShort` to the more specific
+//! `DisplayNameEmpty` when the blank-handle guard was added in #742; the
+//! rejection itself, and the "no state written" invariant, are unchanged.
 
 use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
@@ -28,6 +32,6 @@ fn test_register_creator_rejects_empty_handle() {
         &None,
     );
 
-    assert_eq!(result, Err(Ok(ContractError::HandleTooShort)));
+    assert_eq!(result, Err(Ok(ContractError::DisplayNameEmpty)));
     assert!(!client.is_creator_registered(&creator));
 }

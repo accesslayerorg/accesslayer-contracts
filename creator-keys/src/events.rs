@@ -40,14 +40,8 @@ pub const BLACKLIST_ADDED_EVENT_NAME: Symbol = symbol_short!("blk_add");
 /// Event name for a wallet being removed from the admin blacklist.
 pub const BLACKLIST_REMOVED_EVENT_NAME: Symbol = symbol_short!("blk_rem");
 
-/// Event name for a creator being archived by the protocol admin.
-pub const CREATOR_ARCHIVED_EVENT_NAME: Symbol = symbol_short!("archived");
-
-/// Event name for a creator's restore transition beginning (RESTORING state).
-pub const CREATOR_RESTORE_BEGUN_EVENT_NAME: Symbol = symbol_short!("restoring");
-
-/// Event name for a creator's restoration completing (back to active).
-pub const CREATOR_RESTORE_DONE_EVENT_NAME: Symbol = symbol_short!("restored");
+/// Event name for the protocol-wide buy deadline ledger being set or cleared.
+pub const GLOBAL_DEADLINE_SET_EVENT_NAME: Symbol = symbol_short!("dl_set");
 
 /// Event name for creator registration.
 pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
@@ -493,6 +487,228 @@ pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
+
+// --- Supply cap events ---
+
+/// Event name for supply cap set.
+pub const SUPPLY_CAP_SET_EVENT_NAME: Symbol = symbol_short!("cap_set");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SupplyCapSetEvent {
+    pub creator_id: Address,
+    pub cap: u32,
+}
+
+pub fn supply_cap_set_topics(creator: &Address) -> (Symbol, Address) {
+    (SUPPLY_CAP_SET_EVENT_NAME, creator.clone())
+}
+
+// --- Multisig pause events ---
+
+/// Event name for pause proposal.
+pub const PAUSE_PROPOSED_EVENT_NAME: Symbol = symbol_short!("pp_prop");
+
+/// Event name for trading paused via multisig.
+pub const TRADING_PAUSED_EVENT_NAME: Symbol = symbol_short!("pp_exec");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PauseProposedEvent {
+    pub creator_id: Address,
+    pub proposer: Address,
+    pub ledger: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradingPausedEvent {
+    pub creator_id: Address,
+    pub approver: Address,
+    pub ledger: u32,
+}
+
+pub fn pause_proposed_topics(creator: &Address) -> (Symbol, Address) {
+    (PAUSE_PROPOSED_EVENT_NAME, creator.clone())
+}
+
+pub fn trading_paused_topics(creator: &Address) -> (Symbol, Address) {
+    (TRADING_PAUSED_EVENT_NAME, creator.clone())
+}
+
+// --- Vesting events ---
+
+/// Event name for vesting schedule created.
+pub const VESTING_CREATED_EVENT_NAME: Symbol = symbol_short!("vest_new");
+
+/// Event name for vested keys claimed.
+pub const KEYS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("vest_clm");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VestingCreatedEvent {
+    pub creator_id: Address,
+    pub beneficiary: Address,
+    pub total_keys: u32,
+    pub start_ledger: u32,
+    pub vesting_period_ledgers: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysClaimedEvent {
+    pub creator_id: Address,
+    pub beneficiary: Address,
+    pub amount: u32,
+    pub ledger: u32,
+}
+
+pub fn vesting_created_topics(creator: &Address) -> (Symbol, Address) {
+    (VESTING_CREATED_EVENT_NAME, creator.clone())
+}
+
+pub fn keys_claimed_topics(creator: &Address, beneficiary: &Address) -> (Symbol, Address, Address) {
+    (
+        KEYS_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        beneficiary.clone(),
+    )
+}
+
+// --- Timelock events ---
+
+/// Event name for config change proposed.
+pub const CONFIG_CHANGE_PROPOSED_EVENT_NAME: Symbol = symbol_short!("tl_prop");
+
+/// Event name for config change executed.
+pub const CONFIG_CHANGE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("tl_exec");
+
+/// Event name for config change cancelled.
+pub const CONFIG_CHANGE_CANCELLED_EVENT_NAME: Symbol = symbol_short!("tl_canc");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfigChangeProposedEvent {
+    pub proposal_id: u32,
+    pub proposer: Address,
+    pub change_type: u32,
+    pub proposed_at: u32,
+    pub execution_not_before: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfigChangeExecutedEvent {
+    pub proposal_id: u32,
+    pub executed_at: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConfigChangeCancelledEvent {
+    pub proposal_id: u32,
+    pub cancelled_at: u32,
+}
+
+pub fn config_change_proposed_topics(proposer: &Address) -> (Symbol, Address) {
+    (CONFIG_CHANGE_PROPOSED_EVENT_NAME, proposer.clone())
+}
+
+pub fn config_change_executed_topics() -> Symbol {
+    CONFIG_CHANGE_EXECUTED_EVENT_NAME
+}
+
+pub fn config_change_cancelled_topics() -> Symbol {
+    CONFIG_CHANGE_CANCELLED_EVENT_NAME
+}
+
+// --- Circuit breaker, referral fee, whitelist, burn events ---
+
+pub const CIRCUIT_BREAKER_TRIGGERED_EVENT_NAME: Symbol = symbol_short!("cb_trig");
+pub const REFERRAL_FEE_PAID_EVENT_NAME: Symbol = symbol_short!("ref_paid");
+pub const WHITELIST_ENABLED_EVENT_NAME: Symbol = symbol_short!("wl_en");
+pub const WHITELIST_DISABLED_EVENT_NAME: Symbol = symbol_short!("wl_dis");
+pub const ADDRESS_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_add");
+pub const ADDRESS_REMOVED_EVENT_NAME: Symbol = symbol_short!("wl_rem");
+pub const KEYS_BURNED_EVENT_NAME: Symbol = symbol_short!("burned");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CircuitBreakerTriggeredEvent {
+    pub pre_price: i128,
+    pub post_price: i128,
+}
+
+pub fn circuit_breaker_triggered_topics() -> Symbol {
+    CIRCUIT_BREAKER_TRIGGERED_EVENT_NAME
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralFeePaidEvent {
+    pub referrer: Address,
+    pub amount: i128,
+}
+
+pub fn referral_fee_paid_topics() -> Symbol {
+    REFERRAL_FEE_PAID_EVENT_NAME
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WhitelistEnabledEvent {
+    pub creator: Address,
+}
+
+pub fn whitelist_enabled_topics(creator: &Address) -> (Symbol, Address) {
+    (WHITELIST_ENABLED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WhitelistDisabledEvent {
+    pub creator: Address,
+}
+
+pub fn whitelist_disabled_topics(creator: &Address) -> (Symbol, Address) {
+    (WHITELIST_DISABLED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AddressWhitelistedEvent {
+    pub creator: Address,
+    pub address: Address,
+}
+
+pub fn address_whitelisted_topics(creator: &Address) -> (Symbol, Address) {
+    (ADDRESS_WHITELISTED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AddressRemovedEvent {
+    pub creator: Address,
+    pub address: Address,
+}
+
+pub fn address_removed_topics(creator: &Address) -> (Symbol, Address) {
+    (ADDRESS_REMOVED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysBurnedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub quantity: u32,
+    pub new_supply: u32,
+}
+
+pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEYS_BURNED_EVENT_NAME, key_id.clone())
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -510,7 +726,7 @@ pub enum PollError {
 
 #[derive(Clone)]
 #[contracttype]
-enum PollDataKey {
+pub enum PollDataKey {
     NextPollId(Address),
     Poll(Address, u32),
     Vote(Address, u32, Address),
@@ -543,22 +759,22 @@ pub struct PollResult {
     pub expired: bool,
 }
 
-fn poll_storage_key(creator_id: &Address, poll_id: u32) -> PollDataKey {
+pub fn poll_storage_key(creator_id: &Address, poll_id: u32) -> PollDataKey {
     PollDataKey::Poll(creator_id.clone(), poll_id)
 }
 
-fn vote_storage_key(creator_id: &Address, poll_id: u32, voter: &Address) -> PollDataKey {
+pub fn vote_storage_key(creator_id: &Address, poll_id: u32, voter: &Address) -> PollDataKey {
     PollDataKey::Vote(creator_id.clone(), poll_id, voter.clone())
 }
 
-fn read_poll(env: &Env, creator_id: &Address, poll_id: u32) -> Result<Poll, PollError> {
+pub fn read_poll(env: &Env, creator_id: &Address, poll_id: u32) -> Result<Poll, PollError> {
     env.storage()
         .persistent()
         .get(&poll_storage_key(creator_id, poll_id))
         .ok_or(PollError::PollNotFound)
 }
 
-fn is_poll_expired(env: &Env, poll: &Poll) -> bool {
+pub fn is_poll_expired(env: &Env, poll: &Poll) -> bool {
     env.ledger().sequence() >= poll.expires_at
 }
 

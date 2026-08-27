@@ -160,3 +160,28 @@ fn test_get_creator_supply_fails_for_unregistered_creator() {
         "must return NotRegistered for unregistered creator"
     );
 }
+
+// ── get_balance: never-transacted and sold-out wallets ────────────────────────
+
+#[test]
+fn test_get_balance_no_history_and_sold_all_returns_zero_no_panic() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let _admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
+    let creator = register_test_creator(&env, &client, "alice");
+
+    let never_transacted = soroban_sdk::Address::generate(&env);
+    let buyer = soroban_sdk::Address::generate(&env);
+
+    // 1. Never-transacted wallet returns 0 and does not panic
+    assert_eq!(client.get_balance(&creator, &never_transacted), 0);
+
+    // 2. Buy and sell all keys
+    client.buy_key(&creator, &buyer, &100, &None);
+    assert_eq!(client.get_balance(&creator, &buyer), 1);
+    client.sell_key(&creator, &buyer, &None);
+
+    // Wallet that sold all keys returns 0 and does not panic
+    assert_eq!(client.get_balance(&creator, &buyer), 0);
+}

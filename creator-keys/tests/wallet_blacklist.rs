@@ -299,3 +299,42 @@ fn test_blacklist_does_not_affect_other_wallets() {
     assert_eq!(supply, 1);
     assert_eq!(client.get_key_balance(&creator, &allowed_buyer), 1);
 }
+
+// ---------------------------------------------------------------------------
+// is_wallet_blacklisted view returns correct status
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_is_wallet_blacklisted_returns_false_for_non_blacklisted_wallet() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    set_protocol_admin(&env, &client);
+
+    let wallet = Address::generate(&env);
+    assert!(!client.is_wallet_blacklisted(&wallet));
+}
+
+#[test]
+fn test_is_wallet_blacklisted_returns_true_after_blacklist() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let admin = set_protocol_admin(&env, &client);
+
+    let wallet = Address::generate(&env);
+    client.blacklist_wallet(&admin, &wallet);
+    assert!(client.is_wallet_blacklisted(&wallet));
+}
+
+#[test]
+fn test_is_wallet_blacklisted_returns_false_after_removal() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let admin = set_protocol_admin(&env, &client);
+
+    let wallet = Address::generate(&env);
+    client.blacklist_wallet(&admin, &wallet);
+    assert!(client.is_wallet_blacklisted(&wallet));
+
+    client.remove_from_blacklist(&admin, &wallet);
+    assert!(!client.is_wallet_blacklisted(&wallet));
+}

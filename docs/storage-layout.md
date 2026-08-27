@@ -73,6 +73,7 @@ distinguishable from other key types.
 | `ReferralFeeBps` | Global | `u32` | `set_referral_fee_bps` (admin) | `buy_key_with_referrer` (referral split), `get_referral_fee_bps` |
 | `DiscountTiers` | Global | `Vec<DiscountTier>` | `update_discount_tiers` (admin) | `get_discount_tiers` (volume-based fee discount evaluation) |
 | `CreatorVolume(Address)` | Per-creator | `i128` | *(not currently written by any entrypoint)* | `get_creator_volume` |
+| `RetentionPolicy` | Global | `RetentionPolicy` | `set_retention_policy` (admin) | `read_retention_policy`, `get_retention_policy` |
 | `CreatorTtlLiveUntil(Address)` | Per-creator | `u32` | `register_creator` (initial write), `extend_creator_ttl` (updated after every trade) | `extend_creator_ttl` (TTL-extension event gate) |
 
 > **Note:** `CreatorVolume(Address)` is read by `get_creator_volume` but has no
