@@ -535,6 +535,30 @@ pub fn trading_paused_topics(creator: &Address) -> (Symbol, Address) {
     (TRADING_PAUSED_EVENT_NAME, creator.clone())
 }
 
+// --- Global emergency pause events (#784) ---
+
+/// Event name emitted when the protocol-wide emergency pause activates.
+pub const GLOBAL_PAUSE_ACTIVATED_EVENT_NAME: Symbol = symbol_short!("gpause_on");
+
+/// Event name emitted when the protocol-wide emergency pause is lifted.
+pub const GLOBAL_PAUSE_LIFTED_EVENT_NAME: Symbol = symbol_short!("gpause_of");
+
+/// Topics for the `global_pause_activated` event.
+///
+/// - topics: `(GLOBAL_PAUSE_ACTIVATED_EVENT_NAME, approver)`
+/// - data: the ledger sequence at activation (`u32`)
+pub fn global_pause_activated_topics(approver: &Address) -> (Symbol, Address) {
+    (GLOBAL_PAUSE_ACTIVATED_EVENT_NAME, approver.clone())
+}
+
+/// Topics for the `global_pause_lifted` event.
+///
+/// - topics: `(GLOBAL_PAUSE_LIFTED_EVENT_NAME, approver)`
+/// - data: the ledger sequence at the lift (`u32`)
+pub fn global_pause_lifted_topics(approver: &Address) -> (Symbol, Address) {
+    (GLOBAL_PAUSE_LIFTED_EVENT_NAME, approver.clone())
+}
+
 // --- Vesting events ---
 
 /// Event name for vesting schedule created.
