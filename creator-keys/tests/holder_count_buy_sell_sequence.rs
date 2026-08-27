@@ -56,7 +56,12 @@ fn setup(
     let (client, _contract_id) = register_creator_keys(env);
     set_key_price_for_tests(env, &client, KEY_PRICE);
     let creator = register_test_creator(env, &client, "alice");
-    (client, creator, Address::generate(env), Address::generate(env))
+    (
+        client,
+        creator,
+        Address::generate(env),
+        Address::generate(env),
+    )
 }
 
 #[test]
@@ -234,7 +239,14 @@ fn repeat_buys_and_re_entry_are_counted_once_per_wallet() {
 
     client.sell_key(&creator, &wallet_a, &None);
     client.sell_key(&creator, &wallet_a, &None);
-    assert_state(&client, &creator, 0, 0, &[(&wallet_a, 0)], "wallet A exited");
+    assert_state(
+        &client,
+        &creator,
+        0,
+        0,
+        &[(&wallet_a, 0)],
+        "wallet A exited",
+    );
 
     // Re-entry counts again.
     client.buy_key(&creator, &wallet_a, &KEY_PRICE, &None);
