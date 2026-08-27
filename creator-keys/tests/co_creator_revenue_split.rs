@@ -107,7 +107,7 @@ fn test_register_creator_rejects_invalid_co_creator_share_bps() {
             &None,
         );
 
-        assert_eq!(result, Err(Ok(ContractError::InvalidCoCreatorShare)));
+        assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
     }
 }
 

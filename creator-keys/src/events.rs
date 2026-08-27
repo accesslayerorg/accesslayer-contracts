@@ -40,6 +40,15 @@ pub const BLACKLIST_ADDED_EVENT_NAME: Symbol = symbol_short!("blk_add");
 /// Event name for a wallet being removed from the admin blacklist.
 pub const BLACKLIST_REMOVED_EVENT_NAME: Symbol = symbol_short!("blk_rem");
 
+/// Event name for a creator being archived by the protocol admin.
+pub const CREATOR_ARCHIVED_EVENT_NAME: Symbol = symbol_short!("archived");
+
+/// Event name for a creator's restore transition beginning (RESTORING state).
+pub const CREATOR_RESTORE_BEGUN_EVENT_NAME: Symbol = symbol_short!("restoring");
+
+/// Event name for a creator's restoration completing (back to active).
+pub const CREATOR_RESTORE_DONE_EVENT_NAME: Symbol = symbol_short!("restored");
+
 /// Event name for the protocol-wide buy deadline ledger being set or cleared.
 pub const GLOBAL_DEADLINE_SET_EVENT_NAME: Symbol = symbol_short!("dl_set");
 
@@ -486,7 +495,6 @@ pub fn treasury_withdrawal_event_topics(recipient: &Address) -> (Symbol, Address
 pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
-
 
 // --- Supply cap events ---
 

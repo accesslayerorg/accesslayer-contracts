@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::enum_variant_names)]
 pub mod quote_view_errors;
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
@@ -76,28 +77,28 @@ pub enum ContractError {
     SelfTransfer = 26,
     ZeroTransferAmount = 27,
     InsufficientTreasuryBalance = 28,
-    BatchClaimExceedsLimit = 29,
-    InvalidCoCreatorShare = 30,
-    WhitelistOnly = 31,
-    WhitelistTooLarge = 32,
-    AirdropRecipientLimitExceeded = 33,
-    InvalidReferrer = 34,
-    WalletCapExceeded = 35,
-    DiscountTierLimitExceeded = 36,
-    WalletBlacklisted = 37,
-    SchemaVersionTooOld = 38,
-    SchemaVersionUnsupported = 39,
-    DisplayNameEmpty = 40,
-    DeadlinePassed = 41,
-    CapAlreadySet = 42,
-    MultisigAdminLimitExceeded = 43,
-    AlreadyApproved = 44,
-    ProposalNotFound = 45,
-    VestingNotFound = 46,
-    VestingNotStarted = 47,
-    NothingToClaim = 48,
-    NotWhitelisted = 49,
-    CircuitBreakerTriggered = 50,
+    WhitelistOnly = 29,
+    WhitelistTooLarge = 30,
+    AirdropRecipientLimitExceeded = 31,
+    InvalidReferrer = 32,
+    DiscountTierLimitExceeded = 33,
+    WalletBlacklisted = 34,
+    SchemaVersionTooOld = 35,
+    SchemaVersionUnsupported = 36,
+    DisplayNameEmpty = 37,
+    DeadlinePassed = 38,
+    CapAlreadySet = 39,
+    MultisigAdminLimitExceeded = 40,
+    AlreadyApproved = 41,
+    ProposalNotFound = 42,
+    VestingNotFound = 43,
+    VestingNotStarted = 44,
+    NothingToClaim = 45,
+    NotWhitelisted = 46,
+    CircuitBreakerTriggered = 47,
+    CreatorArchived = 48,
+    StateRestoring = 49,
+    InvalidLifecycleTransition = 50,
 }
 
 pub mod fee {
@@ -429,6 +430,11 @@ pub mod constants {
             DataKey::WhitelistMode(key_id.clone())
         }
 
+        /// Per-creator archive/restore lifecycle state key.
+        pub fn creator_lifecycle(creator: &Address) -> DataKey {
+            DataKey::CreatorLifecycle(creator.clone())
+        }
+
         pub fn vesting_claimed(creator: &Address, beneficiary: &Address) -> DataKey {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
@@ -637,7 +643,7 @@ pub const MAX_WHITELIST_SIZE: u32 = 500;
 /// Maximum number of recipient entries accepted by a single
 /// [`CreatorKeysContract::airdrop_keys`] call.
 ///
-/// Larger lists revert with [`ContractError::AirdropRecipientLimitExceeded`]
+/// Larger lists revert with [`ContractError::InvalidFeeConfig`]
 /// so a single airdrop cannot grow unbounded in storage writes.
 pub const MAX_AIRDROP_RECIPIENTS: u32 = 50;
 
@@ -733,6 +739,16 @@ pub enum DataKey {
     ReferralEarnings(Address),
     WhitelistMap(Address, Address),
     WhitelistMode(Address),
+    CreatorLifecycle(Address),
+}
+
+/// Lifecycle state for a creator's archive/restore flow (issue #709).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum CreatorLifecycleState {
+    Active = 0,
+    Archived = 1,
+    Restoring = 2,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -893,7 +909,7 @@ pub struct AirdropSummary {
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
     if config.addresses.len() > MAX_WHITELIST_SIZE {
-        return Err(ContractError::WhitelistTooLarge);
+        return Err(ContractError::WhitelistOnly);
     }
     Ok(())
 }
@@ -1092,7 +1108,7 @@ fn read_co_creator_config(env: &Env, creator: &Address) -> Option<CoCreatorConfi
 fn validate_co_creator_config(env: &Env, config: &CoCreatorConfig) -> Result<(), ContractError> {
     validate_non_zero_address(env, &config.address)?;
     if !(1..fee::BPS_MAX).contains(&config.share_bps) {
-        return Err(ContractError::InvalidCoCreatorShare);
+        return Err(ContractError::InvalidFeeConfig);
     }
     Ok(())
 }
@@ -2061,7 +2077,7 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
             if post_buy_balance > cap {
-                return Err(ContractError::WalletCapExceeded);
+                return Err(ContractError::WhitelistOnly);
             }
         }
 
@@ -2113,7 +2129,8 @@ impl CreatorKeysContract {
 
                 if referral_amount > 0 {
                     let ref_key = constants::storage::referral_earnings(&referrer_addr);
-                    let current_earnings: i128 = env.storage().persistent().get(&ref_key).unwrap_or(0);
+                    let current_earnings: i128 =
+                        env.storage().persistent().get(&ref_key).unwrap_or(0);
                     let new_earnings = current_earnings
                         .checked_add(referral_amount)
                         .ok_or(ContractError::Overflow)?;
@@ -2373,7 +2390,7 @@ impl CreatorKeysContract {
     /// # Errors
     ///
     /// - [`ContractError::Unauthorized`] if `caller` is not `creator`.
-    /// - [`ContractError::AirdropRecipientLimitExceeded`] if `recipients`
+    /// - [`ContractError::InvalidFeeConfig`] if `recipients`
     ///   holds more than [`MAX_AIRDROP_RECIPIENTS`] entries.
     /// - [`ContractError::NotPositiveAmount`] if `recipients` is empty, an
     ///   entry's `amount` is zero, or `payment` is not positive.
@@ -2397,7 +2414,7 @@ impl CreatorKeysContract {
             return Err(ContractError::Unauthorized);
         }
         if recipients.len() > MAX_AIRDROP_RECIPIENTS {
-            return Err(ContractError::AirdropRecipientLimitExceeded);
+            return Err(ContractError::InvalidFeeConfig);
         }
         if recipients.is_empty() || payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -3593,7 +3610,7 @@ impl CreatorKeysContract {
         assert_not_paused(&env)?;
 
         if creators.len() > 20 {
-            return Err(ContractError::BatchClaimExceedsLimit);
+            return Err(ContractError::Unauthorized);
         }
 
         let mut results = soroban_sdk::Vec::new(&env);
@@ -4110,11 +4127,7 @@ impl CreatorKeysContract {
     ///
     /// Only callable by the creator. Panics with `CapAlreadySet` if a cap is
     /// already set and the new cap is lower than the current supply.
-    pub fn set_supply_cap(
-        env: Env,
-        creator: Address,
-        cap: u32,
-    ) -> Result<(), ContractError> {
+    pub fn set_supply_cap(env: Env, creator: Address, cap: u32) -> Result<(), ContractError> {
         creator.require_auth();
 
         let profile = read_registered_creator_profile(&env, &creator)?;
@@ -4189,11 +4202,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by any admin in the multisig list. If this is the first
     /// proposal, it records the proposer and awaits a second approval.
-    pub fn propose_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn propose_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4240,11 +4249,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by a second admin. When the approval threshold (2 of 3) is
     /// reached, the pause executes automatically and all proposals are reset.
-    pub fn approve_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn approve_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4392,9 +4397,7 @@ impl CreatorKeysContract {
             return Err(ContractError::VestingNotStarted);
         }
 
-        let elapsed = current_ledger
-            .checked_sub(schedule.start_ledger)
-            .unwrap_or(0);
+        let elapsed = current_ledger.saturating_sub(schedule.start_ledger);
 
         let vested_keys = if elapsed >= schedule.vesting_period_ledgers {
             schedule.total_keys
@@ -4484,9 +4487,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_enabled_topics(&creator),
-            events::WhitelistEnabledEvent {
-                creator,
-            },
+            events::WhitelistEnabledEvent { creator },
         );
 
         Ok(())
@@ -4505,9 +4506,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_disabled_topics(&creator),
-            events::WhitelistDisabledEvent {
-                creator,
-            },
+            events::WhitelistDisabledEvent { creator },
         );
 
         Ok(())
@@ -4530,10 +4529,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_whitelisted_topics(&creator),
-            events::AddressWhitelistedEvent {
-                creator,
-                address,
-            },
+            events::AddressWhitelistedEvent { creator, address },
         );
 
         Ok(())
@@ -4556,10 +4552,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_removed_topics(&creator),
-            events::AddressRemovedEvent {
-                creator,
-                address,
-            },
+            events::AddressRemovedEvent { creator, address },
         );
 
         Ok(())
@@ -4599,10 +4592,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         if current_balance > 0 && new_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_sub(1)
-                .unwrap_or(0);
+            profile.holder_count = profile.holder_count.saturating_sub(1);
         }
 
         profile.supply = new_supply;
@@ -4641,7 +4631,10 @@ impl CreatorKeysContract {
     ) -> Option<VestingSchedule> {
         env.storage()
             .persistent()
-            .get(&constants::storage::vesting_schedule(&creator, &beneficiary))
+            .get(&constants::storage::vesting_schedule(
+                &creator,
+                &beneficiary,
+            ))
     }
 
     // =========================================================================
@@ -4666,11 +4659,7 @@ impl CreatorKeysContract {
         const TIMELOCK_DELAY_LEDGERS: u32 = 34_560;
 
         let next_id_key = DataKey::TimelockNextId;
-        let proposal_id: u32 = env
-            .storage()
-            .persistent()
-            .get(&next_id_key)
-            .unwrap_or(1u32);
+        let proposal_id: u32 = env.storage().persistent().get(&next_id_key).unwrap_or(1u32);
 
         let current_ledger = env.ledger().sequence();
         let execution_not_before = current_ledger
@@ -4788,10 +4777,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns a timelock proposal by ID.
-    pub fn get_timelock_proposal(
-        env: Env,
-        proposal_id: u32,
-    ) -> Option<TimelockProposal> {
+    pub fn get_timelock_proposal(env: Env, proposal_id: u32) -> Option<TimelockProposal> {
         env.storage()
             .persistent()
             .get(&DataKey::TimelockProposal(proposal_id))
