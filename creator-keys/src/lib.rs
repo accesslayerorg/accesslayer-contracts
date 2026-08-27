@@ -104,6 +104,15 @@ pub enum ContractError {
     /// Emitted when a `batch_transfer_keys` call contains a recipient address
     /// that is the same as the sender (self-transfer inside a batch).
     InvalidRecipient = 52,
+    /// Emitted when a `batch_buy` call contains zero entries or more than
+    /// [`MAX_BATCH_BUY_SIZE`] entries.
+    BatchSizeExceeded = 53,
+    /// Emitted when `migrate_curve` receives an exponent value outside the
+    /// supported range (must be 1–5).
+    InvalidExponent = 54,
+    /// Emitted when `set_royalty` is called with a fee basis points value
+    /// that exceeds [`MAX_ROYALTY_BPS`].
+    RoyaltyExceedsLimit = 55,
 }
 
 pub mod fee {
@@ -966,6 +975,21 @@ pub struct AirdropSummary {
     pub total_cost: i128,
     pub recipient_count: u32,
     pub skipped_count: u32,
+}
+
+/// Result of a single order within a [`CreatorKeysContract::batch_buy`] call.
+///
+/// Each entry in the returned `Vec` corresponds to one `(creator, quantity)`
+/// pair from the input orders slice, in the same order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BatchBuyResult {
+    /// Address of the creator whose keys were purchased.
+    pub creator: Address,
+    /// Number of keys purchased for this order.
+    pub quantity: u32,
+    /// Total amount paid (key price × quantity, including protocol fee).
+    pub price_paid: i128,
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
@@ -4363,6 +4387,148 @@ impl CreatorKeysContract {
         );
 
         Ok(())
+    }
+
+    /// Buys keys across multiple creators in a single call.
+    ///
+    /// Accepts 1–[`MAX_BATCH_BUY_SIZE`] `(creator, quantity)` pairs. Each order
+    /// calls [`buy_key`] `quantity` times at the current quote price, so the
+    /// bonding curve advances correctly between buys.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::BatchSizeExceeded`] if `orders` is empty or contains
+    ///   more than [`MAX_BATCH_BUY_SIZE`] entries.
+    /// - Any error that [`buy_key`] itself can return (e.g.
+    ///   [`ContractError::NotRegistered`], [`ContractError::SupplyCapExceeded`]).
+    pub fn batch_buy(
+        env: Env,
+        buyer: Address,
+        orders: Vec<(Address, u32)>,
+    ) -> Result<Vec<BatchBuyResult>, ContractError> {
+        buyer.require_auth();
+        assert_not_paused(&env)?;
+
+        let order_count = orders.len();
+        if order_count == 0 || order_count > MAX_BATCH_BUY_SIZE as u32 {
+            return Err(ContractError::BatchSizeExceeded);
+        }
+
+        let mut results: Vec<BatchBuyResult> = Vec::new(&env);
+
+        for (creator, quantity) in orders.iter() {
+            let mut total_paid: i128 = 0;
+            for _ in 0..quantity {
+                let quote = Self::get_buy_quote(env.clone(), creator.clone())?;
+                let payment = quote.total_amount;
+                Self::buy_key(env.clone(), creator.clone(), buyer.clone(), payment, None)?;
+                total_paid = total_paid
+                    .checked_add(payment)
+                    .ok_or(ContractError::Overflow)?;
+            }
+            results.push_back(BatchBuyResult {
+                creator,
+                quantity,
+                price_paid: total_paid,
+            });
+        }
+
+        Ok(results)
+    }
+
+    /// Sets the royalty fee configuration for a creator's keys.
+    ///
+    /// Both `buy_fee_bps` and `sell_fee_bps` must not exceed [`MAX_ROYALTY_BPS`]
+    /// (500 = 5%). Only the creator themselves may call this.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::RoyaltyExceedsLimit`] if either fee exceeds [`MAX_ROYALTY_BPS`].
+    pub fn set_royalty(
+        env: Env,
+        creator: Address,
+        buy_fee_bps: u32,
+        sell_fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        read_registered_creator_profile(&env, &creator)?;
+
+        if buy_fee_bps > MAX_ROYALTY_BPS || sell_fee_bps > MAX_ROYALTY_BPS {
+            return Err(ContractError::RoyaltyExceedsLimit);
+        }
+
+        let config = RoyaltyConfig {
+            buy_fee_bps,
+            sell_fee_bps,
+        };
+        env.storage()
+            .persistent()
+            .set(&constants::storage::royalty_config(&creator), &config);
+        extend_key_ttl_to_full_window(&env, &constants::storage::royalty_config(&creator));
+
+        env.events().publish(
+            events::royalty_updated_topics(&creator),
+            events::RoyaltyUpdatedEvent {
+                creator: creator.clone(),
+                buy_fee_bps,
+                sell_fee_bps,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Returns the royalty configuration for a creator, or `None` if not set.
+    pub fn get_royalty_config(env: Env, creator: Address) -> Option<RoyaltyConfig> {
+        read_royalty_config(&env, &creator)
+    }
+
+    /// Migrates the bonding curve exponent for a batch of creator keys.
+    ///
+    /// Only the protocol admin may call this. Valid exponent values are 1–5.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`ContractError::InvalidExponent`] if `exponent` is 0 or greater than 5.
+    pub fn migrate_curve(
+        env: Env,
+        admin: Address,
+        exponent: u32,
+        key_ids: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if exponent == 0 || exponent > 5 {
+            return Err(ContractError::InvalidExponent);
+        }
+
+        for creator in key_ids.iter() {
+            env.storage()
+                .persistent()
+                .set(&constants::storage::curve_exponent(&creator), &exponent);
+            extend_key_ttl_to_full_window(&env, &constants::storage::curve_exponent(&creator));
+        }
+
+        env.events().publish(
+            events::curve_migrated_topics(&admin),
+            events::CurveMigratedEvent {
+                admin: admin.clone(),
+                new_exponent: exponent,
+                key_count: key_ids.len(),
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Returns the curve exponent set for a creator, or `None` if not migrated.
+    pub fn get_curve_exponent(env: Env, creator: Address) -> Option<u32> {
+        read_curve_exponent(&env, &creator)
     }
 
     /// Returns the current withdrawable treasury balance.
