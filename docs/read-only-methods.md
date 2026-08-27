@@ -95,6 +95,23 @@ The following invariants are guaranteed for successful quote responses:
 
 ---
 
+## TWAP (time-weighted average price)
+
+### `get_twap(creator: Address, window_ledgers: u32) → i128`
+
+Returns a manipulation-resistant time-weighted average price for a creator over the last `window_ledgers` ledgers.
+
+Every buy and sell records a `(price, ledger)` snapshot into a per-creator ring buffer capped at [`MAX_PRICE_SNAPSHOTS`](../creator-keys/src/lib.rs) (100) entries; the oldest entry is overwritten first. `get_twap` averages all snapshots whose ledger falls in the inclusive window `[current_ledger - window_ledgers, current_ledger]`.
+
+**Edge cases (never panics):**
+- **Fewer than 2 snapshots in the window:** the current bonding-curve spot price is returned instead of an average.
+- **Unregistered creator or unset key price:** returns `0`.
+- **`window_ledgers == 0`:** only snapshots recorded at the current ledger qualify; usually falls back to the spot price.
+- **Huge windows:** at most the latest 100 snapshots exist, so the average is bounded regardless of `window_ledgers`.
+- **TTL maintenance:** the ring buffer key's TTL is bumped on every read and write so actively polled price history never expires.
+
+---
+
 ## Supply and balance methods
 
 ### `get_total_key_supply(creator: Address) → u32`

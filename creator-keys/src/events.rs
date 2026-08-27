@@ -487,7 +487,6 @@ pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
-
 // --- Supply cap events ---
 
 /// Event name for supply cap set.
@@ -1003,4 +1002,53 @@ pub struct RoyaltyUpdatedEvent {
 /// Shared royalty updated event topics tuple.
 pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for protocol trade fee collection.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_col");
+
+/// Stable protocol trade fee collection payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
+/// - data: `FeeCollectedEvent`
+///
+/// Emitted on every buy and sell once a protocol trade fee is configured via
+/// `set_protocol_fee`, carrying the treasury address and the amount deducted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    pub treasury: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Shared fee collected event topics tuple.
+pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+}
+
+/// Event name for a sell rejected by the anti-flash-trade lockup.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lockup");
+
+/// Stable sell lockup rejection payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator, seller)`
+/// - data: `LockupBlockedEvent`
+///
+/// Emitted when `sell_key` rejects a sale inside the configured lockup window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    pub creator_id: Address,
+    pub seller: Address,
+    pub last_buy_timestamp: u64,
+    pub unlock_at: u64,
+    pub current_timestamp: u64,
+}
+
+/// Shared lockup blocked event topics tuple.
+pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
 }

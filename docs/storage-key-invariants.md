@@ -149,6 +149,18 @@ let new_balance = 2;
 - Operations requiring config must check for presence and return appropriate errors
 - Read-only views should return `None` or default values for unset config
 
+### 3b. TWAP Price Snapshot Ring Buffer
+
+**Key**: `PriceSnapshots(creator)` (`DataKey::PriceSnapshots(Address)`) — per-creator `Vec<PriceSnapshot>` where `PriceSnapshot { price: i128, ledger: u32 }`.
+
+**Invariant**: The buffer holds at most [`MAX_PRICE_SNAPSHOTS`](../creator-keys/src/lib.rs) (100) entries. Every buy and sell pushes a `(price, ledger)` snapshot; when the buffer is full, the oldest entry is popped first (`pop_front`) so the ring never exceeds the cap regardless of trade volume.
+
+**Implications**:
+- `buy_key`, `sell_key`, and `batch_buy` call `record_price_snapshot` after the trade executes.
+- `get_twap` reads the buffer without mutating it and bumps the buffer key's TTL on every read.
+- The buffer key's TTL is extended to the full window on every write.
+- `get_twap` returns the spot price (or `0` when the key price is unset) when fewer than 2 snapshots fall inside the requested window — never panics on an empty buffer.
+
 ### 4. Supply and Balance Conservation
 
 **Invariant**: Total supply across all creators equals the sum of all key balances.

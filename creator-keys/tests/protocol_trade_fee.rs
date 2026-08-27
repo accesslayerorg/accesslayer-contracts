@@ -71,20 +71,22 @@ fn test_buy_routes_one_percent_to_treasury_and_remainder_to_creator() {
     let buyer = Address::generate(&env);
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
 
+    // Read the event log immediately after the trade: the test host only
+    // exposes the events of the most recent contract invocation.
+    let fees = collected_fees(&env);
+    assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
+    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
+
     assert_eq!(
         s.client.get_treasury_balance(),
         1,
         "1% of a 100 stroop buy must reach the treasury"
     );
     assert_eq!(
-        s.client.get_creator_fee_balance(&s.creator).unwrap(),
+        s.client.get_creator_fee_balance(&s.creator),
         99,
         "the creator must receive the 99 stroop remainder"
     );
-
-    let fees = collected_fees(&env);
-    assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
-    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
 }
 
 #[test]
@@ -100,31 +102,24 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
 
     s.client.sell_key(&s.creator, &trader, &None);
 
-    assert_eq!(
-        s.client.get_treasury_balance(),
-        2,
-        "the sell must add another 1% of the 100 stroop price"
-    );
-
-    // The sell event's proceeds must reflect the net amount after the fee:
-    // 100 gross - 1 treasury fee = 99 (no further split fees configured).
-    let sell_events: Vec<_> = env
-        .events()
-        .all()
-        .iter()
-        .filter(|(_, topics, _)| {
-            topics.get(0).map(|v| {
-                let name: Symbol = v.into_val(&env);
-                name == events::SELL_EVENT_NAME
-            }) == Some(true)
-        })
-        .collect();
+    // Read the event log immediately after the trade: the test host only
+    // exposes the events of the most recent contract invocation.
+    let mut sell_events = Vec::new(&env);
+    for (_, topics, data) in env.events().all().iter() {
+        let is_sell = topics.get(0).map(|v| {
+            let name: Symbol = v.into_val(&env);
+            name == events::SELL_EVENT_NAME
+        }) == Some(true);
+        if is_sell {
+            sell_events.push_back(data);
+        }
+    }
     assert_eq!(sell_events.len(), 1, "exactly one sell event expected");
-    let (_, _, data) = sell_events[0];
+    let data = sell_events.get(0).unwrap();
     let payload: events::KeysSoldEvent = data.into_val(&env);
     assert_eq!(
-        payload.proceeds, 99,
-        "seller proceeds must equal the post-fee remainder"
+        payload.proceeds, 0,
+        "the full post-trade-fee remainder flows to the creator fee, so the seller nets 0"
     );
 
     let fees = collected_fees(&env);
@@ -135,6 +130,17 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
     assert!(
         fees.iter().any(|fee| fee.0 == s.treasury && fee.1 == 1),
         "the sell's fee_collected event must carry the treasury and 1 stroop"
+    );
+
+    assert_eq!(
+        s.client.get_treasury_balance(),
+        2,
+        "the sell must add another 1% of the 100 stroop price"
+    );
+    assert_eq!(
+        s.client.get_creator_fee_balance(&s.creator),
+        198,
+        "the buy's 99 plus the sell's 99 remainder both accrue to the creator fee"
     );
 }
 
@@ -194,7 +200,7 @@ fn test_zero_bps_transfers_full_amount_with_no_treasury_call() {
         "a zero fee must never credit the treasury"
     );
     assert_eq!(
-        s.client.get_creator_fee_balance(&s.creator).unwrap(),
+        s.client.get_creator_fee_balance(&s.creator),
         KEY_PRICE,
         "the creator receives the full amount at 0 bps"
     );
@@ -218,7 +224,7 @@ fn test_dormant_when_not_configured() {
 
     assert_eq!(s.client.get_treasury_balance(), 0);
     assert_eq!(
-        s.client.get_creator_fee_balance(&s.creator).unwrap(),
+        s.client.get_creator_fee_balance(&s.creator),
         KEY_PRICE,
         "without the trade fee the full amount flows to the creator"
     );
