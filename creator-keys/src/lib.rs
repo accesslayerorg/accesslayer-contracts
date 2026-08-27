@@ -1,5 +1,4 @@
 #![no_std]
-#![allow(clippy::enum_variant_names)]
 pub mod quote_view_errors;
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
@@ -7,7 +6,7 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 pub mod events;
 pub mod test_new_features;
 
-#[contracterror]
+#[contracterror(export = false)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 /// Contract error variants.
@@ -77,28 +76,46 @@ pub enum ContractError {
     SelfTransfer = 26,
     ZeroTransferAmount = 27,
     InsufficientTreasuryBalance = 28,
-    WhitelistOnly = 29,
-    WhitelistTooLarge = 30,
-    AirdropRecipientLimitExceeded = 31,
-    InvalidReferrer = 32,
-    DiscountTierLimitExceeded = 33,
-    WalletBlacklisted = 34,
-    SchemaVersionTooOld = 35,
-    SchemaVersionUnsupported = 36,
-    DisplayNameEmpty = 37,
-    DeadlinePassed = 38,
-    CapAlreadySet = 39,
-    MultisigAdminLimitExceeded = 40,
-    AlreadyApproved = 41,
-    ProposalNotFound = 42,
-    VestingNotFound = 43,
-    VestingNotStarted = 44,
-    NothingToClaim = 45,
-    NotWhitelisted = 46,
-    CircuitBreakerTriggered = 47,
-    CreatorArchived = 48,
-    StateRestoring = 49,
-    InvalidLifecycleTransition = 50,
+    BatchClaimExceedsLimit = 29,
+    InvalidCoCreatorShare = 30,
+    WhitelistOnly = 31,
+    WhitelistTooLarge = 32,
+    AirdropRecipientLimitExceeded = 33,
+    InvalidReferrer = 34,
+    WalletCapExceeded = 35,
+    DiscountTierLimitExceeded = 36,
+    WalletBlacklisted = 37,
+    SchemaVersionTooOld = 38,
+    SchemaVersionUnsupported = 39,
+    DisplayNameEmpty = 40,
+    DeadlinePassed = 41,
+    CapAlreadySet = 42,
+    MultisigAdminLimitExceeded = 43,
+    AlreadyApproved = 44,
+    ProposalNotFound = 45,
+    VestingNotFound = 46,
+    VestingNotStarted = 47,
+    NothingToClaim = 48,
+    NotWhitelisted = 49,
+    CircuitBreakerTriggered = 50,
+    /// Buyer would exceed the creator's configured per-wallet holding cap.
+    MaxHoldingExceeded = 51,
+    /// Seller's most recent buy falls inside the anti-flash-trade lockup window.
+    LockupPeriodActive = 52,
+    /// The holder cap value is invalid (e.g. zero or exceeds 10000 bps).
+    InvalidHolderCap = 53,
+    /// Batch buy order list exceeds the maximum allowed size.
+    BatchSizeExceeded = 54,
+    /// The requested curve exponent is outside the allowed range.
+    InvalidExponent = 55,
+    /// The royalty basis points exceed the maximum permitted value.
+    RoyaltyExceedsLimit = 56,
+    /// Creator is archived; trading is blocked until restoration completes.
+    CreatorArchived = 57,
+    /// Creator state is being restored; trading is temporarily blocked.
+    StateRestoring = 58,
+    /// The requested lifecycle transition is not valid from the current state.
+    InvalidLifecycleTransition = 59,
 }
 
 pub mod fee {
@@ -440,13 +457,23 @@ pub mod constants {
             DataKey::WhitelistMode(key_id.clone())
         }
 
+        pub fn vesting_claimed(creator: &Address, beneficiary: &Address) -> DataKey {
+            DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
+        }
+
+        /// Per-creator holder cap in basis points.
+        pub fn holder_cap_bps(creator: &Address) -> DataKey {
+            DataKey::HolderCapBps(creator.clone())
+        }
+
+        /// Last buy timestamp for a (creator, holder) pair.
+        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
+        }
+
         /// Per-creator archive/restore lifecycle state key.
         pub fn creator_lifecycle(creator: &Address) -> DataKey {
             DataKey::CreatorLifecycle(creator.clone())
-        }
-
-        pub fn vesting_claimed(creator: &Address, beneficiary: &Address) -> DataKey {
-            DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
     }
 
@@ -685,7 +712,7 @@ pub const MAX_WHITELIST_SIZE: u32 = 500;
 /// Maximum number of recipient entries accepted by a single
 /// [`CreatorKeysContract::airdrop_keys`] call.
 ///
-/// Larger lists revert with [`ContractError::InvalidFeeConfig`]
+/// Larger lists revert with [`ContractError::AirdropRecipientLimitExceeded`]
 /// so a single airdrop cannot grow unbounded in storage writes.
 pub const MAX_AIRDROP_RECIPIENTS: u32 = 50;
 
@@ -787,16 +814,23 @@ pub enum DataKey {
     ReferralEarnings(Address),
     WhitelistMap(Address, Address),
     WhitelistMode(Address),
+    /// Protocol trade fee in basis points deducted from every buy and sell
+    /// before the creator payout is computed. Absent means dormant.
+    ProtocolFeeBps,
+    /// Per-creator maximum share of the supply a single (non-creator) wallet
+    /// may hold, expressed in basis points. Absent means no cap is enforced.
+    HolderCapBps(Address),
+    /// Ledger timestamp of a holder's most recent buy for a creator, used to
+    /// enforce the anti-flash-trade sell lockup.
+    LastBuyTimestamp(Address, Address),
+    /// Sell lockup duration in seconds. Absent means sells are never time-gated.
+    LockupDurationSecs,
+    /// Creator royalty configuration for buy and sell fees.
+    RoyaltyConfig(Address),
+    /// Per-creator bonding curve exponent override (1–5).
+    CurveExponent(Address),
+    /// Per-creator archive/restore lifecycle state.
     CreatorLifecycle(Address),
-}
-
-/// Lifecycle state for a creator's archive/restore flow (issue #709).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum CreatorLifecycleState {
-    Active = 0,
-    Archived = 1,
-    Restoring = 2,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -917,6 +951,17 @@ pub struct RoyaltyConfig {
     pub sell_fee_bps: u32,
 }
 
+/// Lifecycle state for a creator's archive/restore flow (issue #709).
+///
+/// Absent storage entries default to `Active`, keeping storage sparse.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum CreatorLifecycleState {
+    Active = 0,
+    Archived = 1,
+    Restoring = 2,
+}
+
 /// Result of a single order in a batch buy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -974,7 +1019,7 @@ pub struct AirdropSummary {
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
     if config.addresses.len() > MAX_WHITELIST_SIZE {
-        return Err(ContractError::WhitelistOnly);
+        return Err(ContractError::WhitelistTooLarge);
     }
     Ok(())
 }
@@ -1174,7 +1219,7 @@ fn read_co_creator_config(env: &Env, creator: &Address) -> Option<CoCreatorConfi
 fn validate_co_creator_config(env: &Env, config: &CoCreatorConfig) -> Result<(), ContractError> {
     validate_non_zero_address(env, &config.address)?;
     if !(1..fee::BPS_MAX).contains(&config.share_bps) {
-        return Err(ContractError::InvalidFeeConfig);
+        return Err(ContractError::InvalidCoCreatorShare);
     }
     Ok(())
 }
@@ -1326,31 +1371,6 @@ fn assert_is_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
         return Err(ContractError::Unauthorized);
     }
     Ok(())
-}
-
-/// Reads a creator's lifecycle state, defaulting to [`CreatorLifecycleState::Active`]
-/// when no lifecycle entry exists.
-pub fn read_creator_lifecycle(env: &Env, creator: &Address) -> CreatorLifecycleState {
-    env.storage()
-        .persistent()
-        .get(&constants::storage::creator_lifecycle(creator))
-        .unwrap_or(CreatorLifecycleState::Active)
-}
-
-/// Guard rejecting trades for creators whose state is being restored (or is
-/// archived) so writes cannot race the copy-back of archived state.
-///
-/// Read-only views intentionally bypass this guard: the contract continues to
-/// serve current values while restoration is in progress (issue #709).
-fn assert_creator_lifecycle_allows_trading(
-    env: &Env,
-    creator: &Address,
-) -> Result<(), ContractError> {
-    match read_creator_lifecycle(env, creator) {
-        CreatorLifecycleState::Active => Ok(()),
-        CreatorLifecycleState::Archived => Err(ContractError::CreatorArchived),
-        CreatorLifecycleState::Restoring => Err(ContractError::StateRestoring),
-    }
 }
 
 fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
@@ -1689,6 +1709,29 @@ fn read_curve_exponent(env: &Env, creator: &Address) -> Option<u32> {
     env.storage()
         .persistent()
         .get(&constants::storage::curve_exponent(creator))
+}
+
+/// Reads a creator's lifecycle state, defaulting to [`CreatorLifecycleState::Active`]
+/// when no lifecycle entry exists.
+pub fn read_creator_lifecycle(env: &Env, creator: &Address) -> CreatorLifecycleState {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::creator_lifecycle(creator))
+        .unwrap_or(CreatorLifecycleState::Active)
+}
+
+/// Guard rejecting trades for creators whose state is `Archived` or `Restoring`.
+///
+/// Read-only views intentionally bypass this guard.
+fn assert_creator_lifecycle_allows_trading(
+    env: &Env,
+    creator: &Address,
+) -> Result<(), ContractError> {
+    match read_creator_lifecycle(env, creator) {
+        CreatorLifecycleState::Active => Ok(()),
+        CreatorLifecycleState::Archived => Err(ContractError::CreatorArchived),
+        CreatorLifecycleState::Restoring => Err(ContractError::StateRestoring),
+    }
 }
 
 fn compute_bonding_curve_price(
@@ -2192,6 +2235,7 @@ impl CreatorKeysContract {
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
+        assert_creator_lifecycle_allows_trading(&env, &creator)?;
 
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -2279,7 +2323,7 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
             if post_buy_balance > cap {
-                return Err(ContractError::WhitelistOnly);
+                return Err(ContractError::WalletCapExceeded);
             }
         }
 
@@ -2369,8 +2413,7 @@ impl CreatorKeysContract {
 
                 if referral_amount > 0 {
                     let ref_key = constants::storage::referral_earnings(&referrer_addr);
-                    let current_earnings: i128 =
-                        env.storage().persistent().get(&ref_key).unwrap_or(0);
+                    let current_earnings: i128 = env.storage().persistent().get(&ref_key).unwrap_or(0);
                     let new_earnings = current_earnings
                         .checked_add(referral_amount)
                         .ok_or(ContractError::Overflow)?;
@@ -2674,7 +2717,7 @@ impl CreatorKeysContract {
     /// # Errors
     ///
     /// - [`ContractError::Unauthorized`] if `caller` is not `creator`.
-    /// - [`ContractError::InvalidFeeConfig`] if `recipients`
+    /// - [`ContractError::AirdropRecipientLimitExceeded`] if `recipients`
     ///   holds more than [`MAX_AIRDROP_RECIPIENTS`] entries.
     /// - [`ContractError::NotPositiveAmount`] if `recipients` is empty, an
     ///   entry's `amount` is zero, or `payment` is not positive.
@@ -2698,7 +2741,7 @@ impl CreatorKeysContract {
             return Err(ContractError::Unauthorized);
         }
         if recipients.len() > MAX_AIRDROP_RECIPIENTS {
-            return Err(ContractError::InvalidFeeConfig);
+            return Err(ContractError::AirdropRecipientLimitExceeded);
         }
         if recipients.is_empty() || payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -2943,87 +2986,6 @@ impl CreatorKeysContract {
     /// Read-only view: returns whether `wallet` is currently blacklisted.
     pub fn is_wallet_blacklisted(env: Env, wallet: Address) -> bool {
         is_blacklisted(&env, &wallet)
-    }
-
-    /// Archives a registered creator, gating its trading entrypoints.
-    ///
-    /// Only the protocol admin may call this. Archived creators reject
-    /// `buy_key`, `sell_key`, and `buyback` with
-    /// [`ContractError::CreatorArchived`] while read-only views keep serving
-    /// current values. Use [`CreatorKeysContract::begin_creator_restore`] to
-    /// start copying the archived state back.
-    pub fn archive_creator(
-        env: Env,
-        admin: Address,
-        creator: Address,
-    ) -> Result<(), ContractError> {
-        admin.require_auth();
-        assert_is_admin(&env, &admin)?;
-        read_registered_creator_profile(&env, &creator)?;
-        env.storage().persistent().set(
-            &constants::storage::creator_lifecycle(&creator),
-            &CreatorLifecycleState::Archived,
-        );
-        env.events()
-            .publish((events::CREATOR_ARCHIVED_EVENT_NAME, creator), ());
-        Ok(())
-    }
-
-    /// Transitions an archived creator's state to [`CreatorLifecycleState::Restoring`].
-    ///
-    /// Only the protocol admin may call this, and only from the
-    /// [`CreatorLifecycleState::Archived`] state. During the RESTORING window,
-    /// trading entrypoints are gated with [`ContractError::StateRestoring`] while
-    /// read-only views keep returning current values; writes resume only after
-    /// [`CreatorKeysContract::complete_creator_restore`].
-    pub fn begin_creator_restore(
-        env: Env,
-        admin: Address,
-        creator: Address,
-    ) -> Result<(), ContractError> {
-        admin.require_auth();
-        assert_is_admin(&env, &admin)?;
-        if read_creator_lifecycle(&env, &creator) != CreatorLifecycleState::Archived {
-            return Err(ContractError::InvalidLifecycleTransition);
-        }
-        env.storage().persistent().set(
-            &constants::storage::creator_lifecycle(&creator),
-            &CreatorLifecycleState::Restoring,
-        );
-        env.events()
-            .publish((events::CREATOR_RESTORE_BEGUN_EVENT_NAME, creator), ());
-        Ok(())
-    }
-
-    /// Completes a restoration, returning the creator to active trading.
-    ///
-    /// Only the protocol admin may call this, and only from the
-    /// [`CreatorLifecycleState::Restoring`] state. The lifecycle storage key is
-    /// removed so absent entries keep meaning "active", keeping storage sparse.
-    pub fn complete_creator_restore(
-        env: Env,
-        admin: Address,
-        creator: Address,
-    ) -> Result<(), ContractError> {
-        admin.require_auth();
-        assert_is_admin(&env, &admin)?;
-        if read_creator_lifecycle(&env, &creator) != CreatorLifecycleState::Restoring {
-            return Err(ContractError::InvalidLifecycleTransition);
-        }
-        env.storage()
-            .persistent()
-            .remove(&constants::storage::creator_lifecycle(&creator));
-        env.events()
-            .publish((events::CREATOR_RESTORE_DONE_EVENT_NAME, creator), ());
-        Ok(())
-    }
-
-    /// Read-only view: returns a creator's lifecycle state.
-    ///
-    /// Returns [`CreatorLifecycleState::Active`] when no lifecycle entry exists,
-    /// so callers never receive an `Option`.
-    pub fn get_creator_lifecycle(env: Env, creator: Address) -> CreatorLifecycleState {
-        read_creator_lifecycle(&env, &creator)
     }
 
     pub fn get_key_balance(env: Env, creator: Address, wallet: Address) -> u32 {
@@ -3957,7 +3919,7 @@ impl CreatorKeysContract {
         assert_not_paused(&env)?;
 
         if creators.len() > 20 {
-            return Err(ContractError::Unauthorized);
+            return Err(ContractError::BatchClaimExceedsLimit);
         }
 
         let mut results = soroban_sdk::Vec::new(&env);
@@ -4552,7 +4514,11 @@ impl CreatorKeysContract {
     ///
     /// Only callable by the creator. Panics with `CapAlreadySet` if a cap is
     /// already set and the new cap is lower than the current supply.
-    pub fn set_supply_cap(env: Env, creator: Address, cap: u32) -> Result<(), ContractError> {
+    pub fn set_supply_cap(
+        env: Env,
+        creator: Address,
+        cap: u32,
+    ) -> Result<(), ContractError> {
         creator.require_auth();
 
         let profile = read_registered_creator_profile(&env, &creator)?;
@@ -4627,7 +4593,11 @@ impl CreatorKeysContract {
     ///
     /// Callable by any admin in the multisig list. If this is the first
     /// proposal, it records the proposer and awaits a second approval.
-    pub fn propose_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
+    pub fn propose_pause(
+        env: Env,
+        creator: Address,
+        caller: Address,
+    ) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4674,7 +4644,11 @@ impl CreatorKeysContract {
     ///
     /// Callable by a second admin. When the approval threshold (2 of 3) is
     /// reached, the pause executes automatically and all proposals are reset.
-    pub fn approve_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
+    pub fn approve_pause(
+        env: Env,
+        creator: Address,
+        caller: Address,
+    ) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4822,7 +4796,9 @@ impl CreatorKeysContract {
             return Err(ContractError::VestingNotStarted);
         }
 
-        let elapsed = current_ledger.saturating_sub(schedule.start_ledger);
+        let elapsed = current_ledger
+            .checked_sub(schedule.start_ledger)
+            .unwrap_or(0);
 
         let vested_keys = if elapsed >= schedule.vesting_period_ledgers {
             schedule.total_keys
@@ -4912,7 +4888,9 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_enabled_topics(&creator),
-            events::WhitelistEnabledEvent { creator },
+            events::WhitelistEnabledEvent {
+                creator,
+            },
         );
 
         Ok(())
@@ -4931,7 +4909,9 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_disabled_topics(&creator),
-            events::WhitelistDisabledEvent { creator },
+            events::WhitelistDisabledEvent {
+                creator,
+            },
         );
 
         Ok(())
@@ -4954,7 +4934,10 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_whitelisted_topics(&creator),
-            events::AddressWhitelistedEvent { creator, address },
+            events::AddressWhitelistedEvent {
+                creator,
+                address,
+            },
         );
 
         Ok(())
@@ -4977,7 +4960,10 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_removed_topics(&creator),
-            events::AddressRemovedEvent { creator, address },
+            events::AddressRemovedEvent {
+                creator,
+                address,
+            },
         );
 
         Ok(())
@@ -5017,7 +5003,10 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         if current_balance > 0 && new_balance == 0 {
-            profile.holder_count = profile.holder_count.saturating_sub(1);
+            profile.holder_count = profile
+                .holder_count
+                .checked_sub(1)
+                .unwrap_or(0);
         }
 
         profile.supply = new_supply;
@@ -5056,10 +5045,7 @@ impl CreatorKeysContract {
     ) -> Option<VestingSchedule> {
         env.storage()
             .persistent()
-            .get(&constants::storage::vesting_schedule(
-                &creator,
-                &beneficiary,
-            ))
+            .get(&constants::storage::vesting_schedule(&creator, &beneficiary))
     }
 
     // =========================================================================
@@ -5084,7 +5070,11 @@ impl CreatorKeysContract {
         const TIMELOCK_DELAY_LEDGERS: u32 = 34_560;
 
         let next_id_key = DataKey::TimelockNextId;
-        let proposal_id: u32 = env.storage().persistent().get(&next_id_key).unwrap_or(1u32);
+        let proposal_id: u32 = env
+            .storage()
+            .persistent()
+            .get(&next_id_key)
+            .unwrap_or(1u32);
 
         let current_ledger = env.ledger().sequence();
         let execution_not_before = current_ledger
@@ -5202,7 +5192,10 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns a timelock proposal by ID.
-    pub fn get_timelock_proposal(env: Env, proposal_id: u32) -> Option<TimelockProposal> {
+    pub fn get_timelock_proposal(
+        env: Env,
+        proposal_id: u32,
+    ) -> Option<TimelockProposal> {
         env.storage()
             .persistent()
             .get(&DataKey::TimelockProposal(proposal_id))
@@ -5326,6 +5319,320 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&DataKey::VoteSnapshot(creator_id, poll_id, voter))
+    }
+
+    // =========================================================================
+    // Batch buy (PR #795 / issue #758)
+    // =========================================================================
+
+    /// Purchase keys for multiple creators in a single call.
+    ///
+    /// `orders` is a list of `(creator, quantity)` pairs. The total payment is
+    /// the sum of all individual prices at the time of the call. Reverts if the
+    /// list is empty or exceeds [`MAX_BATCH_BUY_SIZE`].
+    pub fn batch_buy(
+        env: Env,
+        buyer: Address,
+        orders: Vec<(Address, u32)>,
+    ) -> Result<Vec<BatchBuyOrderResult>, ContractError> {
+        buyer.require_auth();
+        assert_not_paused(&env)?;
+        assert_not_blacklisted(&env, &buyer)?;
+        assert_before_global_deadline(&env)?;
+
+        if orders.is_empty() || orders.len() > MAX_BATCH_BUY_SIZE as u32 {
+            return Err(ContractError::BatchSizeExceeded);
+        }
+
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+
+        let mut results = soroban_sdk::Vec::new(&env);
+        let mut total_price_paid: i128 = 0;
+
+        for order in orders.iter() {
+            let (creator, quantity) = order;
+            if quantity == 0 {
+                return Err(ContractError::NotPositiveAmount);
+            }
+
+            let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+            assert_whitelist_allows_buy(&env, &profile, &buyer)?;
+
+            let mut order_price: i128 = 0;
+
+            let mut i = 0u32;
+            while i < quantity {
+                let price =
+                    compute_bonding_curve_price(&env, &creator, base_price, profile.supply)?;
+
+                if let Some(config) = read_protocol_fee_config(&env) {
+                    let (creator_fee, protocol_fee) = fee::checked_compute_fee_split(
+                        price,
+                        config.creator_bps,
+                        config.protocol_bps,
+                    )
+                    .ok_or(ContractError::Overflow)?;
+                    credit_creator_fee(&env, &creator, creator_fee)?;
+                    credit_treasury_balance(&env, protocol_fee)?;
+                    credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+                }
+
+                if let Some(royalty) = read_royalty_config(&env, &creator) {
+                    let royalty_amount = fee::apply_percentage_fee(price, royalty.buy_fee_bps)
+                        .ok_or(ContractError::Overflow)?;
+                    if royalty_amount > 0 {
+                        credit_creator_fee_recipient_balance(&env, &creator, royalty_amount)?;
+                    }
+                }
+
+                order_price = order_price
+                    .checked_add(price)
+                    .ok_or(ContractError::Overflow)?;
+
+                let balance_key = constants::storage::holder_balance_key(&creator, &buyer);
+                let current_balance: u32 =
+                    env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+                if current_balance == 0 {
+                    profile.holder_count = profile
+                        .holder_count
+                        .checked_add(1)
+                        .ok_or(ContractError::Overflow)?;
+                }
+
+                let key = constants::storage::creator(&creator);
+                env.storage().persistent().set(&key, &profile);
+
+                profile.supply = profile
+                    .supply
+                    .checked_add(1)
+                    .ok_or(ContractError::Overflow)?;
+
+                write_creator_supply(&env, &creator, profile.supply);
+
+                let new_balance = current_balance
+                    .checked_add(1)
+                    .ok_or(ContractError::Overflow)?;
+                env.storage().persistent().set(&balance_key, &new_balance);
+                extend_key_ttl_to_full_window(&env, &balance_key);
+
+                i += 1;
+            }
+
+            env.events().publish(
+                events::buy_event_topics(&creator, &buyer),
+                events::KeysBoughtEvent {
+                    buyer: buyer.clone(),
+                    creator_id: creator.clone(),
+                    quantity,
+                    price_paid: order_price,
+                    new_supply: profile.supply,
+                    ledger: env.ledger().sequence(),
+                },
+            );
+
+            total_price_paid = total_price_paid
+                .checked_add(order_price)
+                .ok_or(ContractError::Overflow)?;
+
+            results.push_back(BatchBuyOrderResult {
+                creator,
+                quantity,
+                price_paid: order_price,
+            });
+        }
+
+        env.events().publish(
+            events::batch_buy_completed_topics(&buyer),
+            events::BatchBuyCompletedEvent {
+                buyer: buyer.clone(),
+                total_price_paid,
+                order_count: results.len(),
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(results)
+    }
+
+    // =========================================================================
+    // Royalty config (PR #795 / issue #755)
+    // =========================================================================
+
+    /// Set royalty configuration for a creator's keys.
+    ///
+    /// Only callable by the creator. Both `buy_fee_bps` and `sell_fee_bps`
+    /// must be in the range 0–500 (0%–5%).
+    pub fn set_royalty(
+        env: Env,
+        creator: Address,
+        buy_fee_bps: u32,
+        sell_fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        assert_not_paused(&env)?;
+
+        if buy_fee_bps > MAX_ROYALTY_BPS || sell_fee_bps > MAX_ROYALTY_BPS {
+            return Err(ContractError::RoyaltyExceedsLimit);
+        }
+
+        let _profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+        let config = RoyaltyConfig {
+            buy_fee_bps,
+            sell_fee_bps,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::royalty_config(&creator), &config);
+
+        env.events().publish(
+            events::royalty_updated_topics(&creator),
+            events::RoyaltyUpdatedEvent {
+                creator,
+                buy_fee_bps,
+                sell_fee_bps,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns the royalty configuration for a creator.
+    pub fn get_royalty_config(env: Env, creator: Address) -> Option<RoyaltyConfig> {
+        read_royalty_config(&env, &creator)
+    }
+
+    // =========================================================================
+    // Curve migration (PR #795 / issue #756)
+    // =========================================================================
+
+    /// Migrate the bonding curve exponent for a set of creators.
+    ///
+    /// Only callable by the protocol admin. `new_exponent` must be in 1–5.
+    pub fn migrate_curve(
+        env: Env,
+        admin: Address,
+        new_exponent: u32,
+        key_ids: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if !(1..=5).contains(&new_exponent) {
+            return Err(ContractError::InvalidExponent);
+        }
+
+        if key_ids.is_empty() {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        for key_id in key_ids.iter() {
+            let _profile: CreatorProfile = read_registered_creator_profile(&env, &key_id)?;
+
+            env.storage()
+                .persistent()
+                .set(&constants::storage::curve_exponent(&key_id), &new_exponent);
+        }
+
+        env.events().publish(
+            events::curve_migrated_topics(&admin),
+            events::CurveMigratedEvent {
+                admin,
+                new_exponent,
+                key_count: key_ids.len(),
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns the curve exponent for a creator, if set.
+    pub fn get_curve_exponent(env: Env, creator: Address) -> Option<u32> {
+        read_curve_exponent(&env, &creator)
+    }
+
+    // =========================================================================
+    // Creator archive / restore lifecycle (PR #715 / issue #709)
+    // =========================================================================
+
+    /// Archives a creator, blocking `buy_key`, `sell_key`, and `buyback` with
+    /// [`ContractError::CreatorArchived`] while read-only views keep serving
+    /// current values.
+    pub fn archive_creator(
+        env: Env,
+        admin: Address,
+        creator: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        read_registered_creator_profile(&env, &creator)?;
+        env.storage().persistent().set(
+            &constants::storage::creator_lifecycle(&creator),
+            &CreatorLifecycleState::Archived,
+        );
+        env.events()
+            .publish((events::CREATOR_ARCHIVED_EVENT_NAME, creator), ());
+        Ok(())
+    }
+
+    /// Transitions an archived creator to [`CreatorLifecycleState::Restoring`].
+    ///
+    /// Only valid from the `Archived` state; returns
+    /// [`ContractError::InvalidLifecycleTransition`] otherwise.
+    pub fn begin_creator_restore(
+        env: Env,
+        admin: Address,
+        creator: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if read_creator_lifecycle(&env, &creator) != CreatorLifecycleState::Archived {
+            return Err(ContractError::InvalidLifecycleTransition);
+        }
+        env.storage().persistent().set(
+            &constants::storage::creator_lifecycle(&creator),
+            &CreatorLifecycleState::Restoring,
+        );
+        env.events()
+            .publish((events::CREATOR_RESTORE_BEGUN_EVENT_NAME, creator), ());
+        Ok(())
+    }
+
+    /// Completes a restoration, returning the creator to active trading.
+    ///
+    /// Only valid from the `Restoring` state; removes the lifecycle key so
+    /// absent entries keep defaulting to `Active`.
+    pub fn complete_creator_restore(
+        env: Env,
+        admin: Address,
+        creator: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if read_creator_lifecycle(&env, &creator) != CreatorLifecycleState::Restoring {
+            return Err(ContractError::InvalidLifecycleTransition);
+        }
+        env.storage()
+            .persistent()
+            .remove(&constants::storage::creator_lifecycle(&creator));
+        env.events()
+            .publish((events::CREATOR_RESTORE_DONE_EVENT_NAME, creator), ());
+        Ok(())
+    }
+
+    /// Read-only view: returns a creator's lifecycle state.
+    ///
+    /// Absent entries default to [`CreatorLifecycleState::Active`].
+    pub fn get_creator_lifecycle(env: Env, creator: Address) -> CreatorLifecycleState {
+        read_creator_lifecycle(&env, &creator)
     }
 }
 #[cfg(test)]
