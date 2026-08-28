@@ -84,6 +84,7 @@ pub enum ContractError {
     InvalidReferrer = 34,
     WalletCapExceeded = 35,
     DiscountTierLimitExceeded = 36,
+    CallerNotApproved = 37,
     WalletBlacklisted = 37,
     SchemaVersionTooOld = 38,
     SchemaVersionUnsupported = 39,
@@ -458,6 +459,14 @@ pub mod constants {
         pub fn vesting_claimed(creator: &Address, beneficiary: &Address) -> DataKey {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
+
+        /// Global allowlist of callers permitted to invoke the price oracle
+        /// (`get_price` / `get_twap_price`).
+        pub const APPROVED_CALLERS: DataKey = DataKey::ApprovedCallers;
+
+        pub fn price_history(creator: &Address) -> DataKey {
+            DataKey::PriceHistory(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -773,6 +782,8 @@ pub enum DataKey {
     ReferralFeeBps,
     DiscountTiers,
     CreatorVolume(Address),
+    ApprovedCallers,
+    PriceHistory(Address),
     /// Absolute live-until ledger the contract last set for the creator key
     /// via `extend_ttl`. Tracks the TTL extension state so the contract can
     /// decide whether to emit the TTL-extension event without a TTL read
@@ -916,6 +927,17 @@ pub struct WhitelistStatus {
     pub active: bool,
     pub expires_at_ledger: u32,
     pub remaining_ledgers: u32,
+}
+
+/// A single price observation recorded for a creator, used to compute TWAP.
+///
+/// `ledger` is the Soroban ledger sequence number at which the observation was
+/// recorded and `price` is the bonding-curve price observed at that ledger.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceObservation {
+    pub ledger: u32,
+    pub price: i128,
 }
 
 /// Creator royalty configuration for buy and sell fees.
@@ -2052,6 +2074,168 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
     }
 }
 
+/// Maximum number of price observations retained per creator for TWAP.
+///
+/// Bounding the history prevents unbounded persistent storage growth while a
+/// creator's `get_price` / `get_twap_price` is queried over time. Older
+/// observations beyond this limit are pruned from the front.
+pub const MAX_PRICE_OBSERVATIONS: u32 = 100;
+
+/// Reads the current approved-caller allowlist from persistent storage.
+///
+/// Returns an empty vector when no allowlist has been configured (i.e. no
+/// callers approved yet).
+fn read_approved_callers(env: &Env) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get::<DataKey, Vec<Address>>(&constants::storage::APPROVED_CALLERS)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Returns `true` when `caller` is present in the approved-caller allowlist.
+fn is_caller_approved(env: &Env, caller: &Address) -> bool {
+    read_approved_callers(env).iter().any(|c| &c == caller)
+}
+
+/// Guard used by the price oracle entrypoints: rejects callers that are not
+/// present in the admin-maintained allowlist.
+///
+/// # Errors
+///
+/// - [`ContractError::CallerNotApproved`] if `caller` is not approved.
+fn assert_caller_approved(env: &Env, caller: &Address) -> Result<(), ContractError> {
+    if is_caller_approved(env, caller) {
+        Ok(())
+    } else {
+        Err(ContractError::CallerNotApproved)
+    }
+}
+
+/// Reads the recorded price observation history for a creator.
+fn read_price_history(env: &Env, creator: &Address) -> Vec<PriceObservation> {
+    env.storage()
+        .persistent()
+        .get::<DataKey, Vec<PriceObservation>>(&constants::storage::price_history(creator))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Records a price observation for `creator` at the current ledger.
+///
+/// A repeated observation at the same ledger replaces the prior entry (the
+/// price cannot change within a ledger). Appends to the tail and prunes from
+/// the front once [`MAX_PRICE_OBSERVATIONS`] is exceeded so the history stays
+/// bounded. These observations drive [`CreatorKeysContract::get_twap_price`].
+fn record_price_observation(env: &Env, creator: &Address, price: i128) {
+    let current_ledger = env.ledger().sequence();
+    let mut history = read_price_history(env, creator);
+
+    if let Some(last) = history.last() {
+        if last.ledger == current_ledger && last.price == price {
+            return;
+        }
+    }
+
+    history.push_back(PriceObservation {
+        ledger: current_ledger,
+        price,
+    });
+
+    while history.len() > MAX_PRICE_OBSERVATIONS {
+        history.remove(0);
+    }
+
+    env.storage()
+        .persistent()
+        .set(&constants::storage::price_history(creator), &history);
+}
+
+/// Computes the time-weighted average price for `creator` over
+/// `window_ledgers` ledgers ending at the current ledger.
+///
+/// Each observed price is weighted by the number of ledgers it was in effect
+/// within the window. When no observation is available inside the window, the
+/// current price is returned unchanged (a single-observation TWAP).
+fn compute_twap_price(
+    env: &Env,
+    creator: &Address,
+    current_price: i128,
+    window_ledgers: u32,
+) -> i128 {
+    if window_ledgers == 0 {
+        return current_price;
+    }
+
+    let current_ledger = env.ledger().sequence();
+    let history = read_price_history(env, creator);
+    if history.is_empty() {
+        return current_price;
+    }
+
+    let window_start = current_ledger.saturating_sub(window_ledgers);
+
+    // Only consider observations at or after the window start. The current
+    // price is treated as an observation extending to the current ledger.
+    let mut total_weighted: i128 = 0;
+    let mut total_ledgers: u32 = 0;
+
+    if history.len() >= 2 {
+        let mut i = 1u32;
+        while i < history.len() {
+            let begin = history.get(i - 1).unwrap();
+            let end = history.get(i).unwrap();
+            let seg_start = if begin.ledger > window_start {
+                begin.ledger
+            } else {
+                window_start
+            };
+            let seg_end = end.ledger;
+            if seg_end > seg_start {
+                let weight = seg_end.saturating_sub(seg_start);
+                total_weighted =
+                    total_weighted.saturating_add(begin.price.saturating_mul(i128::from(weight)));
+                total_ledgers = total_ledgers.saturating_add(weight);
+            }
+            i += 1;
+        }
+    }
+
+    // Tail segment: from the last recorded observation (or window start) to the
+    // current ledger at the current price.
+    let last = history.last().unwrap();
+    let tail_start = if last.ledger > window_start {
+        last.ledger
+    } else {
+        window_start
+    };
+    if current_ledger > tail_start {
+        let weight = current_ledger.saturating_sub(tail_start);
+        total_weighted =
+            total_weighted.saturating_add(current_price.saturating_mul(i128::from(weight)));
+        total_ledgers = total_ledgers.saturating_add(weight);
+    }
+
+    if total_ledgers == 0 {
+        return current_price;
+    }
+    total_weighted / i128::from(total_ledgers)
+}
+
+/// Publishes the [`events::PRICE_QUERIED_EVENT_NAME`] event for an oracle read.
+///
+/// `caller` is the contract that invoked the oracle entrypoint, `creator` is
+/// the key whose price was read, and `price` is the value returned to the
+/// caller.
+fn emit_price_queried(env: &Env, caller: &Address, creator: &Address, price: i128) {
+    env.events().publish(
+        events::price_queried_topics(caller),
+        events::PriceQueriedEvent {
+            caller: caller.clone(),
+            creator: creator.clone(),
+            price,
+        },
+    );
+}
+
 #[contract]
 pub struct CreatorKeysContract;
 
@@ -2437,7 +2621,8 @@ impl CreatorKeysContract {
 
                 if referral_amount > 0 {
                     let ref_key = constants::storage::referral_earnings(&referrer_addr);
-                    let current_earnings: i128 = env.storage().persistent().get(&ref_key).unwrap_or(0);
+                    let current_earnings: i128 =
+                        env.storage().persistent().get(&ref_key).unwrap_or(0);
                     let new_earnings = current_earnings
                         .checked_add(referral_amount)
                         .ok_or(ContractError::Overflow)?;
@@ -4537,11 +4722,7 @@ impl CreatorKeysContract {
     ///
     /// Only callable by the creator. Panics with `CapAlreadySet` if a cap is
     /// already set and the new cap is lower than the current supply.
-    pub fn set_supply_cap(
-        env: Env,
-        creator: Address,
-        cap: u32,
-    ) -> Result<(), ContractError> {
+    pub fn set_supply_cap(env: Env, creator: Address, cap: u32) -> Result<(), ContractError> {
         creator.require_auth();
 
         let profile = read_registered_creator_profile(&env, &creator)?;
@@ -4616,11 +4797,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by any admin in the multisig list. If this is the first
     /// proposal, it records the proposer and awaits a second approval.
-    pub fn propose_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn propose_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4667,11 +4844,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by a second admin. When the approval threshold (2 of 3) is
     /// reached, the pause executes automatically and all proposals are reset.
-    pub fn approve_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn approve_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -5035,9 +5208,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_enabled_topics(&creator),
-            events::WhitelistEnabledEvent {
-                creator,
-            },
+            events::WhitelistEnabledEvent { creator },
         );
 
         Ok(())
@@ -5056,9 +5227,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_disabled_topics(&creator),
-            events::WhitelistDisabledEvent {
-                creator,
-            },
+            events::WhitelistDisabledEvent { creator },
         );
 
         Ok(())
@@ -5081,10 +5250,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_whitelisted_topics(&creator),
-            events::AddressWhitelistedEvent {
-                creator,
-                address,
-            },
+            events::AddressWhitelistedEvent { creator, address },
         );
 
         Ok(())
@@ -5107,10 +5273,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_removed_topics(&creator),
-            events::AddressRemovedEvent {
-                creator,
-                address,
-            },
+            events::AddressRemovedEvent { creator, address },
         );
 
         Ok(())
@@ -5150,10 +5313,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         if current_balance > 0 && new_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_sub(1)
-                .unwrap_or(0);
+            profile.holder_count = profile.holder_count.checked_sub(1).unwrap_or(0);
         }
 
         profile.supply = new_supply;
@@ -5192,7 +5352,10 @@ impl CreatorKeysContract {
     ) -> Option<VestingSchedule> {
         env.storage()
             .persistent()
-            .get(&constants::storage::vesting_schedule(&creator, &beneficiary))
+            .get(&constants::storage::vesting_schedule(
+                &creator,
+                &beneficiary,
+            ))
     }
 
     // =========================================================================
@@ -5217,11 +5380,7 @@ impl CreatorKeysContract {
         const TIMELOCK_DELAY_LEDGERS: u32 = 34_560;
 
         let next_id_key = DataKey::TimelockNextId;
-        let proposal_id: u32 = env
-            .storage()
-            .persistent()
-            .get(&next_id_key)
-            .unwrap_or(1u32);
+        let proposal_id: u32 = env.storage().persistent().get(&next_id_key).unwrap_or(1u32);
 
         let current_ledger = env.ledger().sequence();
         let execution_not_before = current_ledger
@@ -5339,10 +5498,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns a timelock proposal by ID.
-    pub fn get_timelock_proposal(
-        env: Env,
-        proposal_id: u32,
-    ) -> Option<TimelockProposal> {
+    pub fn get_timelock_proposal(env: Env, proposal_id: u32) -> Option<TimelockProposal> {
         env.storage()
             .persistent()
             .get(&DataKey::TimelockProposal(proposal_id))
@@ -5466,6 +5622,156 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&DataKey::VoteSnapshot(creator_id, poll_id, voter))
+    }
+
+    /// Price oracle: returns the current bonding-curve price for a creator's key.
+    ///
+    /// Only callers present in the admin-maintained approve allowlist may call
+    /// this entrypoint; unapproved callers are rejected with
+    /// [`ContractError::CallerNotApproved`]. `caller` must authorize the call
+    /// (`require_auth`). The returned value is the price of the next key on the
+    /// bonding curve for the creator's current supply, computed with the same
+    /// [`compute_bonding_curve_price`] logic used by `buy_key` / `get_buy_quote`.
+    ///
+    /// Each call records the observation used for TWAP and emits a
+    /// [`events::PriceQueriedEvent`] with the calling contract's address.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::CallerNotApproved`] if the caller is not in the allowlist.
+    /// - [`ContractError::KeyPriceNotSet`] if no key price is configured.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    pub fn get_price(env: Env, creator: Address, caller: Address) -> Result<i128, ContractError> {
+        caller.require_auth();
+        assert_caller_approved(&env, &caller)?;
+
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+
+        let profile = read_registered_creator_profile(&env, &creator)?;
+        let price = compute_bonding_curve_price(&env, &creator, base_price, profile.supply)?;
+
+        record_price_observation(&env, &creator, price);
+        emit_price_queried(&env, &caller, &creator, price);
+
+        Ok(price)
+    }
+
+    /// Price oracle: returns the time-weighted average price for a creator's key
+    /// over `window_ledgers` ledgers ending at the current ledger.
+    ///
+    /// Only callers present in the admin-maintained allowlist may call this
+    /// entrypoint; unapproved callers are rejected with
+    /// [`ContractError::CallerNotApproved`]. `caller` must authorize the call
+    /// (`require_auth`). The TWAP is derived from the observations recorded by
+    /// [`CreatorKeysContract::get_price`] and
+    /// [`CreatorKeysContract::get_twap_price`]: each observed price is weighted
+    /// by the number of ledgers it was in effect within the window. When no
+    /// observation is available in the window, the current bonding-curve price
+    /// is returned.
+    ///
+    /// Each call records the observation used for TWAP and emits a
+    /// [`events::PriceQueriedEvent`] with the calling contract's address.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::CallerNotApproved`] if the caller is not in the allowlist.
+    /// - [`ContractError::KeyPriceNotSet`] if no key price is configured.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    pub fn get_twap_price(
+        env: Env,
+        creator: Address,
+        window_ledgers: u32,
+        caller: Address,
+    ) -> Result<i128, ContractError> {
+        caller.require_auth();
+        assert_caller_approved(&env, &caller)?;
+
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+
+        let profile = read_registered_creator_profile(&env, &creator)?;
+        let current_price =
+            compute_bonding_curve_price(&env, &creator, base_price, profile.supply)?;
+
+        record_price_observation(&env, &creator, current_price);
+        let twap = compute_twap_price(&env, &creator, current_price, window_ledgers);
+
+        emit_price_queried(&env, &caller, &creator, twap);
+
+        Ok(twap)
+    }
+
+    /// Adds `caller` to the price-oracle approve allowlist (admin-only).
+    ///
+    /// Only the protocol admin may call this. Re-approving an already-approved
+    /// caller is a no-op.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    pub fn add_approved_caller(
+        env: Env,
+        admin: Address,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        let mut callers = read_approved_callers(&env);
+        if callers.iter().any(|c| c == caller) {
+            return Ok(());
+        }
+        callers.push_back(caller);
+        env.storage()
+            .persistent()
+            .set(&constants::storage::APPROVED_CALLERS, &callers);
+        Ok(())
+    }
+
+    /// Removes `caller` from the price-oracle approve allowlist (admin-only).
+    ///
+    /// Only the protocol admin may call this. Removing a caller that is not in
+    /// the allowlist is a no-op.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    pub fn remove_approved_caller(
+        env: Env,
+        admin: Address,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        let callers = read_approved_callers(&env);
+        let before = callers.len();
+        let mut retained = Vec::new(&env);
+        for c in callers.iter() {
+            if c != caller {
+                retained.push_back(c);
+            }
+        }
+        if retained.len() == before {
+            return Ok(());
+        }
+        env.storage()
+            .persistent()
+            .set(&constants::storage::APPROVED_CALLERS, &retained);
+        Ok(())
+    }
+
+    /// Read-only view: returns whether `caller` is in the price-oracle approve
+    /// allowlist.
+    pub fn is_approved_caller(env: Env, caller: Address) -> bool {
+        is_caller_approved(&env, &caller)
     }
 }
 #[cfg(test)]

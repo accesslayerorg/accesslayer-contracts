@@ -487,6 +487,29 @@ pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for a price-oracle read.
+pub const PRICE_QUERIED_EVENT_NAME: Symbol = symbol_short!("prc_qry");
+
+/// Stable price-oracle read event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(PRICE_QUERIED_EVENT_NAME, caller)`
+/// - data: `PriceQueriedEvent`
+///
+/// `caller` is the approved contract that invoked the oracle, `creator` is the
+/// key whose price was read, and `price` is the value returned to the caller.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceQueriedEvent {
+    pub caller: Address,
+    pub creator: Address,
+    pub price: i128,
+}
+
+/// Shared price-oracle read event topics tuple.
+pub fn price_queried_topics(caller: &Address) -> (Symbol, Address) {
+    (PRICE_QUERIED_EVENT_NAME, caller.clone())
+}
 
 // --- Supply cap events ---
 
