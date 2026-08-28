@@ -82,7 +82,6 @@ pub enum ContractError {
     WhitelistTooLarge = 32,
     AirdropRecipientLimitExceeded = 33,
     InvalidReferrer = 34,
-    WalletCapExceeded = 35,
     WalletBlacklisted = 37,
     SchemaVersionTooOld = 38,
     SchemaVersionUnsupported = 39,
@@ -103,7 +102,7 @@ pub enum ContractError {
     RoyaltyExceedsLimit = 54,
     InvalidExponent = 55,
     BatchSizeExceeded = 56,
-    GlobalTradingHalted = 51,
+    GlobalTradingHalted = 57,
 }
 
 pub mod fee {
@@ -344,12 +343,16 @@ pub mod constants {
 
         /// Storage key for a pending `global_pause` vote by `admin`.
         pub fn global_pause_vote(admin: &Address) -> DataKey {
-            DataKey::GlobalPauseVote(admin.clone())
+            DataKey::GlobalVote(admin.clone())
         }
 
         /// Storage key for a pending `global_resume` vote by `admin`.
+        ///
+        /// Shares the same underlying key as `global_pause_vote`: a pause vote
+        /// and a resume vote can never coexist for the same admin, so a single
+        /// per-admin slot unambiguously records whichever kind is current.
         pub fn global_resume_vote(admin: &Address) -> DataKey {
-            DataKey::GlobalResumeVote(admin.clone())
+            DataKey::GlobalVote(admin.clone())
         }
 
         pub fn curve_preset(creator: &Address) -> DataKey {
@@ -795,8 +798,6 @@ pub enum DataKey {
     StakedBalance(Address, Address), // (creator, holder) -> staked amount
     MaxKeysPerWallet(Address),
     ReferralFeeBps,
-    DiscountTiers,
-    CreatorVolume(Address),
     /// Absolute live-until ledger the contract last set for the creator key
     /// via `extend_ttl`. Tracks the TTL extension state so the contract can
     /// decide whether to emit the TTL-extension event without a TTL read
@@ -845,10 +846,12 @@ pub enum DataKey {
     GlobalTradingPaused,
     /// The 2-of-3 admin set authorised to trigger the global emergency pause.
     GlobalPauseAdmins,
-    /// A pending `global_pause` vote cast by the given admin.
-    GlobalPauseVote(Address),
-    /// A pending `global_resume` vote cast by the given admin.
-    GlobalResumeVote(Address),
+    /// A pending global-pause or global-resume vote cast by the given admin.
+    /// A single key is shared by both vote kinds because pause votes and resume
+    /// votes can never coexist for the same admin (only one kind is active at a
+    /// time, since a resume vote requires a live halt and pause votes require
+    /// none). The stored boolean simply marks that this admin has voted.
+    GlobalVote(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -2457,7 +2460,7 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
             if post_buy_balance > cap {
-                return Err(ContractError::WalletCapExceeded);
+                return Err(ContractError::MaxHoldingExceeded);
             }
         }
 
@@ -4963,7 +4966,7 @@ impl CreatorKeysContract {
         assert_is_admin(&env, &admin)?;
 
         if admins.len() < 2 || admins.len() > 3 {
-            return Err(ContractError::MultisigAdminLimitExceeded);
+            return Err(ContractError::InvalidHolderCap);
         }
 
         if let Ok(existing) = read_global_pause_admins(&env) {
@@ -5044,7 +5047,7 @@ impl CreatorKeysContract {
         assert_global_pause_admin(&config, &caller)?;
 
         if !is_global_trading_paused(&env) {
-            return Err(ContractError::ProposalNotFound);
+            return Err(ContractError::AlreadyApproved);
         }
 
         env.storage()
