@@ -103,6 +103,7 @@ pub enum ContractError {
     RoyaltyExceedsLimit = 54,
     InvalidExponent = 55,
     BatchSizeExceeded = 56,
+    GlobalTradingHalted = 51,
 }
 
 pub mod fee {
@@ -335,6 +336,21 @@ pub mod constants {
         pub const GLOBAL_DEADLINE_LEDGER: DataKey = DataKey::GlobalDeadlineLedger;
         pub const PROTOCOL_FEE_BPS: DataKey = DataKey::ProtocolFeeBps;
         pub const LOCKUP_DURATION_SECS: DataKey = DataKey::LockupDurationSecs;
+
+        /// Protocol-wide emergency trading halt flag (#784).
+        pub const GLOBAL_TRADING_PAUSED: DataKey = DataKey::GlobalTradingPaused;
+        /// The 2-of-3 admin set authorised to trigger the global emergency pause.
+        pub const GLOBAL_PAUSE_ADMINS: DataKey = DataKey::GlobalPauseAdmins;
+
+        /// Storage key for a pending `global_pause` vote by `admin`.
+        pub fn global_pause_vote(admin: &Address) -> DataKey {
+            DataKey::GlobalPauseVote(admin.clone())
+        }
+
+        /// Storage key for a pending `global_resume` vote by `admin`.
+        pub fn global_resume_vote(admin: &Address) -> DataKey {
+            DataKey::GlobalResumeVote(admin.clone())
+        }
 
         pub fn curve_preset(creator: &Address) -> DataKey {
             DataKey::CurvePreset(creator.clone())
@@ -824,6 +840,15 @@ pub enum DataKey {
     RoyaltyConfig(Address),
     /// Per-creator bonding curve exponent override (1–5).
     CurveExponent(Address),
+    /// Protocol-wide emergency trading halt flag (#784). When `true`, every
+    /// buy and sell is rejected regardless of per-key pause state.
+    GlobalTradingPaused,
+    /// The 2-of-3 admin set authorised to trigger the global emergency pause.
+    GlobalPauseAdmins,
+    /// A pending `global_pause` vote cast by the given admin.
+    GlobalPauseVote(Address),
+    /// A pending `global_resume` vote cast by the given admin.
+    GlobalResumeVote(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1320,6 +1345,89 @@ fn assert_not_paused(env: &Env) -> Result<(), ContractError> {
         return Err(ContractError::ProtocolPaused);
     }
     Ok(())
+}
+
+/// Number of distinct admin approvals required to toggle the global pause (#784).
+const GLOBAL_PAUSE_THRESHOLD: u32 = 2;
+
+/// Which side of the global-pause multisig a vote belongs to.
+#[derive(Clone, Copy, PartialEq)]
+enum GlobalVoteKind {
+    Pause,
+    Resume,
+}
+
+/// Read-only: whether the protocol-wide emergency trading halt is active (#784).
+fn is_global_trading_paused(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .get::<DataKey, bool>(&constants::storage::GLOBAL_TRADING_PAUSED)
+        .unwrap_or(false)
+}
+
+/// Rejects buy/sell while the global emergency pause is active. Checked before
+/// the per-key pause guard so a global halt always takes precedence.
+fn assert_global_trading_not_halted(env: &Env) -> Result<(), ContractError> {
+    if is_global_trading_paused(env) {
+        return Err(ContractError::GlobalTradingHalted);
+    }
+    Ok(())
+}
+
+/// Loads the configured global-pause admin set, or `Unauthorized` if unset.
+fn read_global_pause_admins(env: &Env) -> Result<MultisigAdmins, ContractError> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::GLOBAL_PAUSE_ADMINS)
+        .ok_or(ContractError::Unauthorized)
+}
+
+/// Asserts `caller` is a member of the global-pause admin set.
+fn assert_global_pause_admin(
+    config: &MultisigAdmins,
+    caller: &Address,
+) -> Result<(), ContractError> {
+    for admin in config.admins.iter() {
+        if admin == *caller {
+            return Ok(());
+        }
+    }
+    Err(ContractError::Unauthorized)
+}
+
+/// Counts how many distinct configured admins currently have a `kind` vote recorded.
+fn count_global_votes(env: &Env, config: &MultisigAdmins, kind: GlobalVoteKind) -> u32 {
+    let mut count = 0u32;
+    for admin in config.admins.iter() {
+        let key = match kind {
+            GlobalVoteKind::Pause => constants::storage::global_pause_vote(&admin),
+            GlobalVoteKind::Resume => constants::storage::global_resume_vote(&admin),
+        };
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, bool>(&key)
+            .unwrap_or(false)
+        {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Clears every pending pause and resume vote for the configured admin set.
+///
+/// Called after each successful toggle so a subsequent action starts from a
+/// clean slate and stale votes can never carry over.
+fn clear_global_votes(env: &Env, config: &MultisigAdmins) {
+    for admin in config.admins.iter() {
+        env.storage()
+            .persistent()
+            .remove(&constants::storage::global_pause_vote(&admin));
+        env.storage()
+            .persistent()
+            .remove(&constants::storage::global_resume_vote(&admin));
+    }
 }
 
 fn is_blacklisted(env: &Env, wallet: &Address) -> bool {
@@ -2251,6 +2359,7 @@ impl CreatorKeysContract {
         referrer: Option<Address>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
+        assert_global_trading_not_halted(&env)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
@@ -2515,6 +2624,7 @@ impl CreatorKeysContract {
         min_proceeds: Option<i128>,
     ) -> Result<u32, ContractError> {
         seller.require_auth();
+        assert_global_trading_not_halted(&env)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
 
@@ -4829,6 +4939,130 @@ impl CreatorKeysContract {
                 approver: caller,
                 ledger: env.ledger().sequence(),
             },
+        );
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // #784 — Global emergency pause
+    // =========================================================================
+
+    /// Configures the admin set authorised to trigger the global emergency pause.
+    ///
+    /// Only the protocol admin may call this. The set must hold 2 or 3 distinct
+    /// addresses; any two of them together can toggle the global halt. Replaces
+    /// any existing set. Existing pending votes are cleared so a membership
+    /// change never leaves a stale approval behind.
+    pub fn set_global_pause_admins(
+        env: Env,
+        admin: Address,
+        admins: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if admins.len() < 2 || admins.len() > 3 {
+            return Err(ContractError::MultisigAdminLimitExceeded);
+        }
+
+        if let Ok(existing) = read_global_pause_admins(&env) {
+            clear_global_votes(&env, &existing);
+        }
+
+        let config = MultisigAdmins { admins };
+        env.storage()
+            .persistent()
+            .set(&constants::storage::GLOBAL_PAUSE_ADMINS, &config);
+
+        Ok(())
+    }
+
+    /// Read-only view: the configured global emergency-pause admin set, if any.
+    pub fn get_global_pause_admins(env: Env) -> Option<MultisigAdmins> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::GLOBAL_PAUSE_ADMINS)
+    }
+
+    /// Read-only view: whether the protocol-wide emergency trading halt is active.
+    pub fn get_global_trading_paused(env: Env) -> bool {
+        is_global_trading_paused(&env)
+    }
+
+    /// Casts a vote to activate the global emergency pause (#784).
+    ///
+    /// Callable by any member of the global-pause admin set. The first admin's
+    /// call only records the vote and trading continues; once a second distinct
+    /// admin calls, the protocol-wide halt activates, a `global_pause_activated`
+    /// event is emitted and all pending votes are cleared. A single admin can
+    /// never activate the pause alone.
+    ///
+    /// The global halt takes precedence over per-key pause state: while it is
+    /// active every `buy_key` / `sell_key` panics with `GlobalTradingHalted`.
+    pub fn global_pause(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let config = read_global_pause_admins(&env)?;
+        assert_global_pause_admin(&config, &caller)?;
+
+        if is_global_trading_paused(&env) {
+            return Err(ContractError::AlreadyApproved);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::global_pause_vote(&caller), &true);
+
+        if count_global_votes(&env, &config, GlobalVoteKind::Pause) < GLOBAL_PAUSE_THRESHOLD {
+            return Ok(());
+        }
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::GLOBAL_TRADING_PAUSED, &true);
+        clear_global_votes(&env, &config);
+
+        env.events().publish(
+            events::global_pause_activated_topics(&caller),
+            env.ledger().sequence(),
+        );
+
+        Ok(())
+    }
+
+    /// Casts a vote to lift the global emergency pause (#784).
+    ///
+    /// Mirror of [`global_pause`]: callable by any member of the global-pause
+    /// admin set, and the halt is lifted only once a second distinct admin
+    /// approves. On the second approval a `global_pause_lifted` event is emitted
+    /// and all pending votes are cleared.
+    pub fn global_resume(env: Env, caller: Address) -> Result<(), ContractError> {
+        caller.require_auth();
+
+        let config = read_global_pause_admins(&env)?;
+        assert_global_pause_admin(&config, &caller)?;
+
+        if !is_global_trading_paused(&env) {
+            return Err(ContractError::ProposalNotFound);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::global_resume_vote(&caller), &true);
+
+        if count_global_votes(&env, &config, GlobalVoteKind::Resume) < GLOBAL_PAUSE_THRESHOLD {
+            return Ok(());
+        }
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::GLOBAL_TRADING_PAUSED, &false);
+        clear_global_votes(&env, &config);
+
+        env.events().publish(
+            events::global_pause_lifted_topics(&caller),
+            env.ledger().sequence(),
         );
 
         Ok(())
