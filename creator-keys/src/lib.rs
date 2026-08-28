@@ -849,6 +849,8 @@ pub enum DataKey {
     ReferralEarnings(Address),
     WhitelistMap(Address, Address),
     WhitelistMode(Address),
+    /// Pre-launch auction configuration for a creator's keys.
+    AuctionConfig(Address),
     /// Protocol-wide emergency trading halt flag (#784). When `true`, every
     /// buy and sell is rejected regardless of per-key pause state.
     GlobalTradingPaused,
@@ -858,6 +860,19 @@ pub enum DataKey {
     GlobalPauseVote(Address),
     /// A pending `global_resume` vote cast by the given admin.
     GlobalResumeVote(Address),
+}
+
+/// Fixed-price pre-launch auction configuration for a creator's keys.
+///
+/// While `auction_sold < auction_supply`, buys settle at `auction_price`
+/// instead of the bonding curve price. The contract transitions to the
+/// bonding curve automatically once the auction supply is exhausted.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct AuctionConfig {
+    pub auction_price: i128,
+    pub auction_supply: u32,
+    pub auction_sold: u32,
 }
 
 /// Time-locked key allocation for creator self-vesting.
