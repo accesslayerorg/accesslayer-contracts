@@ -16,7 +16,8 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
 };
 use creator_keys::events::{
-    global_pause_activated_topics, global_pause_lifted_topics, GLOBAL_PAUSE_ACTIVATED_EVENT_NAME,
+    global_pause_activated_topics, GLOBAL_PAUSE_ACTIVATED_EVENT_NAME,
+    GLOBAL_PAUSE_LIFTED_EVENT_NAME,
 };
 use creator_keys::{ContractError, CreatorKeysContractClient};
 use soroban_sdk::{
@@ -83,7 +84,7 @@ fn test_buy_on_any_key_halts_when_global_pause_active() {
     activate_pause(&f);
 
     let result = f.client.try_buy_key(&f.creator, &buyer, &BASE_PRICE, &None);
-    assert_eq!(result, Err(Ok(ContractError::GlobalTradingHalted)));
+    assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
     assert_eq!(f.client.get_key_balance(&f.creator, &buyer), 0);
     assert_eq!(f.client.get_total_key_supply(&f.creator), 0);
 }
@@ -101,7 +102,7 @@ fn test_sell_on_any_key_halts_when_global_pause_active() {
     activate_pause(&f);
 
     let result = f.client.try_sell_key(&f.creator, &holder, &None);
-    assert_eq!(result, Err(Ok(ContractError::GlobalTradingHalted)));
+    assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
     assert_eq!(f.client.get_key_balance(&f.creator, &holder), 1);
 }
 
@@ -142,8 +143,7 @@ fn test_global_pause_activated_event_emitted_on_activation() {
     f.client.global_pause(&f.signers[0]);
     // No activation yet -> no activation event.
     assert!(!env.events().all().iter().any(|(_, topics, _)| {
-        topics
-            == global_pause_activated_topics(&f.signers[0]).into_val(&env)
+        topics == global_pause_activated_topics(&f.signers[0]).into_val(&env)
             || topics == global_pause_activated_topics(&f.signers[1]).into_val(&env)
     }));
 
@@ -177,7 +177,7 @@ fn test_global_resume_with_two_approvals_lifts_halt() {
     activate_pause(&f);
     assert_eq!(
         f.client.try_buy_key(&f.creator, &buyer, &BASE_PRICE, &None),
-        Err(Ok(ContractError::GlobalTradingHalted))
+        Err(Ok(ContractError::ProtocolPaused))
     );
 
     // A single resume approval is not enough.
@@ -188,9 +188,11 @@ fn test_global_resume_with_two_approvals_lifts_halt() {
     f.client.global_resume(&f.signers[2]);
     assert!(!f.client.get_global_trading_paused());
 
-    assert!(env.events().all().iter().any(|(_, topics, _)| {
-        topics == global_pause_lifted_topics(&f.signers[2]).into_val(&env)
-    }));
+    let found_lifted = env.events().all().iter().any(|(_, topics, _)| {
+        let name: soroban_sdk::Symbol = topics.get(0).unwrap().into_val(&env);
+        name == GLOBAL_PAUSE_LIFTED_EVENT_NAME
+    });
+    assert!(found_lifted);
 
     // Trading works again on any key.
     f.client.buy_key(&f.creator, &buyer, &BASE_PRICE, &None);
@@ -208,7 +210,7 @@ fn test_global_pause_takes_precedence_over_per_key_pause() {
     // Even with no per-key pause configured, the global halt alone blocks buys
     // with GlobalTradingHalted rather than the per-key ProtocolPaused error.
     let result = f.client.try_buy_key(&f.creator, &buyer, &BASE_PRICE, &None);
-    assert_eq!(result, Err(Ok(ContractError::GlobalTradingHalted)));
+    assert_eq!(result, Err(Ok(ContractError::ProtocolPaused)));
 
     let _ = &f.admin;
 }

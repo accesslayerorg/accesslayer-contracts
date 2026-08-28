@@ -487,6 +487,67 @@ pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
 
+// --- Protocol trade fee events ---
+
+/// Event name for the protocol trade fee collected on a buy or sell.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+
+/// Stable fee collection event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
+/// - data: `FeeCollectedEvent`
+///
+/// Emitted on every buy and sell once the protocol trade fee is configured,
+/// carrying the deducted amount and the treasury address that received it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    /// Treasury address that received the fee.
+    pub treasury: Address,
+    /// Fee amount deducted from the trade.
+    pub amount: i128,
+    /// Ledger sequence number at the time of the trade.
+    pub ledger: u32,
+}
+
+/// Shared fee collected event topics tuple.
+pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+}
+
+// --- Sell lockup events ---
+
+/// Event name for a sell rejected by the anti-flash-trade lockup window.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
+/// Stable lockup-blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
+/// - data: `LockupBlockedEvent`
+///
+/// Emitted when a sell is rejected because the seller's most recent buy for
+/// this creator falls inside the configured lockup window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    /// Creator whose keys the seller attempted to sell.
+    pub creator_id: Address,
+    /// Seller whose sale was rejected.
+    pub seller: Address,
+    /// Ledger timestamp of the seller's most recent buy.
+    pub last_buy_timestamp: u64,
+    /// Timestamp at which the lockup expires (exclusive).
+    pub unlock_at: u64,
+    /// Ledger timestamp at rejection.
+    pub current_timestamp: u64,
+}
+
+/// Shared lockup blocked event topics tuple.
+pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+}
 
 // --- Supply cap events ---
 
