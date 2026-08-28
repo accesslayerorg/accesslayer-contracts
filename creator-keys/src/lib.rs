@@ -6,7 +6,7 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 pub mod events;
 pub mod test_new_features;
 
-#[contracterror]
+#[contracterror(export = false)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 /// Contract error variants.
@@ -99,6 +99,11 @@ pub enum ContractError {
     NotWhitelisted = 49,
     CircuitBreakerTriggered = 50,
     GlobalTradingHalted = 51,
+    PenaltyTooHigh = 52,
+    NoStakeFound = 53,
+    MaxHoldingExceeded = 54,
+    LockupPeriodActive = 55,
+    InvalidHolderCap = 56,
 }
 
 pub mod fee {
@@ -402,6 +407,20 @@ pub mod constants {
         pub fn staked_balance(creator: &Address, holder: &Address) -> DataKey {
             DataKey::StakedBalance(creator.clone(), holder.clone())
         }
+        pub fn early_exit_penalty_bps(creator: &Address) -> DataKey {
+            DataKey::EarlyPenalty(creator.clone())
+        }
+        pub fn staking_rewards(creator: &Address) -> DataKey {
+            DataKey::StakeRewards(creator.clone())
+        }
+
+        pub fn holder_cap_bps(creator: &Address) -> DataKey {
+            DataKey::HolderCap(creator.clone())
+        }
+
+        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::LastBuy(creator.clone(), holder.clone())
+        }
 
         pub fn key_balance(creator: &Address, holder: &Address) -> DataKey {
             key_balance_key(creator, holder)
@@ -655,6 +674,12 @@ pub const HOLDER_CAP_MAX_BPS: u32 = 2500;
 /// keys until at least this much time has elapsed since their most recent buy.
 pub const DEFAULT_LOCKUP_DURATION_SECS: u64 = 86_400;
 
+/// Default early unstake penalty (20%).
+pub const DEFAULT_EARLY_EXIT_PENALTY_BPS: u32 = 2_000;
+
+/// Maximum configurable early unstake penalty (50%).
+pub const MAX_EARLY_EXIT_PENALTY_BPS: u32 = 5_000;
+
 /// Current client-facing schema version of this contract.
 ///
 /// Increment this constant whenever the contract's ABI or on-chain data layout
@@ -744,7 +769,7 @@ pub struct RetentionPolicy {
 /// For quote-related key usage and invariants, see
 /// [`docs/quote-storage-keys.md`](../../docs/quote-storage-keys.md).
 #[derive(Clone, Debug, PartialEq)]
-#[contracttype]
+#[contracttype(export = false)]
 pub enum DataKey {
     Creator(Address),
     FeeConfig,
@@ -769,6 +794,15 @@ pub enum DataKey {
     CoCreatorFeeBalance(Address, Address),
     Whitelist(Address),
     StakedBalance(Address, Address), // (creator, holder) -> staked amount
+    EarlyPenalty(Address),
+    StakeRewards(Address),
+    HolderCap(Address),
+    LastBuy(Address, Address),
+    ProtocolFeeBps,
+    LockupDurationSecs,
+    RoyaltyConfig(Address),
+    CurveExponent(Address),
+
     MaxKeysPerWallet(Address),
     ReferralFeeBps,
     DiscountTiers,
@@ -2437,7 +2471,8 @@ impl CreatorKeysContract {
 
                 if referral_amount > 0 {
                     let ref_key = constants::storage::referral_earnings(&referrer_addr);
-                    let current_earnings: i128 = env.storage().persistent().get(&ref_key).unwrap_or(0);
+                    let current_earnings: i128 =
+                        env.storage().persistent().get(&ref_key).unwrap_or(0);
                     let new_earnings = current_earnings
                         .checked_add(referral_amount)
                         .ok_or(ContractError::Overflow)?;
@@ -4501,6 +4536,85 @@ impl CreatorKeysContract {
         Ok(())
     }
 
+    pub fn early_unstake(
+        env: Env,
+        creator: Address,
+        holder: Address,
+    ) -> Result<u32, ContractError> {
+        holder.require_auth();
+        assert_not_paused(&env)?;
+        let _profile = read_registered_creator_profile(&env, &creator)?;
+
+        let staked_key = constants::storage::staked_balance(&creator, &holder);
+        let staked: u32 = env.storage().persistent().get(&staked_key).unwrap_or(0);
+        if staked == 0 {
+            return Err(ContractError::NoStakeFound);
+        }
+
+        let penalty_bps = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::early_exit_penalty_bps(&creator))
+            .unwrap_or(DEFAULT_EARLY_EXIT_PENALTY_BPS);
+        let penalty = ((staked as u64 * penalty_bps as u64) / 10_000) as u32;
+        let returned = staked.checked_sub(penalty).ok_or(ContractError::Overflow)?;
+
+        let balance_key = constants::storage::key_balance(&creator, &holder);
+        let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let new_balance = balance
+            .checked_sub(penalty)
+            .ok_or(ContractError::Overflow)?;
+        if new_balance == 0 {
+            env.storage().persistent().remove(&balance_key);
+        } else {
+            env.storage().persistent().set(&balance_key, &new_balance);
+            extend_key_ttl_to_full_window(&env, &balance_key);
+        }
+        env.storage().persistent().remove(&staked_key);
+
+        let rewards_key = constants::storage::staking_rewards(&creator);
+        let rewards: u32 = env.storage().persistent().get(&rewards_key).unwrap_or(0);
+        let new_rewards = rewards
+            .checked_add(penalty)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&rewards_key, &new_rewards);
+        extend_key_ttl_to_full_window(&env, &rewards_key);
+
+        env.events().publish(
+            events::early_unstake_topics(&creator, &holder),
+            events::EarlyUnstakedEvent {
+                wallet: holder,
+                key_id: creator,
+                returned_quantity: returned,
+                penalty_quantity: penalty,
+            },
+        );
+        Ok(returned)
+    }
+
+    pub fn set_early_exit_penalty(
+        env: Env,
+        creator: Address,
+        penalty_bps: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        let _profile = read_registered_creator_profile(&env, &creator)?;
+        if penalty_bps > MAX_EARLY_EXIT_PENALTY_BPS {
+            return Err(ContractError::PenaltyTooHigh);
+        }
+        let key = constants::storage::early_exit_penalty_bps(&creator);
+        env.storage().persistent().set(&key, &penalty_bps);
+        extend_key_ttl_to_full_window(&env, &key);
+        Ok(())
+    }
+
+    pub fn get_staking_rewards(env: Env, creator: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::staking_rewards(&creator))
+            .unwrap_or(0)
+    }
+
     /// Returns the staked balance for a holder.
     ///
     /// Staked keys are locked and cannot be sold until unstaked.
@@ -4537,11 +4651,7 @@ impl CreatorKeysContract {
     ///
     /// Only callable by the creator. Panics with `CapAlreadySet` if a cap is
     /// already set and the new cap is lower than the current supply.
-    pub fn set_supply_cap(
-        env: Env,
-        creator: Address,
-        cap: u32,
-    ) -> Result<(), ContractError> {
+    pub fn set_supply_cap(env: Env, creator: Address, cap: u32) -> Result<(), ContractError> {
         creator.require_auth();
 
         let profile = read_registered_creator_profile(&env, &creator)?;
@@ -4616,11 +4726,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by any admin in the multisig list. If this is the first
     /// proposal, it records the proposer and awaits a second approval.
-    pub fn propose_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn propose_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -4667,11 +4773,7 @@ impl CreatorKeysContract {
     ///
     /// Callable by a second admin. When the approval threshold (2 of 3) is
     /// reached, the pause executes automatically and all proposals are reset.
-    pub fn approve_pause(
-        env: Env,
-        creator: Address,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn approve_pause(env: Env, creator: Address, caller: Address) -> Result<(), ContractError> {
         caller.require_auth();
 
         let config: MultisigAdmins = env
@@ -5035,9 +5137,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_enabled_topics(&creator),
-            events::WhitelistEnabledEvent {
-                creator,
-            },
+            events::WhitelistEnabledEvent { creator },
         );
 
         Ok(())
@@ -5056,9 +5156,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::whitelist_disabled_topics(&creator),
-            events::WhitelistDisabledEvent {
-                creator,
-            },
+            events::WhitelistDisabledEvent { creator },
         );
 
         Ok(())
@@ -5081,10 +5179,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_whitelisted_topics(&creator),
-            events::AddressWhitelistedEvent {
-                creator,
-                address,
-            },
+            events::AddressWhitelistedEvent { creator, address },
         );
 
         Ok(())
@@ -5107,10 +5202,7 @@ impl CreatorKeysContract {
 
         env.events().publish(
             events::address_removed_topics(&creator),
-            events::AddressRemovedEvent {
-                creator,
-                address,
-            },
+            events::AddressRemovedEvent { creator, address },
         );
 
         Ok(())
@@ -5150,10 +5242,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         if current_balance > 0 && new_balance == 0 {
-            profile.holder_count = profile
-                .holder_count
-                .checked_sub(1)
-                .unwrap_or(0);
+            profile.holder_count = profile.holder_count.checked_sub(1).unwrap_or(0);
         }
 
         profile.supply = new_supply;
@@ -5192,7 +5281,10 @@ impl CreatorKeysContract {
     ) -> Option<VestingSchedule> {
         env.storage()
             .persistent()
-            .get(&constants::storage::vesting_schedule(&creator, &beneficiary))
+            .get(&constants::storage::vesting_schedule(
+                &creator,
+                &beneficiary,
+            ))
     }
 
     // =========================================================================
@@ -5217,11 +5309,7 @@ impl CreatorKeysContract {
         const TIMELOCK_DELAY_LEDGERS: u32 = 34_560;
 
         let next_id_key = DataKey::TimelockNextId;
-        let proposal_id: u32 = env
-            .storage()
-            .persistent()
-            .get(&next_id_key)
-            .unwrap_or(1u32);
+        let proposal_id: u32 = env.storage().persistent().get(&next_id_key).unwrap_or(1u32);
 
         let current_ledger = env.ledger().sequence();
         let execution_not_before = current_ledger
@@ -5339,10 +5427,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns a timelock proposal by ID.
-    pub fn get_timelock_proposal(
-        env: Env,
-        proposal_id: u32,
-    ) -> Option<TimelockProposal> {
+    pub fn get_timelock_proposal(env: Env, proposal_id: u32) -> Option<TimelockProposal> {
         env.storage()
             .persistent()
             .get(&DataKey::TimelockProposal(proposal_id))

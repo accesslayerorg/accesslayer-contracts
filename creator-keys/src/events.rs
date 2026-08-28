@@ -52,6 +52,11 @@ pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
 /// Event name for key sale.
 pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
 
+/// Event name for an early unstake.
+pub const EARLY_UNSTAKE_EVENT_NAME: Symbol = symbol_short!("e_unst");
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_col");
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
 /// Event name for peer-to-peer key transfer.
 pub const TRANSFER_EVENT_NAME: Symbol = symbol_short!("transfer");
 
@@ -186,6 +191,45 @@ pub struct KeysSoldEvent {
     pub proceeds: i128,
     /// Ledger sequence number at the time of the sale.
     pub ledger: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EarlyUnstakedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub returned_quantity: u32,
+    pub penalty_quantity: u32,
+}
+
+pub fn early_unstake_topics(creator: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (EARLY_UNSTAKE_EVENT_NAME, creator.clone(), wallet.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    pub treasury: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    pub creator_id: Address,
+    pub seller: Address,
+    pub last_buy_timestamp: u64,
+    pub unlock_at: u64,
+    pub current_timestamp: u64,
+}
+
+pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -486,7 +530,6 @@ pub fn treasury_withdrawal_event_topics(recipient: &Address) -> (Symbol, Address
 pub fn ttl_extended_topics(creator: &Address) -> (Symbol, Address) {
     (TTL_EXTENDED_EVENT_NAME, creator.clone())
 }
-
 
 // --- Supply cap events ---
 
