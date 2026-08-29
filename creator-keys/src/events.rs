@@ -654,6 +654,16 @@ pub const WHITELIST_DISABLED_EVENT_NAME: Symbol = symbol_short!("wl_dis");
 pub const ADDRESS_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_add");
 pub const ADDRESS_REMOVED_EVENT_NAME: Symbol = symbol_short!("wl_rem");
 pub const KEYS_BURNED_EVENT_NAME: Symbol = symbol_short!("burned");
+pub const SELF_FREEZE_APPLIED_EVENT_NAME: Symbol = symbol_short!("sf_add");
+pub const SELF_FREEZE_LIFTED_EVENT_NAME: Symbol = symbol_short!("sf_del");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SelfFreezeEvent {
+    pub key_id: Address,
+    pub wallet: Address,
+    pub quantity: u32,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -730,6 +740,96 @@ pub struct KeysBurnedEvent {
 
 pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
     (KEYS_BURNED_EVENT_NAME, key_id.clone())
+}
+
+// --- Co-creator removal, auction, and staking reward events ---
+
+/// Event name for co-creator removal.
+pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("co_rem");
+
+/// Event name for auction configuration.
+pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
+
+/// Event name for auction cancellation.
+pub const AUCTION_CANCELLED_EVENT_NAME: Symbol = symbol_short!("auc_can");
+
+/// Event name for a purchase made during a creator's auction phase.
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
+
+/// Event name for a staking reward claim.
+pub const STAKE_REWARD_CLAIMED_EVENT_NAME: Symbol = symbol_short!("stk_clm");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorRemovedEvent {
+    pub creator_id: Address,
+    pub co_creator: Address,
+    pub ledger: u32,
+}
+
+pub fn co_creator_removed_topics(creator: &Address) -> (Symbol, Address) {
+    (CO_CREATOR_REMOVED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionConfiguredEvent {
+    pub creator_id: Address,
+    pub auction_price: i128,
+    pub auction_supply: u32,
+}
+
+pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionCancelledEvent {
+    pub creator_id: Address,
+    pub auction_price: i128,
+    pub auction_supply: u32,
+}
+
+pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionPurchaseEvent {
+    pub buyer: Address,
+    pub creator_id: Address,
+    pub quantity: u32,
+    pub price_paid: i128,
+    pub new_supply: u32,
+    pub auction_sold: u32,
+    pub ledger: u32,
+}
+
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeRewardClaimedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub quantity_unlocked: u32,
+    pub reward_amount: i128,
+    pub ledger: u32,
+}
+
+pub fn stake_reward_claimed_topics(
+    creator: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        STAKE_REWARD_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        wallet.clone(),
+    )
 }
 
 #[contracterror]
@@ -1032,6 +1132,13 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
 pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_col");
 
 /// Stable protocol trade fee collection payload for downstream indexers.
+/// Event name for the protocol trade fee collected on a buy or sell.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+
+/// Event name for a sell rejected by the anti-flash-trade lockup window.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
+/// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:
 /// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
@@ -1044,6 +1151,16 @@ pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_col");
 pub struct FeeCollectedEvent {
     pub treasury: Address,
     pub amount: i128,
+/// Emitted on every buy and sell once the protocol trade fee is configured,
+/// carrying the deducted amount and the treasury address that received it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    /// Treasury address that received the fee.
+    pub treasury: Address,
+    /// Fee amount deducted from the trade.
+    pub amount: i128,
+    /// Ledger sequence number at the time of the trade.
     pub ledger: u32,
 }
 
@@ -1069,10 +1186,214 @@ pub struct LockupBlockedEvent {
     pub seller: Address,
     pub last_buy_timestamp: u64,
     pub unlock_at: u64,
+/// Stable lockup-blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
+/// - data: `LockupBlockedEvent`
+///
+/// Emitted when a sell is rejected because the seller's most recent buy for
+/// this creator falls inside the configured lockup window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    /// Creator whose keys the seller attempted to sell.
+    pub creator_id: Address,
+    /// Seller whose sale was rejected.
+    pub seller: Address,
+    /// Ledger timestamp of the seller's most recent buy.
+    pub last_buy_timestamp: u64,
+    /// Timestamp at which the lockup expires (exclusive).
+    pub unlock_at: u64,
+    /// Ledger timestamp at rejection.
     pub current_timestamp: u64,
 }
 
 /// Shared lockup blocked event topics tuple.
 pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
     (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+}
+
+/// Event name for a new staking position created via `stake_keys_locked`.
+pub const STAKE_EVENT_NAME: Symbol = symbol_short!("stake");
+
+/// Event name for a lock period extension via `stake_extend`.
+pub const STAKE_EXTENDED_EVENT_NAME: Symbol = symbol_short!("stk_ext");
+
+/// Event name for an early (pre-maturity) unstake via `early_unstake`.
+pub const EARLY_UNSTAKE_EVENT_NAME: Symbol = symbol_short!("stk_chl");
+
+/// Event name for a reward claim at/after maturity via `claim_stake_reward`.
+pub const STAKE_REWARD_CLAIMED_EVENT_NAME: Symbol = symbol_short!("stk_clm");
+
+/// Stable stake event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(STAKE_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `StakeEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeEvent {
+    /// Creator whose keys are staked.
+    pub creator_id: Address,
+    /// Staker that locked the keys.
+    pub holder: Address,
+    /// Sequential position id for the `(creator, holder)` pair.
+    pub stake_id: u32,
+    /// Number of keys locked.
+    pub amount: u32,
+    /// Ledger sequence at which the position matures.
+    pub unlock_ledger: u32,
+}
+
+/// Shared stake event topics tuple.
+pub fn stake_topics(creator: &Address, holder: &Address, stake_id: u32) -> (Symbol, Address, Address, u32) {
+    (STAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+/// Stable stake-extend event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(STAKE_EXTENDED_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `StakeExtendedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeExtendedEvent {
+    /// Creator whose keys are staked.
+    pub creator_id: Address,
+    /// Staker that locked the keys.
+    pub holder: Address,
+    /// Extended position id.
+    pub stake_id: u32,
+    /// New maturity ledger sequence after the extension.
+    pub unlock_ledger: u32,
+    /// Additional ledgers appended to the lock period.
+    pub additional_ledgers: u32,
+}
+
+/// Shared stake-extend event topics tuple.
+pub fn stake_extended_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (STAKE_EXTENDED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+/// Stable early-unstake event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(EARLY_UNSTAKE_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `EarlyUnstakeEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EarlyUnstakeEvent {
+    /// Creator whose keys were staked.
+    pub creator_id: Address,
+    /// Staker that closed the position.
+    pub holder: Address,
+    /// Closed position id.
+    pub stake_id: u32,
+    /// Keys released back to the holder's liquid balance.
+    pub amount: u32,
+    /// Pro-rata reward entitlement removed from the pool.
+    pub forgone_reward: i128,
+    /// Penalty retained in the pool.
+    pub penalty: i128,
+    /// Ledger sequence at which the position was closed.
+    pub ledger: u32,
+}
+
+/// Shared early-unstake event topics tuple.
+pub fn early_unstake_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (EARLY_UNSTAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+/// Stable stake-reward-claim event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(STAKE_REWARD_CLAIMED_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `StakeRewardClaimedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeRewardClaimedEvent {
+    /// Creator whose keys were staked.
+    pub creator_id: Address,
+    /// Staker that closed the position.
+    pub holder: Address,
+    /// Closed position id.
+    pub stake_id: u32,
+    /// Keys released back to the holder's liquid balance.
+    pub amount: u32,
+    /// Reward paid out from the pool.
+    pub reward: i128,
+    /// Ledger sequence at which the position matured.
+    pub unlock_ledger: u32,
+    /// Ledger sequence at which the reward was claimed.
+    pub ledger: u32,
+}
+
+/// Shared stake-reward-claim event topics tuple.
+pub fn stake_reward_claimed_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (STAKE_REWARD_CLAIMED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+
+// ============================================================================
+// Launch Penalty (#798)
+// ============================================================================
+
+/// Event name for launch penalty applied on sell.
+pub const LAUNCH_PENALTY_APPLIED_EVENT_NAME: Symbol = symbol_short!("lnch_pnl");
+
+/// Stable launch penalty applied event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LaunchPenaltyAppliedEvent {
+    /// Address of the creator whose key was sold.
+    pub creator_id: Address,
+    /// Address of the seller.
+    pub seller: Address,
+    /// Launch penalty basis points applied.
+    pub penalty_bps: u32,
+    /// Penalty amount deducted from proceeds.
+    pub penalty_amount: i128,
+    /// Ledger sequence at the time of the sale.
+    pub ledger: u32,
+}
+
+/// Shared launch penalty applied event topics tuple.
+pub fn launch_penalty_applied_topics(
+    creator: &Address,
+    seller: &Address,
+) -> (Symbol, Address, Address) {
+    (LAUNCH_PENALTY_APPLIED_EVENT_NAME, creator.clone(), seller.clone())
+}
+
+/// Event name for set_launch_penalty.
+pub const LAUNCH_PENALTY_SET_EVENT_NAME: Symbol = symbol_short!("lnch_set");
+
+/// Stable set launch penalty event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LaunchPenaltySetEvent {
+    /// Address of the creator.
+    pub creator_id: Address,
+    /// New penalty basis points.
+    pub penalty_bps: u32,
+    /// Ledger sequence at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared set launch penalty event topics tuple.
+pub fn launch_penalty_set_topics(creator: &Address) -> (Symbol, Address) {
+    (LAUNCH_PENALTY_SET_EVENT_NAME, creator.clone())
 }
