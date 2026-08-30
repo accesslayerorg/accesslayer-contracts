@@ -67,13 +67,18 @@ fn test_sell_within_lockup_is_rejected_and_emits_event() {
     let result = s.client.try_sell_key(&s.creator, &trader, &None);
     assert_eq!(
         result,
-        Err(Ok(ContractError::LockupPeriodActive)),
+        Err(Ok(ContractError::AllocationLocked)),
         "a sell inside the 24h lockup must be rejected"
     );
 
-    // Capture the lockup event immediately after the rejected sell; later state
-    // reads reset the event log.
+    // Capture events immediately after the rejection — any subsequent contract
+    // invocation (including view calls) will flush the test-env event buffer.
     let events_found = lockup_blocked_events(&env);
+
+    // State is untouched by the rejected sell.
+    assert_eq!(client_supply(&s), 1);
+    assert_eq!(s.client.get_key_balance(&s.creator, &trader), 1);
+
     assert_eq!(
         events_found.len(),
         1,
@@ -129,7 +134,7 @@ fn test_last_buy_timestamp_is_updated_on_every_buy() {
     // the sell must stay blocked because last_buy_timestamp was refreshed.
     set_test_timestamp(&env, second_buy_ts + LOCKUP_SECS - 1);
     let result = s.client.try_sell_key(&s.creator, &trader, &None);
-    assert_eq!(result, Err(Ok(ContractError::LockupPeriodActive)));
+    assert_eq!(result, Err(Ok(ContractError::AllocationLocked)));
 
     // Once the refreshed window has elapsed the sell goes through.
     set_test_timestamp(&env, second_buy_ts + LOCKUP_SECS);

@@ -71,10 +71,9 @@ fn test_buy_routes_one_percent_to_treasury_and_remainder_to_creator() {
     let buyer = Address::generate(&env);
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
 
-    // Capture events immediately after the trade; later balance reads reset the log.
+    // Capture events immediately after the trade — view calls below will
+    // flush the Soroban test-env event buffer.
     let fees = collected_fees(&env);
-    assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
-    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
 
     assert_eq!(
         s.client.get_treasury_balance(),
@@ -86,6 +85,9 @@ fn test_buy_routes_one_percent_to_treasury_and_remainder_to_creator() {
         99,
         "the creator must receive the 99 stroop remainder"
     );
+
+    assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
+    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
 }
 
 #[test]
@@ -101,26 +103,40 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
 
     s.client.sell_key(&s.creator, &trader, &None);
 
-    // The sell event's proceeds mirror the sell execution path: with a 100 bps
-    // trade fee deducted first (1 stroop to the treasury) and a creator split of
-    // 10000 bps, the entire net remainder (99) is routed to the creator's fee
-    // balance, so the seller keeps zero proceeds from this single-key sale.
-    let mut sell_events = Vec::new(&env);
-    for (_, topics, data) in env.events().all().iter() {
-        let name: Symbol = topics.get(0).unwrap().into_val(&env);
-        if name == events::SELL_EVENT_NAME {
-            sell_events.push_back(data);
-        }
-    }
-    assert_eq!(sell_events.len(), 1, "exactly one sell event expected");
-    let data = sell_events.get(0).unwrap();
-    let payload: events::KeysSoldEvent = data.into_val(&env);
+    // Capture events immediately after the sell — any subsequent contract
+    // invocation (including view calls) will flush the test-env event buffer.
+    //
+    // Math: price=100, protocol trade fee=1 (1%), net=99.
+    // CREATOR_BPS=10_000 means 100% of net (99 stroops) flows to the creator;
+    // seller proceeds = net - creator_fee = 99 - 99 = 0.
+    let all_events = env.events().all();
+    let sell_events: std::vec::Vec<_> = all_events
+        .iter()
+        .filter(|(_, topics, _)| {
+            topics.get(0).map(|v| {
+                let name: Symbol = v.into_val(&env);
+                name == events::SELL_EVENT_NAME
+            }) == Some(true)
+        })
+        .collect();
+    let fees = collected_fees(&env);
+
     assert_eq!(
-        payload.proceeds, 0,
-        "proceeds mirror the sell path with a full-creator split"
+        s.client.get_treasury_balance(),
+        2,
+        "the sell must add another 1% of the 100 stroop price"
     );
 
-    let fees = collected_fees(&env);
+    assert_eq!(sell_events.len(), 1, "exactly one sell event expected");
+    let (_, _, data) = &sell_events[0];
+    let payload: events::KeysSoldEvent = data.into_val(&env);
+    // With CREATOR_BPS=10_000 the full net goes to the creator, so the
+    // seller receives 0 stroops (proceeds are the seller's share only).
+    assert_eq!(
+        payload.proceeds, 0,
+        "seller proceeds are 0 when 100% of net is routed to the creator"
+    );
+
     assert!(
         !fees.is_empty(),
         "a fee_collected event must be emitted on the sell"

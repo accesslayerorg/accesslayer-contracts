@@ -13,8 +13,8 @@ fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
     client.set_protocol_admin(&admin, &admin);
-    client.set_treasury_address(&admin, &treasury);
     client.set_key_price(&admin, &100i128);
+    client.set_curve_slope(&admin, &100i128);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     (env, client, admin, treasury)
@@ -114,8 +114,7 @@ fn test_whitelist_mode_and_permissions() {
     let wallet = Address::generate(&env);
     let attacker = Address::generate(&env);
 
-    // Calling whitelist functions with an unregistered address returns NotRegistered,
-    // because the profile lookup fails before the ownership check.
+    // Non-creator caller panics with NotRegistered on whitelist functions
     assert_eq!(
         client.try_enable_whitelist(&attacker),
         Err(Ok(ContractError::NotRegistered))

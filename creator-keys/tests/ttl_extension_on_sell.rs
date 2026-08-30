@@ -52,6 +52,14 @@ fn setup(
         CREATOR_TTL_LEDGERS,
     );
     set_key_price_for_tests(env, &client, KEY_PRICE);
+    let key_price_key = storage::KEY_PRICE;
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().extend_ttl(
+            &key_price_key,
+            CREATOR_TTL_LEDGERS,
+            CREATOR_TTL_LEDGERS,
+        );
+    });
     let creator = register_test_creator(env, &client, "alice");
     let holder = Address::generate(env);
     (client, contract_id, creator, holder)
@@ -109,6 +117,21 @@ fn repeated_sells_reset_the_ttl_window_rather_than_accumulate() {
 
     client.sell_key(&creator, &holder, &None);
     let ttl_after_first = creator_ttl_remaining(&env, &contract_id, &creator);
+
+    // Keep contract instance alive for the second advance
+    env.deployer().extend_ttl(
+        contract_id.clone(),
+        CREATOR_TTL_LEDGERS,
+        CREATOR_TTL_LEDGERS,
+    );
+    let key_price_key = storage::KEY_PRICE;
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().extend_ttl(
+            &key_price_key,
+            CREATOR_TTL_LEDGERS,
+            CREATOR_TTL_LEDGERS,
+        );
+    });
 
     // Burn a chunk of the freshly granted window, then sell again.
     let elapsed = CREATOR_TTL_LEDGERS / 4;
