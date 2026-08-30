@@ -9,15 +9,22 @@ mod contract_test_env;
 use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
 };
-use creator_keys::{constants, ContractError};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Address, Env,
+};
 
 const KEY_PRICE: i128 = 100;
 
 /// Setup a client, register a creator, and configure pricing.
 fn setup(env: &Env) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
+    env.ledger().set_max_entry_ttl(1_000_000);
+    env.ledger().set_min_persistent_entry_ttl(1_000_000);
     let (client, _) = register_creator_keys(env);
     set_key_price_for_tests(env, &client, KEY_PRICE);
+    let admin = Address::generate(env);
+    client.set_protocol_admin(&admin, &admin);
+    client.set_fee_config(&admin, &500, &500);
     let creator = register_test_creator(env, &client, "alice");
     (client, creator)
 }
@@ -43,13 +50,13 @@ fn test_sell_within_launch_window_applies_penalty() {
     assert_eq!(client.get_key_balance(&creator, &buyer), 1);
 
     // Sell within the launch window — no ledger advance.
-    let balance_before = client.get_creator_fee_balance(&creator);
+    let pool_before = client.get_staking_rewards_pool(&creator);
     client.sell_key(&creator, &buyer, &None);
 
-    // The creator fee balance should increase from the penalty going to staking pool.
-    let balance_after = client.get_creator_fee_balance(&creator);
+    // The staking rewards pool should increase from the penalty going to the pool.
+    let pool_after = client.get_staking_rewards_pool(&creator);
     // Penalty was applied (default 500 bps = 5% of proceeds).
-    assert!(balance_after > balance_before);
+    assert!(pool_after > pool_before);
 }
 
 // ============================================================================
@@ -67,12 +74,12 @@ fn test_sell_after_launch_window_no_penalty() {
     advance_ledgers(&env, 120_961);
 
     // Sell after the window — no penalty.
-    let balance_before = client.get_creator_fee_balance(&creator);
+    let pool_before = client.get_staking_rewards_pool(&creator);
     client.sell_key(&creator, &buyer, &None);
-    let balance_after = client.get_creator_fee_balance(&creator);
+    let pool_after = client.get_staking_rewards_pool(&creator);
 
     // Only the standard trade fee should apply, not the launch penalty.
-    assert_eq!(balance_before, balance_after);
+    assert_eq!(pool_before, pool_after);
 }
 
 // ============================================================================

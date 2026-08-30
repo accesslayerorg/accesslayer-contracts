@@ -125,12 +125,20 @@ fn repeated_sells_reset_the_ttl_window_rather_than_accumulate() {
         CREATOR_TTL_LEDGERS,
     );
     let key_price_key = storage::KEY_PRICE;
+    let created_at_key = storage::created_at_ledger(&creator);
     env.as_contract(&contract_id, || {
         env.storage().persistent().extend_ttl(
             &key_price_key,
             CREATOR_TTL_LEDGERS,
             CREATOR_TTL_LEDGERS,
         );
+        if env.storage().persistent().has(&created_at_key) {
+            env.storage().persistent().extend_ttl(
+                &created_at_key,
+                CREATOR_TTL_LEDGERS,
+                CREATOR_TTL_LEDGERS,
+            );
+        }
     });
 
     // Burn a chunk of the freshly granted window, then sell again.
