@@ -227,7 +227,7 @@ mod staking_lifecycle_tests {
         // total_staked'    = 12 - 2 = 10
         // -----------------------------------------------------------------
         assert!(env.ledger().sequence() < p0_after.unlock_ledger);
-        let exit = client.early_unstake(&creator, &holder, &pos0);
+        let exit = client.early_unstake_position(&creator, &holder, &pos0);
         assert_eq!(exit.stake_id, pos0);
         assert_eq!(exit.amount, 2);
         assert_eq!(exit.forgone_reward, 12);
@@ -244,7 +244,7 @@ mod staking_lifecycle_tests {
 
         // early_unstake on an already-closed position reverts.
         assert_eq!(
-            client.try_early_unstake(&creator, &holder, &pos0),
+            client.try_early_unstake_position(&creator, &holder, &pos0),
             Err(Ok(StakingError::PositionNotFound))
         );
 
@@ -259,9 +259,10 @@ mod staking_lifecycle_tests {
 
         // While matured, early_unstake is rejected in favour of claim.
         assert_eq!(
-            client.try_early_unstake(&creator, &holder, &pos1),
+            client.try_early_unstake_position(&creator, &holder, &pos1),
             Err(Ok(StakingError::PositionNotLocked))
         );
+
 
         let claim = client.claim_stake_reward(&creator, &holder, &pos1);
         assert_eq!(claim.stake_id, pos1);
