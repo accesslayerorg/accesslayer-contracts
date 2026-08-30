@@ -2860,6 +2860,9 @@ impl CreatorKeysContract {
                 .auction_sold
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
+            if config.auction_sold > config.auction_supply {
+                config.auction_sold = config.auction_supply;
+            }
             env.storage().persistent().set(&auction_config_key, &config);
 
             env.events().publish(
