@@ -279,3 +279,39 @@ fn test_get_buy_quote_reflects_auction_price_then_bonding_curve_price() {
     // Auction supply exhausted: quote must fall back to the bonding-curve price.
     assert_eq!(client.get_buy_quote(&creator).price, 1000);
 }
+
+#[test]
+fn test_auction_sold_never_exceeds_auction_supply_and_persisted_state_agrees() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    set_key_price_for_tests(&env, &client, 1000i128);
+    let creator = register_test_creator(&env, &client, "alice");
+    client.configure_auction(&creator, &creator, &500i128, &2u32);
+
+    let buyer_a = Address::generate(&env);
+    let buyer_b = Address::generate(&env);
+    let buyer_c = Address::generate(&env);
+
+    // Buy 1
+    let supply_1 = client.buy_key(&creator, &buyer_a, &500i128, &None);
+    assert_eq!(supply_1, 1);
+    let config_1 = client.get_auction_config(&creator).unwrap();
+    assert_eq!(config_1.auction_sold, 1);
+    assert_eq!(client.get_total_key_supply(&creator), 1);
+
+    // Buy 2 (exhausts auction)
+    let supply_2 = client.buy_key(&creator, &buyer_b, &500i128, &None);
+    assert_eq!(supply_2, 2);
+    let config_2 = client.get_auction_config(&creator).unwrap();
+    assert_eq!(config_2.auction_sold, 2);
+    assert_eq!(client.get_total_key_supply(&creator), 2);
+
+    // Buy 3 (post-auction bonding curve buy)
+    let supply_3 = client.buy_key(&creator, &buyer_c, &1000i128, &None);
+    assert_eq!(supply_3, 3);
+    let config_3 = client.get_auction_config(&creator).unwrap();
+    assert_eq!(config_3.auction_sold, 2);
+    assert!(config_3.auction_sold <= config_3.auction_supply);
+    assert_eq!(client.get_total_key_supply(&creator), 3);
+}
+

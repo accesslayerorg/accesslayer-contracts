@@ -64,11 +64,69 @@ pub const BUY_EVENT_NAME: Symbol = symbol_short!("buy");
 /// Event name for key sale.
 pub const SELL_EVENT_NAME: Symbol = symbol_short!("sell");
 
+
+
 /// Event name for peer-to-peer key transfer.
 pub const TRANSFER_EVENT_NAME: Symbol = symbol_short!("transfer");
 
-/// Event name for creator key buyback.
 pub const BUYBACK_EVENT_NAME: Symbol = symbol_short!("buyback");
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionPurchaseEvent {
+    pub buyer: Address,
+    pub creator_id: Address,
+    pub quantity: u32,
+    pub price_paid: i128,
+    pub new_supply: u32,
+    pub auction_sold: u32,
+    pub ledger: u32,
+}
+
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
+pub const AUCTION_CANCELLED_EVENT_NAME: Symbol = symbol_short!("auc_can");
+pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("co_rem");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorRemovedEvent {
+    pub creator_id: Address,
+    pub co_creator: Address,
+    pub ledger: u32,
+}
+
+pub fn co_creator_removed_topics(creator: &Address) -> (Symbol, Address) {
+    (CO_CREATOR_REMOVED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionConfiguredEvent {
+    pub creator_id: Address,
+    pub auction_price: i128,
+    pub auction_supply: u32,
+}
+
+pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionCancelledEvent {
+    pub creator_id: Address,
+    pub auction_price: i128,
+    pub auction_supply: u32,
+}
+
+pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
+}
 
 /// Event name for referral fee earned.
 pub const REFERRAL_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("referral");
@@ -199,6 +257,7 @@ pub struct KeysSoldEvent {
     /// Ledger sequence number at the time of the sale.
     pub ledger: u32,
 }
+
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -754,41 +813,6 @@ pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
     (KEYS_BURNED_EVENT_NAME, key_id.clone())
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
-    pub ledger: u32,
-}
-
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
-    pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
-}
-
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -1196,11 +1220,7 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
 
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
 
 /// Stable fee collection event payload for downstream indexers.
 ///

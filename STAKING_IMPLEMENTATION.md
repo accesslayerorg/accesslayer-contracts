@@ -3,6 +3,21 @@
 ## Overview
 This implementation adds key staking functionality to the creator-keys contract, ensuring that staked keys cannot be sold until they are explicitly unstaked by the holder.
 
+## Early Unstaking
+
+The contract identifies a key by its creator `Address` and identifies the staker
+by the holder `Address`; this repository does not use `BytesN<32>` key IDs.
+
+`early_unstake(creator, holder)` allows the holder to exit an active stake before
+the normal unstake path. The default penalty is 2,000 bps (20%) and may be set
+per creator with `set_early_exit_penalty(creator, penalty_bps)` for values from
+0 through 5,000 bps. The penalty is removed from the holder's key balance and
+credited to the creator's staking rewards pool. The remainder becomes liquid.
+
+The operation emits an `EarlyUnstakedEvent` containing the wallet, creator key
+identifier, returned quantity, and penalty quantity. It returns `NoStakeFound`
+when no active stake exists and `PenaltyTooHigh` for values above 5,000 bps.
+
 ## Changes Made
 
 ### 1. Core Contract Changes (`creator-keys/src/lib.rs`)
