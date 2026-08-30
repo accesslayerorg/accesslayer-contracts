@@ -145,6 +145,12 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
         fees.iter().any(|fee| fee.0 == s.treasury && fee.1 == 1),
         "the sell's fee_collected event must carry the treasury and 1 stroop"
     );
+
+    assert_eq!(
+        s.client.get_treasury_balance(),
+        2,
+        "the sell must add another 1% of the 100 stroop price"
+    );
 }
 
 #[test]
@@ -155,9 +161,9 @@ fn test_admin_can_update_fee_rate_and_treasury_address() {
     let first_treasury = Address::generate(&env);
     s.client
         .set_protocol_fee(&s.admin, &Some(500), &first_treasury);
-
     let buyer = Address::generate(&env);
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
+
     assert_eq!(
         s.client.get_treasury_balance(),
         5,

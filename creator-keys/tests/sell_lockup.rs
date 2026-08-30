@@ -90,6 +90,10 @@ fn test_sell_within_lockup_is_rejected_and_emits_event() {
     assert_eq!(payload.last_buy_timestamp, BASE_TIMESTAMP);
     assert_eq!(payload.unlock_at, BASE_TIMESTAMP + LOCKUP_SECS);
     assert_eq!(payload.current_timestamp, BASE_TIMESTAMP);
+
+    // State is untouched by the rejected sell.
+    assert_eq!(client_supply(&s), 1);
+    assert_eq!(s.client.get_key_balance(&s.creator, &trader), 1);
 }
 
 fn client_supply(s: &Setup<'_>) -> u32 {

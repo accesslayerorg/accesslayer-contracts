@@ -1043,6 +1043,17 @@ pub struct RoyaltyConfig {
     pub sell_fee_bps: u32,
 }
 
+/// Lifecycle state for a creator's archive/restore flow (issue #709).
+///
+/// Absent storage entries default to `Active`, keeping storage sparse.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum CreatorLifecycleState {
+    Active = 0,
+    Archived = 1,
+    Restoring = 2,
+}
+
 /// Result of a single order in a batch buy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -2043,6 +2054,29 @@ fn read_curve_exponent(env: &Env, creator: &Address) -> Option<u32> {
         .get(&constants::storage::curve_exponent(creator))
 }
 
+/// Reads a creator's lifecycle state, defaulting to [`CreatorLifecycleState::Active`]
+/// when no lifecycle entry exists.
+pub fn read_creator_lifecycle(env: &Env, creator: &Address) -> CreatorLifecycleState {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::creator_lifecycle(creator))
+        .unwrap_or(CreatorLifecycleState::Active)
+}
+
+/// Guard rejecting trades for creators whose state is `Archived` or `Restoring`.
+///
+/// Read-only views intentionally bypass this guard.
+fn assert_creator_lifecycle_allows_trading(
+    env: &Env,
+    creator: &Address,
+) -> Result<(), ContractError> {
+    match read_creator_lifecycle(env, creator) {
+        CreatorLifecycleState::Active => Ok(()),
+        CreatorLifecycleState::Archived => Err(ContractError::CreatorArchived),
+        CreatorLifecycleState::Restoring => Err(ContractError::StateRestoring),
+    }
+}
+
 fn compute_bonding_curve_price(
     env: &Env,
     creator: &Address,
@@ -2545,6 +2579,7 @@ impl CreatorKeysContract {
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
+        assert_creator_lifecycle_allows_trading(&env, &creator)?;
 
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -2851,6 +2886,7 @@ impl CreatorKeysContract {
         assert_global_trading_not_halted(&env)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
+        assert_creator_lifecycle_allows_trading(&env, &creator)?;
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
 
@@ -3042,6 +3078,7 @@ impl CreatorKeysContract {
     ) -> Result<u32, ContractError> {
         caller.require_auth();
         assert_not_paused(&env)?;
+        assert_creator_lifecycle_allows_trading(&env, &creator)?;
 
         if caller != creator {
             return Err(ContractError::Unauthorized);
@@ -3960,6 +3997,42 @@ impl CreatorKeysContract {
             Some((fee_bps, treasury)) => (fee_bps, Some(treasury)),
             None => (0, None),
         }
+    }
+
+    /// Re-extends the TTL of all known global entries plus the scoped entries
+    /// of the supplied creators in a single admin call.
+    ///
+    /// Every global storage key (fee config, key price, treasury address and
+    /// balance, protocol fee rate) plus each listed creator's profile key is
+    /// pushed out to the full [`CREATOR_TTL_LEDGERS`] window, guaranteeing the
+    /// contract keeps serving these entries for at least
+    /// [`TTL_MIN_EXTENSION_LEDGERS`].
+    ///
+    /// Only callable by an authorized admin; any other caller receives
+    /// [`ContractError::Unauthorized`].
+    pub fn refresh_ttl(
+        env: Env,
+        admin: Address,
+        creators: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        for key in [
+            constants::storage::FEE_CONFIG,
+            constants::storage::KEY_PRICE,
+            constants::storage::TREASURY_ADDRESS,
+            constants::storage::TREASURY_BALANCE,
+            constants::storage::PROTOCOL_FEE_BPS,
+        ] {
+            extend_key_ttl_to_full_window(&env, &key);
+        }
+
+        for creator in creators.iter() {
+            extend_key_ttl_to_full_window(&env, &constants::storage::creator(&creator));
+        }
+
+        Ok(())
     }
 
     /// Sets the protocol admin address.

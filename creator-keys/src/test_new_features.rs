@@ -41,16 +41,18 @@ fn test_circuit_breaker_threshold_configuration_and_trigger() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    // Default threshold is 30%.
-    // Buy 1: supply 0 -> 1. Price moves from base_price (100) to 200 (100% increase > 30%).
+    // Set a slope so price increases with supply, enabling circuit breaker to fire.
+    // With slope=100 and base_price=100: price at supply 0 = 100, supply 1 = 200 (100% increase).
+    client.set_curve_slope(&admin, &100i128);
+
+    // Default threshold is 30%. First buy: supply 0->1, pre_price=100, post_price=200 (100% > 30%).
     let buyer = Address::generate(&env);
     let result = client.try_buy_key(&creator, &buyer, &1000i128, &None);
     assert_eq!(result, Err(Ok(ContractError::CircuitBreakerTriggered)));
 
-    // Admin sets threshold to 200% (200)
+    // Admin raises threshold to 200%. Price delta (100%) < 200%, so buy succeeds.
     client.set_circuit_breaker_threshold(&admin, &200u32);
 
-    // Now buy succeeds because price delta (100%) < 200% threshold
     let supply = client.buy_key(&creator, &buyer, &1000i128, &None);
     assert_eq!(supply, 1);
 }
@@ -81,8 +83,9 @@ fn test_referral_system_fee_split_and_validation() {
     );
     assert_eq!(res_creator_ref, Err(Ok(ContractError::InvalidReferrer)));
 
-    // Valid referral buy
-    // Price at supply 0 is 100. Protocol fee at 10% (1000 bps) is 10.
+    // Valid referral buy.
+    // Slope defaults to 0, so price stays flat at 100 regardless of supply.
+    // Protocol fee at 10% (1000 bps) of 100 = 10.
     // Treasury gets 50% (5), referrer gets 50% (5).
     let treasury_bal_before = client.get_treasury_balance();
     client.buy_key_with_referrer(&creator, &buyer, &1000i128, &None, &Some(referrer.clone()));
@@ -93,12 +96,12 @@ fn test_referral_system_fee_split_and_validation() {
     let ref_earnings = client.get_referral_earnings(&referrer);
     assert_eq!(ref_earnings, 5);
 
-    // Buy without referrer sends full protocol fee (20) to treasury (price at supply 1 is 200, 10% = 20)
+    // Buy without referrer: price still 100 (flat curve), protocol fee = 10, all to treasury.
     let buyer2 = Address::generate(&env);
     let treasury_bal_before2 = client.get_treasury_balance();
     client.buy_key(&creator, &buyer2, &1000i128, &None);
     let treasury_bal_after2 = client.get_treasury_balance();
-    assert_eq!(treasury_bal_after2 - treasury_bal_before2, 20);
+    assert_eq!(treasury_bal_after2 - treasury_bal_before2, 10);
 }
 
 #[test]
