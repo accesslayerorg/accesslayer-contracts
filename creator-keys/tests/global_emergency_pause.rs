@@ -16,7 +16,8 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
 };
 use creator_keys::events::{
-    global_pause_activated_topics, global_pause_lifted_topics, GLOBAL_PAUSE_ACTIVATED_EVENT_NAME,
+    global_pause_activated_topics, GLOBAL_PAUSE_ACTIVATED_EVENT_NAME,
+    GLOBAL_PAUSE_LIFTED_EVENT_NAME,
 };
 use creator_keys::{ContractError, CreatorKeysContractClient};
 use soroban_sdk::{
@@ -185,11 +186,26 @@ fn test_global_resume_with_two_approvals_lifts_halt() {
 
     // Second distinct approval lifts the halt.
     f.client.global_resume(&f.signers[2]);
+    let events = env.events().all();
     assert!(!f.client.get_global_trading_paused());
 
-    assert!(env.events().all().iter().any(|(_, topics, _)| {
-        topics == global_pause_lifted_topics(&f.signers[2]).into_val(&env)
-    }));
+    let (_, data) = events
+        .iter()
+        .rev()
+        .find_map(|(_, topics, data)| {
+            let name: soroban_sdk::Symbol = topics.get(0)?.into_val(&env);
+            if name == GLOBAL_PAUSE_LIFTED_EVENT_NAME {
+                let approver: Address = topics.get(1)?.into_val(&env);
+                if approver == f.signers[2] {
+                    return Some((topics, data));
+                }
+            }
+            None
+        })
+        .expect("global_pause_lifted event not found");
+
+    let ledger: u32 = data.into_val(&env);
+    assert_eq!(ledger, env.ledger().sequence());
 
     // Trading works again on any key.
     f.client.buy_key(&f.creator, &buyer, &BASE_PRICE, &None);

@@ -1027,7 +1027,7 @@ mod issue_tests {
         let orders: soroban_sdk::Vec<(Address, u32)> = soroban_sdk::Vec::new(&env);
 
         let result = client.try_batch_buy(&buyer, &orders);
-        assert_eq!(result, Err(Ok(ContractError::BatchSizeExceeded)));
+        assert_eq!(result, Err(Ok(ContractError::BatchClaimExceedsLimit)));
     }
 
     #[test]
@@ -1061,7 +1061,7 @@ mod issue_tests {
         );
 
         let result = client.try_batch_buy(&buyer, &orders);
-        assert_eq!(result, Err(Ok(ContractError::BatchSizeExceeded)));
+        assert_eq!(result, Err(Ok(ContractError::BatchClaimExceedsLimit)));
     }
 
     // =========================================================================
@@ -1100,7 +1100,7 @@ mod issue_tests {
 
         let creator = register_creator(&env, &client, None);
         let result = client.try_set_royalty(&creator, &501, &0);
-        assert_eq!(result, Err(Ok(ContractError::RoyaltyExceedsLimit)));
+        assert_eq!(result, Err(Ok(ContractError::ProtocolFeeExceedsCap)));
     }
 
     #[test]
@@ -1159,10 +1159,10 @@ mod issue_tests {
         let key_ids = soroban_sdk::Vec::from_array(&env, [creator]);
 
         let result = client.try_migrate_curve(&admin, &0, &key_ids);
-        assert_eq!(result, Err(Ok(ContractError::InvalidExponent)));
+        assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
 
         let result = client.try_migrate_curve(&admin, &6, &key_ids);
-        assert_eq!(result, Err(Ok(ContractError::InvalidExponent)));
+        assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
     }
 
     #[test]

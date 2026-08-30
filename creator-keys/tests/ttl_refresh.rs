@@ -100,6 +100,15 @@ fn test_admin_config_update_bumps_fee_config_ttl() {
     extend_contract_lifetime(&env, &contract_id);
     let admin = set_pricing_and_fees(&env, &client, KEY_PRICE, 9000, 1000);
 
+    let version_key = storage::PROTOCOL_STATE_VERSION;
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().extend_ttl(
+            &version_key,
+            creator_keys::CREATOR_TTL_LEDGERS,
+            creator_keys::CREATOR_TTL_LEDGERS,
+        );
+    });
+
     // Drain the fee config entry close to expiry.
     advance_ledger(&env, creator_keys::CREATOR_TTL_LEDGERS - 100);
     let fee_ttl_before = key_ttl(&env, &contract_id, &storage::FEE_CONFIG);
@@ -128,6 +137,17 @@ fn test_refresh_ttl_extends_all_known_global_entries() {
     // A trade so treasury/creator entries exist before the drain.
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+
+    let version_key = storage::PROTOCOL_STATE_VERSION;
+    env.as_contract(&contract_id, || {
+        if env.storage().persistent().has(&version_key) {
+            env.storage().persistent().extend_ttl(
+                &version_key,
+                creator_keys::CREATOR_TTL_LEDGERS,
+                creator_keys::CREATOR_TTL_LEDGERS,
+            );
+        }
+    });
 
     advance_ledger(&env, creator_keys::CREATOR_TTL_LEDGERS - 100);
 
@@ -158,5 +178,5 @@ fn test_refresh_ttl_rejects_non_admin_callers() {
     let creators = Vec::new(&env);
 
     let result = client.try_refresh_ttl(&impostor, &creators);
-    assert_eq!(result, Ok(Err(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
 }

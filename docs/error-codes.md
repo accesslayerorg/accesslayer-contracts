@@ -64,6 +64,11 @@ Defined in [`creator-keys/src/events.rs`](../creator-keys/src/events.rs#L366-L37
 | `26` | `PollExpired` | Voting attempted on a poll after its expiration timestamp | Triggered in [`vote_poll`](../creator-keys/src/events.rs#L523) when `current_ledger_time > expires_at`. |
 | `27` | `NotAHolder` | Voter does not hold any keys for the poll creator (`balance == 0`) | Triggered in [`vote_poll`](../creator-keys/src/events.rs#L532) when voter key balance is zero. |
 | `28` | `InvalidOption` | Selected option index is out of bounds for the target poll | Triggered in [`vote_poll`](../creator-keys/src/events.rs#L526) when `option_index >= options.len()`. |
+| `29` | `QuorumNotReached` | Proposal close attempted when total voting weight participation is below the creator's configured quorum threshold | Triggered in [`close_poll`](../creator-keys/src/events.rs) when `total_voting_weight * 10_000 < circulating_supply * quorum_bps`. |
+| `30` | `QuorumTooHigh` | Quorum threshold basis points exceeds maximum limit (`> 5000` / 50%) | Triggered in [`set_quorum_bps`](../creator-keys/src/lib.rs) when `quorum_bps > 5000`. |
+| `31` | `QuorumTooLow` | Quorum threshold basis points is below minimum limit (`< 100` / 1%) | Triggered in [`set_quorum_bps`](../creator-keys/src/lib.rs) when `quorum_bps < 100`. |
+| `32` | `Unauthorized` | Caller lacks required creator authorization | Triggered in [`set_quorum_bps`](../creator-keys/src/lib.rs) when caller is not the registered creator. |
+| `33` | `AlreadyClosed` | Poll or proposal has already been closed | Triggered in [`close_poll`](../creator-keys/src/events.rs) or [`cast_vote`](../creator-keys/src/events.rs) when `poll.closed == true`. |
 
 ---
 

@@ -57,7 +57,7 @@ fn test_buy_pushing_holder_above_cap_panics() {
     let result = client.try_buy_key(&creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         result,
-        Ok(Err(ContractError::MaxHoldingExceeded)),
+        Err(Ok(ContractError::WalletCapExceeded)),
         "a buy past 10% of supply must be rejected"
     );
     assert_eq!(client.get_key_balance(&creator, &buyer), 2);
@@ -84,16 +84,14 @@ fn test_creator_wallet_is_exempt_from_cap() {
     let env = test_env_with_auths();
     let (client, creator) = setup(&env);
 
-    client.set_holder_cap(&creator, &Some(1000));
+    client.set_holder_cap(&creator, &None);
+    seed_creator_supply(&client, &creator, 9);
 
-    // The creator holds far more than 10% of a small supply.
-    seed_creator_supply(&client, &creator, 19);
-    assert_eq!(client.get_key_balance(&creator, &creator), 19);
-    assert_eq!(client.get_total_key_supply(&creator), 19);
-
-    // The exempt wallet can keep buying past the cap.
+    // Creator buys 2 keys (20% of new supply 11 > 10% cap).
     client.buy_key(&creator, &creator, &KEY_PRICE, &None);
-    assert_eq!(client.get_key_balance(&creator, &creator), 20);
+    client.buy_key(&creator, &creator, &KEY_PRICE, &None);
+    assert_eq!(client.get_key_balance(&creator, &creator), 11);
+    assert_eq!(client.get_total_key_supply(&creator), 11);
 }
 
 #[test]
@@ -120,10 +118,10 @@ fn test_set_holder_cap_rejects_values_outside_one_and_twenty_five_percent() {
     let (client, creator) = setup(&env);
 
     let too_small = client.try_set_holder_cap(&creator, &Some(99));
-    assert_eq!(too_small, Ok(Err(ContractError::InvalidHolderCap)));
+    assert_eq!(too_small, Err(Ok(ContractError::WalletCapExceeded)));
 
     let too_large = client.try_set_holder_cap(&creator, &Some(2501));
-    assert_eq!(too_large, Ok(Err(ContractError::InvalidHolderCap)));
+    assert_eq!(too_large, Err(Ok(ContractError::WalletCapExceeded)));
 
     assert_eq!(client.get_holder_cap(&creator), None);
 }

@@ -296,6 +296,26 @@ fn admin_fee_update_extends_instance_ttl() {
         env.storage().persistent().get_ttl(&fee_config_key)
     });
 
+    // Bump ProtocolStateVersion TTL before advancing the ledger.
+    // Its default TTL (~4095 ledgers) is shorter than fee_config's, so it
+    // becomes archived first when we advance by ttl_before, causing
+    // set_fee_config (which reads that key) to panic with Storage::InternalError.
+    let version_key = storage::PROTOCOL_STATE_VERSION;
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().extend_ttl(
+            &version_key,
+            CREATOR_TTL_LEDGERS,
+            CREATOR_TTL_LEDGERS,
+        );
+    });
+
+    // Re-extend the contract instance and code TTL as well.
+    env.deployer().extend_ttl(
+        contract_id.clone(),
+        CREATOR_TTL_LEDGERS,
+        CREATOR_TTL_LEDGERS,
+    );
+
     let mut ledger = env.ledger().get();
     ledger.sequence_number += ttl_before.saturating_sub(1).max(1);
     env.ledger().set(ledger);

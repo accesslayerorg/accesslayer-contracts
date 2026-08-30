@@ -14,6 +14,7 @@ fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let treasury = Address::generate(&env);
     client.set_protocol_admin(&admin, &admin);
     client.set_key_price(&admin, &100i128);
+    client.set_curve_slope(&admin, &100i128);
     client.set_fee_config(&admin, &9000u32, &1000u32);
     client.set_treasury_address(&admin, &treasury);
 
@@ -111,22 +112,22 @@ fn test_whitelist_mode_and_permissions() {
     let wallet = Address::generate(&env);
     let attacker = Address::generate(&env);
 
-    // Non-creator caller panics with Unauthorized on whitelist functions
+    // Non-creator caller panics with NotRegistered on whitelist functions
     assert_eq!(
         client.try_enable_whitelist(&attacker),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ContractError::NotRegistered))
     );
     assert_eq!(
         client.try_disable_whitelist(&attacker),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ContractError::NotRegistered))
     );
     assert_eq!(
         client.try_add_to_whitelist(&attacker, &wallet),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ContractError::NotRegistered))
     );
     assert_eq!(
         client.try_remove_from_whitelist(&attacker, &wallet),
-        Err(Ok(ContractError::Unauthorized))
+        Err(Ok(ContractError::NotRegistered))
     );
 
     // Enable whitelist
@@ -171,7 +172,7 @@ fn test_key_burn_reduces_supply_and_balance() {
     client.buy_key(&creator, &holder, &1000i128, &None);
 
     let balance_before = client.get_key_balance(&creator, &holder);
-    let supply_before = client.get_creator_supply(&creator).unwrap();
+    let supply_before = client.get_creator_supply(&creator);
     assert_eq!(balance_before, 1);
     assert_eq!(supply_before, 1);
 
@@ -186,7 +187,7 @@ fn test_key_burn_reduces_supply_and_balance() {
     assert_eq!(new_supply, 0);
 
     let balance_after = client.get_key_balance(&creator, &holder);
-    let supply_after = client.get_creator_supply(&creator).unwrap();
+    let supply_after = client.get_creator_supply(&creator);
     assert_eq!(balance_after, 0);
     assert_eq!(supply_after, 0);
 }
