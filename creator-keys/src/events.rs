@@ -21,12 +21,24 @@
 //! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
 use crate::{
-    constants, read_registered_creator_profile, CreatorKeysContract, CreatorKeysContractArgs,
-    CreatorKeysContractClient,
+    constants, read_creator_supply, read_registered_creator_profile, CreatorKeysContract,
+    CreatorKeysContractArgs, CreatorKeysContractClient,
 };
 use soroban_sdk::{
     contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
 };
+
+/// Event name for protocol trade fee collected on a buy or sell.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+
+/// Event name for a sell rejected by the anti-flash-trade lockup window.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
+/// Event name for quorum threshold update.
+pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
+
+/// Event name for proposal/poll closed.
+pub const POLL_CLOSED_EVENT_NAME: Symbol = symbol_short!("poll_cls");
 
 /// Event name for protocol pause.
 pub const PAUSE_EVENT_NAME: Symbol = symbol_short!("pause");
@@ -698,6 +710,16 @@ pub const WHITELIST_DISABLED_EVENT_NAME: Symbol = symbol_short!("wl_dis");
 pub const ADDRESS_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_add");
 pub const ADDRESS_REMOVED_EVENT_NAME: Symbol = symbol_short!("wl_rem");
 pub const KEYS_BURNED_EVENT_NAME: Symbol = symbol_short!("burned");
+pub const SELF_FREEZE_APPLIED_EVENT_NAME: Symbol = symbol_short!("sf_add");
+pub const SELF_FREEZE_LIFTED_EVENT_NAME: Symbol = symbol_short!("sf_del");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SelfFreezeEvent {
+    pub key_id: Address,
+    pub wallet: Address,
+    pub quantity: u32,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -776,6 +798,68 @@ pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
     (KEYS_BURNED_EVENT_NAME, key_id.clone())
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    /// Treasury address that received the fee.
+    pub treasury: Address,
+    /// Fee amount deducted from the trade.
+    pub amount: i128,
+    /// Ledger sequence number at the time of the trade.
+    pub ledger: u32,
+}
+
+/// Shared fee collected event topics tuple.
+pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    /// Creator whose keys the seller attempted to sell.
+    pub creator_id: Address,
+    /// Seller whose sale was rejected.
+    pub seller: Address,
+    /// Ledger timestamp of the seller's most recent buy.
+    pub last_buy_timestamp: u64,
+    /// Timestamp at which the lockup expires (exclusive).
+    pub unlock_at: u64,
+    /// Ledger timestamp at rejection.
+    pub current_timestamp: u64,
+}
+
+/// Shared lockup blocked event topics tuple.
+pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct QuorumUpdatedEvent {
+    pub creator: Address,
+    pub quorum_bps: u32,
+    pub ledger: u32,
+}
+
+pub fn quorum_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (QUORUM_UPDATED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PollClosedEvent {
+    pub creator_id: Address,
+    pub poll_id: u32,
+    pub total_weight: u32,
+    pub quorum_reached: bool,
+    pub ledger: u32,
+}
+
+pub fn poll_closed_topics(creator: &Address, poll_id: u32) -> (Symbol, Address, u32) {
+    (POLL_CLOSED_EVENT_NAME, creator.clone(), poll_id)
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -789,6 +873,11 @@ pub enum PollError {
     PollExpired = 26,
     NotAHolder = 27,
     InvalidOption = 28,
+    QuorumNotReached = 29,
+    QuorumTooHigh = 30,
+    QuorumTooLow = 31,
+    Unauthorized = 32,
+    AlreadyClosed = 33,
 }
 
 #[derive(Clone)]
@@ -799,7 +888,7 @@ pub enum PollDataKey {
     Vote(Address, u32, Address),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct Poll {
     pub question: String,
@@ -807,16 +896,17 @@ pub struct Poll {
     pub vote_counts: Vec<u32>,
     pub total_weight: u32,
     pub expires_at: u32,
+    pub closed: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct PollVote {
     pub option_index: u32,
     pub weight: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct PollResult {
     pub question: String,
@@ -824,6 +914,7 @@ pub struct PollResult {
     pub vote_counts: Vec<u32>,
     pub total_weight: u32,
     pub expired: bool,
+    pub closed: bool,
 }
 
 pub fn poll_storage_key(creator_id: &Address, poll_id: u32) -> PollDataKey {
@@ -906,6 +997,7 @@ impl CreatorKeysContract {
             vote_counts,
             total_weight: 0,
             expires_at,
+            closed: false,
         };
 
         env.storage()
@@ -935,6 +1027,9 @@ impl CreatorKeysContract {
         voter.require_auth();
         let mut poll = read_poll(&env, &creator_id, poll_id)?;
 
+        if poll.closed {
+            return Err(PollError::AlreadyClosed);
+        }
         if is_poll_expired(&env, &poll) {
             return Err(PollError::PollExpired);
         }
@@ -1014,7 +1109,80 @@ impl CreatorKeysContract {
             vote_counts: poll.vote_counts,
             total_weight: poll.total_weight,
             expired,
+            closed: poll.closed,
         })
+    }
+
+    /// Closes a creator poll if the configured quorum threshold has been reached.
+    ///
+    /// Computes participation as `total_voting_weight / circulating_supply` (in basis points)
+    /// against the creator's configured `quorum_bps`. If participation is below the quorum
+    /// threshold, returns `Err(PollError::QuorumNotReached)`.
+    pub fn close_poll(
+        env: Env,
+        creator_id: Address,
+        poll_id: u32,
+    ) -> Result<PollResult, PollError> {
+        let mut poll = read_poll(&env, &creator_id, poll_id)?;
+
+        if poll.closed {
+            return Err(PollError::AlreadyClosed);
+        }
+
+        let circulating_supply = read_creator_supply(&env, &creator_id);
+        let quorum_key = constants::storage::quorum_bps(&creator_id);
+        let quorum_bps: u32 = env.storage().persistent().get(&quorum_key).unwrap_or(0);
+
+        if quorum_bps > 0 {
+            if circulating_supply == 0 {
+                return Err(PollError::QuorumNotReached);
+            }
+            let total_weight_bps = (poll.total_weight as u128)
+                .checked_mul(10_000)
+                .ok_or(PollError::Overflow)?;
+            let required_bps = (circulating_supply as u128)
+                .checked_mul(quorum_bps as u128)
+                .ok_or(PollError::Overflow)?;
+
+            if total_weight_bps < required_bps {
+                return Err(PollError::QuorumNotReached);
+            }
+        }
+
+        poll.closed = true;
+        env.storage()
+            .persistent()
+            .set(&poll_storage_key(&creator_id, poll_id), &poll);
+
+        env.events().publish(
+            poll_closed_topics(&creator_id, poll_id),
+            PollClosedEvent {
+                creator_id: creator_id.clone(),
+                poll_id,
+                total_weight: poll.total_weight,
+                quorum_reached: true,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        let expired = is_poll_expired(&env, &poll);
+        Ok(PollResult {
+            question: poll.question,
+            options: poll.options,
+            vote_counts: poll.vote_counts,
+            total_weight: poll.total_weight,
+            expired,
+            closed: true,
+        })
+    }
+
+    /// Alias for `close_poll`.
+    pub fn close_proposal(
+        env: Env,
+        creator_id: Address,
+        poll_id: u32,
+    ) -> Result<PollResult, PollError> {
+        Self::close_poll(env, creator_id, poll_id)
     }
 }
 
@@ -1070,4 +1238,246 @@ pub struct RoyaltyUpdatedEvent {
 /// Shared royalty updated event topics tuple.
 pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for the protocol trade fee collected on a buy or sell.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+
+/// Event name for a sell rejected by the anti-flash-trade lockup window.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
+/// Stable fee collection event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
+/// - data: `FeeCollectedEvent`
+///
+/// Emitted on every buy and sell once the protocol trade fee is configured,
+/// carrying the deducted amount and the treasury address that received it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    /// Treasury address that received the fee.
+    pub treasury: Address,
+    /// Fee amount deducted from the trade.
+    pub amount: i128,
+    /// Ledger sequence number at the time of the trade.
+    pub ledger: u32,
+}
+
+/// Shared fee collected event topics tuple.
+pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+}
+
+/// Stable lockup-blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
+/// - data: `LockupBlockedEvent`
+///
+/// Emitted when a sell is rejected because the seller's most recent buy for
+/// this creator falls inside the configured lockup window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    /// Creator whose keys the seller attempted to sell.
+    pub creator_id: Address,
+    /// Seller whose sale was rejected.
+    pub seller: Address,
+    /// Ledger timestamp of the seller's most recent buy.
+    pub last_buy_timestamp: u64,
+    /// Timestamp at which the lockup expires (exclusive).
+    pub unlock_at: u64,
+    /// Ledger timestamp at rejection.
+    pub current_timestamp: u64,
+}
+
+/// Shared lockup blocked event topics tuple.
+pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+}
+
+/// Event name for a new staking position created via `stake_keys_locked`.
+pub const STAKE_EVENT_NAME: Symbol = symbol_short!("stake");
+
+/// Event name for a lock period extension via `stake_extend`.
+pub const STAKE_EXTENDED_EVENT_NAME: Symbol = symbol_short!("stk_ext");
+
+/// Event name for an early (pre-maturity) unstake via `early_unstake`.
+pub const EARLY_UNSTAKE_EVENT_NAME: Symbol = symbol_short!("stk_chl");
+
+/// Event name for a reward claim at/after maturity via `claim_stake_reward`.
+pub const STAKE_REWARD_CLAIMED_EVENT_NAME: Symbol = symbol_short!("stk_clm");
+
+/// Stable stake event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(STAKE_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `StakeEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeEvent {
+    /// Creator whose keys are staked.
+    pub creator_id: Address,
+    /// Staker that locked the keys.
+    pub holder: Address,
+    /// Sequential position id for the `(creator, holder)` pair.
+    pub stake_id: u32,
+    /// Number of keys locked.
+    pub amount: u32,
+    /// Ledger sequence at which the position matures.
+    pub unlock_ledger: u32,
+}
+
+/// Shared stake event topics tuple.
+pub fn stake_topics(creator: &Address, holder: &Address, stake_id: u32) -> (Symbol, Address, Address, u32) {
+    (STAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+/// Stable stake-extend event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(STAKE_EXTENDED_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `StakeExtendedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeExtendedEvent {
+    /// Creator whose keys are staked.
+    pub creator_id: Address,
+    /// Staker that locked the keys.
+    pub holder: Address,
+    /// Extended position id.
+    pub stake_id: u32,
+    /// New maturity ledger sequence after the extension.
+    pub unlock_ledger: u32,
+    /// Additional ledgers appended to the lock period.
+    pub additional_ledgers: u32,
+}
+
+/// Shared stake-extend event topics tuple.
+pub fn stake_extended_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (STAKE_EXTENDED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+/// Stable early-unstake event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(EARLY_UNSTAKE_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `EarlyUnstakeEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EarlyUnstakeEvent {
+    /// Creator whose keys were staked.
+    pub creator_id: Address,
+    /// Staker that closed the position.
+    pub holder: Address,
+    /// Closed position id.
+    pub stake_id: u32,
+    /// Keys released back to the holder's liquid balance.
+    pub amount: u32,
+    /// Pro-rata reward entitlement removed from the pool.
+    pub forgone_reward: i128,
+    /// Penalty retained in the pool.
+    pub penalty: i128,
+    /// Ledger sequence at which the position was closed.
+    pub ledger: u32,
+}
+
+/// Shared early-unstake event topics tuple.
+pub fn early_unstake_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (EARLY_UNSTAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+/// Stable stake-reward-claim event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(STAKE_REWARD_CLAIMED_EVENT_NAME, creator_id, holder, stake_id)`
+/// - data: `StakeRewardClaimedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeRewardClaimedEvent {
+    /// Creator whose keys were staked.
+    pub creator_id: Address,
+    /// Staker that closed the position.
+    pub holder: Address,
+    /// Closed position id.
+    pub stake_id: u32,
+    /// Keys released back to the holder's liquid balance.
+    pub amount: u32,
+    /// Reward paid out from the pool.
+    pub reward: i128,
+    /// Ledger sequence at which the position matured.
+    pub unlock_ledger: u32,
+    /// Ledger sequence at which the reward was claimed.
+    pub ledger: u32,
+}
+
+/// Shared stake-reward-claim event topics tuple.
+pub fn stake_reward_claimed_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (STAKE_REWARD_CLAIMED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+}
+
+
+// ============================================================================
+// Launch Penalty (#798)
+// ============================================================================
+
+/// Event name for launch penalty applied on sell.
+pub const LAUNCH_PENALTY_APPLIED_EVENT_NAME: Symbol = symbol_short!("lnch_pnl");
+
+/// Stable launch penalty applied event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LaunchPenaltyAppliedEvent {
+    /// Address of the creator whose key was sold.
+    pub creator_id: Address,
+    /// Address of the seller.
+    pub seller: Address,
+    /// Launch penalty basis points applied.
+    pub penalty_bps: u32,
+    /// Penalty amount deducted from proceeds.
+    pub penalty_amount: i128,
+    /// Ledger sequence at the time of the sale.
+    pub ledger: u32,
+}
+
+/// Shared launch penalty applied event topics tuple.
+pub fn launch_penalty_applied_topics(
+    creator: &Address,
+    seller: &Address,
+) -> (Symbol, Address, Address) {
+    (LAUNCH_PENALTY_APPLIED_EVENT_NAME, creator.clone(), seller.clone())
+}
+
+/// Event name for set_launch_penalty.
+pub const LAUNCH_PENALTY_SET_EVENT_NAME: Symbol = symbol_short!("lnch_set");
+
+/// Stable set launch penalty event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LaunchPenaltySetEvent {
+    /// Address of the creator.
+    pub creator_id: Address,
+    /// New penalty basis points.
+    pub penalty_bps: u32,
+    /// Ledger sequence at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared set launch penalty event topics tuple.
+pub fn launch_penalty_set_topics(creator: &Address) -> (Symbol, Address) {
+    (LAUNCH_PENALTY_SET_EVENT_NAME, creator.clone())
 }

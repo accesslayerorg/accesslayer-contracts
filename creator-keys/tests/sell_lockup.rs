@@ -67,15 +67,18 @@ fn test_sell_within_lockup_is_rejected_and_emits_event() {
     let result = s.client.try_sell_key(&s.creator, &trader, &None);
     assert_eq!(
         result,
-        Ok(Err(ContractError::LockupPeriodActive)),
+        Err(Ok(ContractError::AllocationLocked)),
         "a sell inside the 24h lockup must be rejected"
     );
+
+    // Capture events immediately after the rejection — any subsequent contract
+    // invocation (including view calls) will flush the test-env event buffer.
+    let events_found = lockup_blocked_events(&env);
 
     // State is untouched by the rejected sell.
     assert_eq!(client_supply(&s), 1);
     assert_eq!(s.client.get_key_balance(&s.creator, &trader), 1);
 
-    let events_found = lockup_blocked_events(&env);
     assert_eq!(
         events_found.len(),
         1,
@@ -127,7 +130,7 @@ fn test_last_buy_timestamp_is_updated_on_every_buy() {
     // the sell must stay blocked because last_buy_timestamp was refreshed.
     set_test_timestamp(&env, second_buy_ts + LOCKUP_SECS - 1);
     let result = s.client.try_sell_key(&s.creator, &trader, &None);
-    assert_eq!(result, Ok(Err(ContractError::LockupPeriodActive)));
+    assert_eq!(result, Err(Ok(ContractError::AllocationLocked)));
 
     // Once the refreshed window has elapsed the sell goes through.
     set_test_timestamp(&env, second_buy_ts + LOCKUP_SECS);
@@ -165,7 +168,7 @@ fn test_non_admin_cannot_configure_the_lockup() {
 
     let impostor = Address::generate(&env);
     let result = s.client.try_set_lockup_duration(&impostor, &LOCKUP_SECS);
-    assert_eq!(result, Ok(Err(ContractError::Unauthorized)));
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
 }
 
 #[test]
@@ -174,7 +177,7 @@ fn test_zero_duration_is_rejected() {
     let s = setup_with_lockup(&env);
 
     let result = s.client.try_set_lockup_duration(&s.admin, &0);
-    assert_eq!(result, Ok(Err(ContractError::NotPositiveAmount)));
+    assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 
 #[test]
