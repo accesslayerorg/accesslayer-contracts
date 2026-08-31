@@ -182,12 +182,12 @@ fn test_sell_zero_liquid_keys_when_all_staked_reverts_and_emits_no_event() {
     // Clear event log
     env.events().all();
 
-    // Holder attempts to sell when liquid balance is 0
+    // Holder attempts to sell when liquid balance is 0 and all keys are staked.
     let result = client.try_sell_key(&creator, &holder, &None);
     assert_eq!(
         result,
-        Err(Ok(ContractError::InsufficientBalance)),
-        "sell must fail when liquid keys count is 0"
+        Err(Ok(ContractError::KeysStaked)),
+        "sell must fail with KeysStaked when all keys are staked"
     );
 
     let after = capture_snapshot(&client, &creator, &holder);
