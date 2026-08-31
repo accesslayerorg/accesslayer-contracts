@@ -46,6 +46,24 @@ Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs#L50-L83) as `p
 | `32` | `WhitelistTooLarge` | Whitelist configuration address count exceeds maximum limit | Triggered in [`validate_whitelist_config`](../creator-keys/src/lib.rs#L637) when address count `> MAX_WHITELIST_SIZE`. |
 | `33` | `AirdropRecipientLimitExceeded` | Airdrop recipient list length exceeds max limit per transaction | Triggered in [`airdrop_keys`](../creator-keys/src/lib.rs#L1730) when `recipients.len() > MAX_AIRDROP_RECIPIENT_LIMIT`. |
 | `40` | `DisplayNameEmpty` | Creator display handle is blank (empty string or ASCII whitespace only) | Triggered in [`validate_creator_handle`](../creator-keys/src/lib.rs) before the length and character checks when the handle contains no non-whitespace bytes. |
+| `51` | `GlobalTradingHalted` | Buy/sell rejected while the protocol-wide emergency trading halt is active (#784) | Triggered in [`assert_global_trading_not_halted`](../creator-keys/src/lib.rs) before the per-key pause guard. |
+| `52` | `FreezeQuantityExceedsBalance` | Self-freeze quantity exceeds the holder's available balance | Triggered in [`self_freeze`](../creator-keys/src/lib.rs) when `quantity > available_holder_balance`. |
+| `53` | `KeysStaked` | Sell of staked keys attempted while the keys are locked in a staking position | Triggered in [`sell_key`](../creator-keys/src/lib.rs) when the seller's entire balance is staked. |
+
+---
+
+## `StakingError` Reference (Key Staking)
+
+Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs) as `pub enum StakingError`, used by the staking lifecycle entrypoints (`stake_keys`, `stake_keys_locked`, `stake_extend`, `early_unstake`, `claim_stake_reward`).
+
+| Code | Name | Description | Trigger Condition |
+|:---:|---|---|---|
+| `3` | `InsufficientBalance` | Holder's liquid (non-staked) balance is smaller than the staked amount | Triggered when staking more keys than the holder's liquid balance. |
+| `4` | `PositionNotFound` | No staking position exists for the given `(creator, holder, stake_id)` | Triggered when claiming/early-unstaking/extending an unknown position. |
+| `5` | `PositionNotLocked` | Position has already matured, so `early_unstake` cannot be used | Triggered when early-unstaking a matured position. |
+| `6` | `StakeLockActive` | The staking lock period has not yet elapsed | Triggered in `claim_stake_reward` before the position's `unlock_ledger`. |
+| `7` | `NotRegistered` | Creator is not registered | Triggered when staking for an unregistered creator. |
+| `8` | `ProtocolPaused` | The protocol is paused | Triggered by staking lifecycle entrypoints while paused. |
 
 ---
 
