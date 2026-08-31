@@ -135,6 +135,15 @@ pub enum StakingError {
     FlashLoanDetected = 58,
 }
 
+/// Feature-gate errors for optional contract functionality.
+#[contracterror(export = false)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum FeatureError {
+    Unauthorized = 1,
+    NoCoCreatorSet = 2,
+}
+
 pub mod fee {
     use crate::ContractError;
 
@@ -3108,7 +3117,6 @@ impl CreatorKeysContract {
         // configurable penalty from the proceeds and credit it to the
         // staking rewards pool.
         let proceeds = compute_sell_proceeds(&env, price).unwrap_or(0);
-        #[allow(unused_assignments)]
         let mut final_proceeds = proceeds;
 
         if let Some(created_at) = env
@@ -3153,7 +3161,7 @@ impl CreatorKeysContract {
             seller: seller.clone(),
             creator_id: creator.clone(),
             quantity: 1,
-            proceeds,
+            proceeds: final_proceeds,
             ledger: env.ledger().sequence(),
         };
 
