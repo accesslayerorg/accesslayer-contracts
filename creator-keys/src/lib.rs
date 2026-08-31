@@ -366,6 +366,8 @@ pub mod constants {
         pub const GLOBAL_DEADLINE_LEDGER: DataKey = DataKey::GlobalDeadlineLedger;
         pub const PROTOCOL_FEE_BPS: DataKey = DataKey::ProtocolFeeBps;
         pub const LOCKUP_DURATION_SECS: DataKey = DataKey::LockupDurationSecs;
+        /// Minimum investment (minimum buy payment) requirement in stroops.
+        pub const MIN_INVESTMENT_AMOUNT: DataKey = DataKey::MinInvestmentAmount;
 
         /// Protocol-wide emergency trading halt flag (#784).
         pub const GLOBAL_TRADING_PAUSED: DataKey = DataKey::GlobalTradingPaused;
@@ -607,6 +609,32 @@ pub struct ProtocolFeeView {
     pub creator_bps: u32,
     pub protocol_bps: u32,
     pub is_configured: bool,
+}
+
+/// Stable view of global protocol status and configuration.
+///
+/// Returned by [`CreatorKeysContract::get_protocol_status`] for indexer and API
+/// consumption over `GET /protocol/status`. All values are read from persistent
+/// config storage. Unconfigured (unset) entries are reported with sensible
+/// defaults and never cause a panic.
+///
+/// # Field Stability
+///
+/// Fields are append-only. Do not reorder existing fields; the Soroban XDR
+/// encoder serialises struct fields in declaration order.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ProtocolStatus {
+    /// Whether the protocol-wide emergency trading halt is currently active.
+    pub global_trading_paused: bool,
+    /// Configured protocol trade fee in basis points (0 when unset).
+    pub protocol_fee_bps: u32,
+    /// Treasury routing address, or `None` when no treasury is configured.
+    pub treasury_address: Option<Address>,
+    /// Effective sell lockup duration in seconds.
+    pub lockup_duration_seconds: u64,
+    /// Minimum investment requirement in stroops, or `None` when unset.
+    pub min_investment_amount: Option<i128>,
 }
 
 /// Stable, non-optional view of creator details.
@@ -939,6 +967,8 @@ pub enum DataKey {
     GlobalPauseVote(Address),
     GlobalResumeVote(Address),
     SelfFrozenBalance(Address, Address),
+    /// Minimum investment (minimum buy payment) in stroops, if configured.
+    MinInvestmentAmount,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -4982,6 +5012,82 @@ impl CreatorKeysContract {
     /// has been called.
     pub fn get_lockup_duration(env: Env) -> u64 {
         read_lockup_duration_secs(&env).unwrap_or(DEFAULT_LOCKUP_DURATION_SECS)
+    }
+
+    /// Configures the minimum investment (minimum buy payment) requirement.
+    ///
+    /// Only the protocol admin may call this. A negative amount is rejected
+    /// with [`ContractError::NotPositiveAmount`]; `0` clears the requirement
+    /// (equivalent to "no minimum"). Stored in persistent storage and included
+    /// in [`ProtocolStatus`] returned by [`CreatorKeysContract::get_protocol_status`].
+    pub fn set_min_investment_amount(
+        env: Env,
+        admin: Address,
+        min_amount: i128,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if min_amount < 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        env.storage()
+            .persistent()
+            .set(&constants::storage::MIN_INVESTMENT_AMOUNT, &min_amount);
+        extend_key_ttl_to_full_window(&env, &constants::storage::MIN_INVESTMENT_AMOUNT);
+        Ok(())
+    }
+
+    /// Read-only view: returns the configured minimum investment amount, if any.
+    pub fn get_min_investment_amount(env: Env) -> Option<i128> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::MIN_INVESTMENT_AMOUNT)
+    }
+
+    /// Read-only view: returns the global protocol status and configuration.
+    ///
+    /// Exposes `global_trading_paused`, `protocol_fee_bps`, `treasury_address`,
+    /// `lockup_duration_seconds`, and `min_investment_amount` for indexers and
+    /// API consumers. Bumps the TTL of every read config entry and returns
+    /// sensible defaults for unset entries. Never panics under any storage state
+    /// and requires no authentication.
+    pub fn get_protocol_status(env: Env) -> ProtocolStatus {
+        let global_trading_paused = is_global_trading_paused(&env);
+        bump_persistent_ttl(&env, &constants::storage::GLOBAL_TRADING_PAUSED);
+
+        let protocol_fee_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::PROTOCOL_FEE_BPS)
+            .unwrap_or(0u32);
+        bump_persistent_ttl(&env, &constants::storage::PROTOCOL_FEE_BPS);
+
+        let treasury_address: Option<Address> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::TREASURY_ADDRESS);
+        bump_persistent_ttl(&env, &constants::storage::TREASURY_ADDRESS);
+
+        let lockup_duration_seconds = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::LOCKUP_DURATION_SECS)
+            .unwrap_or(DEFAULT_LOCKUP_DURATION_SECS);
+        bump_persistent_ttl(&env, &constants::storage::LOCKUP_DURATION_SECS);
+
+        let min_investment_amount: Option<i128> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::MIN_INVESTMENT_AMOUNT);
+        bump_persistent_ttl(&env, &constants::storage::MIN_INVESTMENT_AMOUNT);
+
+        ProtocolStatus {
+            global_trading_paused,
+            protocol_fee_bps,
+            treasury_address,
+            lockup_duration_seconds,
+            min_investment_amount,
+        }
     }
 
     /// Read-only view: returns the curve preset for a creator.
