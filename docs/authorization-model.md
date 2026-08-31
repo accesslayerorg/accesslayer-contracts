@@ -69,6 +69,17 @@ Registers a new creator profile on-chain.
 - **Constraints**: Handle must be 3-32 characters, lowercase alphanumeric or underscores.
 - **Fails**: `AlreadyRegistered` if a profile already exists for `creator`.
 
+### `set_buy_cooldown(creator: Address, cooldown_ledgers: u32) -> Result<(), CooldownError>`
+
+Sets the per-wallet buy cooldown for a creator's keys.
+
+- **Auth**: `creator.require_auth()` — only the creator whose keys are being gated may configure this.
+- **Constraints**: `cooldown_ledgers` must be in `0..=720` (≈ 1 hour at 5 s/ledger). Values above 720 return `CooldownError::CooldownTooLong`.
+- **Default**: When not configured (or set to 0), no cooldown is enforced.
+- **Effect**: Once set, `buy_key` rejects a second purchase by the same wallet within the cooldown window with `CooldownError::CooldownActive` and emits a `cooldown_blocked` event.
+
+---
+
 ### `buyback(creator: Address, caller: Address, amount: u32, payment: i128, max_total_cost: Option<i128>) -> Result<u32, ContractError>`
 
 Creator-authorized buyback that burns keys from the creator's own held balance.
@@ -181,6 +192,7 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `get_treasury_address()` | `Option<Address>` |
 | `get_protocol_admin()` | `Option<Address>` |
 | `get_protocol_fee_recipient()` | `Option<Address>` |
+| `get_buy_cooldown(creator: Address)` | `u32` |
 
 ---
 
@@ -189,6 +201,7 @@ These functions require no authorization. Anyone can call them. They do not muta
 | Function | Access level | Mutates state |
 |---|---|---|
 | `register_creator` | Creator | Yes |
+| `set_buy_cooldown` | Creator | Yes |
 | `buyback` | Creator | Yes |
 | `buy_key` | Key holder (buyer) | Yes |
 | `sell_key` | Key holder (seller) | Yes |

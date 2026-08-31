@@ -50,6 +50,7 @@ The following table summarizes the events currently implemented in the `creator-
 | `register` | `(Symbol("register"), creator)` | `creator`, `handle`, `supply`, `holder_count`, `creator_bps`, `protocol_bps` | `struct CreatorRegisteredEvent` |
 | `buy` | `(Symbol("buy"), creator, buyer)` | `supply`, `payment` | `tuple (u32, i128)` |
 | `sell` | `(Symbol("sell"), creator, seller)` | `supply` | `tuple (u32)` |
+| `cd_blk` | `(Symbol("cd_blk"), creator, wallet)` | `wallet`, `creator_id`, `ledgers_remaining` | `struct CooldownBlockedEvent` |
 
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.

@@ -79,6 +79,9 @@ pub const POLL_CREATED_EVENT_NAME: Symbol = symbol_short!("poll_new");
 /// Event name for governance poll votes.
 pub const POLL_VOTE_EVENT_NAME: Symbol = symbol_short!("poll_vote");
 
+/// Event name for a buy rejected by the per-wallet cooldown guard.
+pub const COOLDOWN_BLOCKED_EVENT_NAME: Symbol = symbol_short!("cd_blk");
+
 /// Topic index for the event name in common event topic tuples.
 pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
 
@@ -1252,6 +1255,34 @@ pub struct LockupBlockedEvent {
 /// Shared lockup blocked event topics tuple.
 pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
     (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+}
+
+/// Stable field order for cooldown_blocked event payloads.
+pub const COOLDOWN_BLOCKED_EVENT_DATA_FIELDS: [&str; 3] =
+    ["wallet", "creator_id", "ledgers_remaining"];
+
+/// Stable cooldown-blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_BLOCKED_EVENT_NAME, creator_id, wallet)`
+/// - data: `CooldownBlockedEvent`
+///
+/// Emitted inside [`CreatorKeysContract::buy_key`] when the per-wallet
+/// cooldown period has not elapsed since the buyer's last purchase.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownBlockedEvent {
+    /// Wallet whose buy was rejected.
+    pub wallet: Address,
+    /// Creator whose keys the buyer attempted to purchase.
+    pub creator_id: Address,
+    /// Number of ledgers remaining before the cooldown expires.
+    pub ledgers_remaining: u32,
+}
+
+/// Shared cooldown blocked event topics tuple.
+pub fn cooldown_blocked_topics(creator: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (COOLDOWN_BLOCKED_EVENT_NAME, creator.clone(), wallet.clone())
 }
 
 /// Event name for a new staking position created via `stake_keys_locked`.
