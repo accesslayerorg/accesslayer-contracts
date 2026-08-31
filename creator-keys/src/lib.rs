@@ -89,6 +89,11 @@ pub enum ContractError {
     NameTooLong = 60,
     BioTooLong = 61,
     KeyAlreadyInitialised = 62,
+    /// The key has been deprecated by its creator; new buys are no longer accepted.
+    KeyDeprecated = 63,
+    /// The creator did not provide enough XLM to cover the full buyback escrow
+    /// (`circulating_supply * buyback_price_per_key`).
+    InsufficientEscrow = 64,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
@@ -613,8 +618,17 @@ pub mod constants {
         pub fn auction_config(creator: &Address) -> DataKey {
             DataKey::AuctionConfig(creator.clone())
         }
-    }
 
+        /// Storage key for a creator's deprecation marker; value is `buyback_price_per_key` (i128).
+        pub fn deprecated_key(creator: &Address) -> DataKey {
+            DataKey::DeprecatedKey(creator.clone())
+        }
+
+        /// Storage key for the escrow balance held for a deprecated key's buyback pool.
+        pub fn deprecation_escrow(creator: &Address) -> DataKey {
+            DataKey::DeprecationEscrow(creator.clone())
+        }
+    }
     fn creator_key(creator: &Address) -> DataKey {
         DataKey::Creator(creator.clone())
     }
@@ -1047,6 +1061,11 @@ pub enum DataKey {
     /// Per-creator buy cooldown in ledgers. A value of `0` (or absent) means
     /// no cooldown is configured. Set via `set_buy_cooldown`.
     BuyCooldown(Address),
+    /// Marks a creator key as deprecated. Value is the fixed `buyback_price_per_key` (i128).
+    DeprecatedKey(Address),
+    /// Escrow balance held on behalf of a deprecated key's creator.
+    /// Funds are paid out to redeeming holders and any remainder is returned on full redemption.
+    DeprecationEscrow(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -2739,6 +2758,15 @@ impl CreatorKeysContract {
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
 
+        // Reject buys on deprecated keys immediately — before any price or fee math.
+        if env
+            .storage()
+            .persistent()
+            .has(&constants::storage::deprecated_key(&creator))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
+
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
         }
@@ -3368,6 +3396,185 @@ impl CreatorKeysContract {
         );
 
         Ok(profile.supply)
+    }
+
+    // =========================================================================
+    // #834 — Key deprecation and holder buybacks
+    // =========================================================================
+
+    /// Deprecates a creator key, disabling new buys and initiating an orderly
+    /// shutdown via a fixed-price holder buyback.
+    ///
+    /// The creator must escrow `circulating_supply * buyback_price_per_key` XLM
+    /// (`escrow_payment`) at the time of calling. Holders can then call
+    /// [`CreatorKeysContract::redeem`] to exchange their keys for the fixed
+    /// buyback price.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `caller != creator`.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::NotPositiveAmount`] if `buyback_price_per_key <= 0`.
+    /// - [`ContractError::KeyDeprecated`] if the key is already deprecated.
+    /// - [`ContractError::InsufficientEscrow`] if `escrow_payment` is less than
+    ///   `circulating_supply * buyback_price_per_key`.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn deprecate_key(
+        env: Env,
+        creator: Address,
+        caller: Address,
+        buyback_price_per_key: i128,
+        escrow_payment: i128,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        assert_not_paused(&env)?;
+
+        if caller != creator {
+            return Err(ContractError::Unauthorized);
+        }
+        if buyback_price_per_key <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        let profile = read_registered_creator_profile(&env, &creator)?;
+
+        // Reject if already deprecated.
+        if env
+            .storage()
+            .persistent()
+            .has(&constants::storage::deprecated_key(&creator))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
+
+        // Compute the required escrow: circulating_supply * buyback_price_per_key.
+        let circulating_supply = profile.supply;
+        let required_escrow = (circulating_supply as i128)
+            .checked_mul(buyback_price_per_key)
+            .ok_or(ContractError::Overflow)?;
+
+        if escrow_payment < required_escrow {
+            return Err(ContractError::InsufficientEscrow);
+        }
+
+        // Persist the deprecation marker (stores the fixed buyback price).
+        let dep_key = constants::storage::deprecated_key(&creator);
+        env.storage()
+            .persistent()
+            .set(&dep_key, &buyback_price_per_key);
+        extend_key_ttl_to_full_window(&env, &dep_key);
+
+        // Persist the escrow balance (capped at required_escrow; any overpayment
+        // is treated as excess and not credited to the escrow pool).
+        let escrow_key = constants::storage::deprecation_escrow(&creator);
+        env.storage()
+            .persistent()
+            .set(&escrow_key, &required_escrow);
+        extend_key_ttl_to_full_window(&env, &escrow_key);
+
+        env.events().publish(
+            events::key_deprecated_topics(&creator),
+            events::KeyDeprecatedEvent {
+                creator: creator.clone(),
+                buyback_price_per_key,
+                circulating_supply,
+                total_escrow: required_escrow,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Redeems all keys held by `holder` for a deprecated creator key.
+    ///
+    /// Transfers `holder_balance * buyback_price_per_key` XLM from the escrow
+    /// pool to the holder, burns the holder's keys, and decrements the supply.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::KeyDeprecated`] is **not** returned here — it is the
+    ///   *required* condition. The function returns [`ContractError::NotRegistered`]
+    ///   when the key has not been deprecated (reusing `NotRegistered` to mean
+    ///   "the deprecation record does not exist").
+    /// - [`ContractError::InsufficientBalance`] if the holder has no keys.
+    /// - [`ContractError::InsufficientEscrow`] if the escrow pool is unexpectedly
+    ///   short (should not happen under normal conditions).
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn redeem(env: Env, creator: Address, holder: Address) -> Result<i128, ContractError> {
+        holder.require_auth();
+        assert_not_paused(&env)?;
+
+        // The key must be deprecated before holders can redeem.
+        let dep_key = constants::storage::deprecated_key(&creator);
+        let buyback_price_per_key: i128 = env
+            .storage()
+            .persistent()
+            .get(&dep_key)
+            .ok_or(ContractError::NotRegistered)?;
+
+        let mut profile = read_registered_creator_profile(&env, &creator)?;
+
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+        let holder_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if holder_balance == 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        // Compute payout.
+        let payout = (holder_balance as i128)
+            .checked_mul(buyback_price_per_key)
+            .ok_or(ContractError::Overflow)?;
+
+        // Deduct from escrow.
+        let escrow_key = constants::storage::deprecation_escrow(&creator);
+        let current_escrow: i128 = env.storage().persistent().get(&escrow_key).unwrap_or(0);
+
+        if current_escrow < payout {
+            return Err(ContractError::InsufficientEscrow);
+        }
+
+        let new_escrow = current_escrow
+            .checked_sub(payout)
+            .ok_or(ContractError::Overflow)?;
+
+        // Burn holder's keys and update supply / holder count.
+        profile.supply = profile
+            .supply
+            .checked_sub(holder_balance)
+            .ok_or(ContractError::SellUnderflow)?;
+        profile.holder_count = profile
+            .holder_count
+            .checked_sub(1)
+            .ok_or(ContractError::SellUnderflow)?;
+
+        // Persist updated state.
+        let creator_key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&creator_key, &profile);
+        env.storage().persistent().remove(&balance_key);
+
+        if new_escrow == 0 {
+            env.storage().persistent().remove(&escrow_key);
+        } else {
+            env.storage().persistent().set(&escrow_key, &new_escrow);
+            extend_key_ttl_to_full_window(&env, &escrow_key);
+        }
+
+        env.events().publish(
+            events::keys_redeemed_topics(&creator, &holder),
+            events::KeysRedeemedEvent {
+                creator: creator.clone(),
+                holder: holder.clone(),
+                quantity: holder_balance,
+                payout,
+                new_supply: profile.supply,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(payout)
     }
 
     /// Creator-only airdrop that mints keys to a list of recipient wallets.
