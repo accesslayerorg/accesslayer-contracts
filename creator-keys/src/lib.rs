@@ -77,6 +77,8 @@ pub enum ContractError {
     MaxHoldingExceeded = 51,
     LockupPeriodActive = 52,
     InvalidHolderCap = 53,
+    GlobalTradingHalted = 54,
+    FreezeQuantityExceedsBalance = 55,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
@@ -536,16 +538,20 @@ pub mod constants {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
 
-        pub fn holder_cap_bps(creator: &Address) -> DataKey {
-            DataKey::HolderCapBps(creator.clone())
-        }
-
-        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
-            DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
-        }
-
         pub fn quorum_bps(creator: &Address) -> DataKey {
             DataKey::QuorumBps(creator.clone())
+        }
+
+        pub fn auction_config(creator: &Address) -> DataKey {
+            DataKey::AuctionConfig(creator.clone())
+        }
+
+        pub fn total_staked(creator: &Address) -> DataKey {
+            DataKey::TotalStaked(creator.clone())
+        }
+
+        pub fn stake_unlock_ledger(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::StakeUnlockLedger(creator.clone(), holder.clone())
         }
     }
 
@@ -915,14 +921,19 @@ pub enum DataKey {
     HolderCapBps(Address),
     LastBuyTimestamp(Address, Address),
     LockupDurationSecs,
-    RoyaltyConfig(Address),
-    CurveExponent(Address),
     QuorumBps(Address),
     GlobalTradingPaused,
     GlobalPauseAdmins,
     GlobalPauseVote(Address),
     GlobalResumeVote(Address),
     SelfFrozenBalance(Address, Address),
+    StakingRewardsPool(Address),
+    StakePosition(Address, Address, u32),
+    CreatedAtLedger(Address),
+    LaunchPenaltyBps(Address),
+    AuctionConfig(Address),
+    TotalStaked(Address),
+    StakeUnlockLedger(Address, Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1096,6 +1107,52 @@ pub struct AirdropSummary {
     pub total_cost: i128,
     pub recipient_count: u32,
     pub skipped_count: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionConfig {
+    pub auction_supply: u32,
+    pub auction_price: i128,
+    pub auction_sold: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakingRewardsState {
+    pub pool: i128,
+    pub total_staked: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakePosition {
+    pub stake_id: u32,
+    pub amount: u32,
+    pub unlock_ledger: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeExit {
+    pub stake_id: u32,
+    pub amount: u32,
+    pub forgone_reward: i128,
+    pub penalty: i128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeRewardClaim {
+    pub stake_id: u32,
+    pub reward: i128,
+    pub amount: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum StakingKey {
+    NextStakeId(Address, Address),
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
@@ -1703,37 +1760,6 @@ fn collect_protocol_trade_fee(
     fee::checked_sub_i128(amount, trade_fee).ok_or(ContractError::Overflow)
 }
 
-/// Credits the configured share of a protocol trade fee into the creator's
-/// staking rewards pool. No-op for zero share/dormant pools (the pool entry is
-/// only created once a fee actually accrues).
-fn credit_staking_rewards_pool(
-    env: &Env,
-    creator: &Address,
-    trade_fee: i128,
-) -> Result<(), ContractError> {
-    let share = fee::apply_percentage_fee(trade_fee, crate::staking::REWARDS_SHARE_BPS)
-        .ok_or(ContractError::Overflow)?;
-    if share == 0 {
-        return Ok(());
-    }
-    let pool_key = constants::storage::staking_rewards_pool(creator);
-    let mut state: StakingRewardsState = env
-        .storage()
-        .persistent()
-        .get(&pool_key)
-        .unwrap_or(StakingRewardsState {
-            pool: 0,
-            total_staked: 0,
-        });
-    state.pool = state
-        .pool
-        .checked_add(share)
-        .ok_or(ContractError::Overflow)?;
-    env.storage().persistent().set(&pool_key, &state);
-    extend_key_ttl_to_full_window(env, &pool_key);
-    Ok(())
-}
-
 /// Maps [`ContractError`] values raised by shared guards (`assert_not_paused`,
 /// `read_registered_creator_profile`) into the [`StakingError`] surface used by
 /// the staking lifecycle entrypoints.
@@ -1851,11 +1877,25 @@ pub fn read_retention_policy(env: &Env) -> RetentionPolicy {
         .unwrap_or_else(default_retention_policy)
 }
 
-fn assert_buy_price_slippage(price: i128, max_price: Option<i128>) -> Result<(), ContractError> {
+fn assert_buy_price_slippage(
+    env: &Env,
+    creator: &Address,
+    price: i128,
+    max_price: Option<i128>,
+) -> Result<(), ContractError> {
     if let Some(max) = max_price {
         if price > max {
             return Err(ContractError::SlippageExceeded);
         }
+        env.events().publish(
+            events::slippage_check_passed_topics(creator),
+            events::SlippageCheckPassedEvent {
+                creator_id: creator.clone(),
+                actual_amount: price,
+                bound: max,
+                ledger: env.ledger().sequence(),
+            },
+        );
     }
     Ok(())
 }
@@ -1885,6 +1925,7 @@ fn compute_sell_proceeds(env: &Env, price: i128) -> Result<i128, ContractError> 
 
 fn assert_sell_proceeds_slippage(
     env: &Env,
+    creator: &Address,
     price: i128,
     min_proceeds: Option<i128>,
 ) -> Result<(), ContractError> {
@@ -1893,6 +1934,15 @@ fn assert_sell_proceeds_slippage(
         if proceeds < min {
             return Err(ContractError::SlippageExceeded);
         }
+        env.events().publish(
+            events::slippage_check_passed_topics(creator),
+            events::SlippageCheckPassedEvent {
+                creator_id: creator.clone(),
+                actual_amount: proceeds,
+                bound: min,
+                ledger: env.ledger().sequence(),
+            },
+        );
     }
     Ok(())
 }
@@ -2594,31 +2644,37 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
             let post_price = compute_bonding_curve_price(&env, &creator, base_price, post_supply)?;
 
-        if pre_price > 0 && post_price > pre_price {
-            let price_change = (post_price - pre_price) as u128;
-            let pre_price_u128 = pre_price as u128;
-            let threshold_pct_u128 = threshold_pct as u128;
-            if price_change
-                .checked_mul(100)
-                .ok_or(ContractError::Overflow)?
-                >= pre_price_u128
-                    .checked_mul(threshold_pct_u128)
+            if pre_price > 0 && post_price > pre_price {
+                let threshold_pct: u32 = env
+                    .storage()
+                    .persistent()
+                    .get(&constants::storage::CIRCUIT_BREAKER_THRESHOLD)
+                    .unwrap_or(0);
+                let price_change = (post_price - pre_price) as u128;
+                let pre_price_u128 = pre_price as u128;
+                let threshold_pct_u128 = threshold_pct as u128;
+                if price_change
+                    .checked_mul(100)
                     .ok_or(ContractError::Overflow)?
-            {
-                env.events().publish(
-                    (events::circuit_breaker_triggered_topics(),),
-                    events::CircuitBreakerTriggeredEvent {
-                        pre_price,
-                        post_price,
-                    },
-                );
-                return Err(ContractError::CircuitBreakerTriggered);
+                    >= pre_price_u128
+                        .checked_mul(threshold_pct_u128)
+                        .ok_or(ContractError::Overflow)?
+                {
+                    env.events().publish(
+                        (events::circuit_breaker_triggered_topics(),),
+                        events::CircuitBreakerTriggeredEvent {
+                            pre_price,
+                            post_price,
+                        },
+                    );
+                    return Err(ContractError::CircuitBreakerTriggered);
+                }
             }
 
             pre_price
         };
 
-        assert_buy_price_slippage(price, max_price)?;
+        assert_buy_price_slippage(&env, &creator, price, max_price)?;
 
         if payment < price {
             return Err(ContractError::InsufficientPayment);
@@ -2924,7 +2980,7 @@ impl CreatorKeysContract {
         // Settle dividends before balance changes so earnings are captured at old balance.
         settle_holder_dividends(&env, &creator, &seller, current_balance)?;
 
-        assert_sell_proceeds_slippage(&env, price, min_proceeds)?;
+        assert_sell_proceeds_slippage(&env, &creator, price, min_proceeds)?;
 
         let new_balance = current_balance
             .checked_sub(1)

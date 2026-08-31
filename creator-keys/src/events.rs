@@ -1196,64 +1196,6 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
-
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
-
-/// Stable fee collection event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
-/// - data: `FeeCollectedEvent`
-///
-/// Emitted on every buy and sell once the protocol trade fee is configured,
-/// carrying the deducted amount and the treasury address that received it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
-    pub ledger: u32,
-}
-
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
-}
-
-/// Stable lockup-blocked event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
-/// - data: `LockupBlockedEvent`
-///
-/// Emitted when a sell is rejected because the seller's most recent buy for
-/// this creator falls inside the configured lockup window.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
-    pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
-}
-
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
-}
-
 /// Event name for a new staking position created via `stake_keys_locked`.
 pub const STAKE_EVENT_NAME: Symbol = symbol_short!("stake");
 
@@ -1436,4 +1378,52 @@ pub struct LaunchPenaltySetEvent {
 /// Shared set launch penalty event topics tuple.
 pub fn launch_penalty_set_topics(creator: &Address) -> (Symbol, Address) {
     (LAUNCH_PENALTY_SET_EVENT_NAME, creator.clone())
+}
+
+// --- Auction purchase event ---
+
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionPurchaseEvent {
+    pub buyer: Address,
+    pub creator_id: Address,
+    pub quantity: u32,
+    pub price_paid: i128,
+    pub new_supply: u32,
+    pub auction_sold: u32,
+    pub ledger: u32,
+}
+
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+// --- Slippage check passed event (#827) ---
+
+/// Event name emitted when a slippage bound passes the check on a non-None limit.
+pub const SLIPPAGE_CHECK_PASSED_EVENT_NAME: Symbol = symbol_short!("slp_ok");
+
+/// Stable slippage-check-passed event payload for downstream indexers.
+///
+/// Emitted after a successful buy or sell when the caller supplied a
+/// non-None `max_price` / `min_proceeds` bound that was satisfied.
+/// When the bound is `None` no event is emitted to avoid noise.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SlippageCheckPassedEvent {
+    /// Creator whose key was traded.
+    pub creator_id: Address,
+    /// The bonding-curve price (buy) or post-fee proceeds (sell) that was validated.
+    pub actual_amount: i128,
+    /// The caller-specified upper/lower bound that was satisfied.
+    pub bound: i128,
+    /// Ledger sequence at the time of the trade.
+    pub ledger: u32,
+}
+
+/// Shared slippage-check-passed event topics tuple.
+pub fn slippage_check_passed_topics(creator: &Address) -> (Symbol, Address) {
+    (SLIPPAGE_CHECK_PASSED_EVENT_NAME, creator.clone())
 }
