@@ -547,6 +547,13 @@ pub mod constants {
         pub fn quorum_bps(creator: &Address) -> DataKey {
             DataKey::QuorumBps(creator.clone())
         }
+
+        /// Storage key for the append-only holder registry of `creator`
+        /// (i.e. the key_id): a `Vec<Address>` of every wallet that has ever
+        /// held a key for this creator.
+        pub fn holder_registry(creator: &Address) -> DataKey {
+            DataKey::HolderRegistry(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -923,6 +930,12 @@ pub enum DataKey {
     GlobalPauseVote(Address),
     GlobalResumeVote(Address),
     SelfFrozenBalance(Address, Address),
+    /// Append-only holder registry for a key (`creator` is the key_id):
+    /// a `Vec<Address>` of every wallet that has ever held a key for this
+    /// creator. Addresses are appended on first acquisition and never
+    /// removed, so the list is historical accuracy that snapshot and
+    /// airdrop entrypoints can iterate.
+    HolderRegistry(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1208,7 +1221,9 @@ fn available_holder_balance(env: &Env, key_id: &Address, wallet: &Address) -> u3
         .persistent()
         .get(&constants::storage::staked_balance(key_id, wallet))
         .unwrap_or(0u32);
-    total.saturating_sub(staked).saturating_sub(read_self_frozen_balance(env, key_id, wallet))
+    total
+        .saturating_sub(staked)
+        .saturating_sub(read_self_frozen_balance(env, key_id, wallet))
 }
 
 /// Reads a creator's current key supply from persistent storage.
@@ -1717,14 +1732,14 @@ fn credit_staking_rewards_pool(
         return Ok(());
     }
     let pool_key = constants::storage::staking_rewards_pool(creator);
-    let mut state: StakingRewardsState = env
-        .storage()
-        .persistent()
-        .get(&pool_key)
-        .unwrap_or(StakingRewardsState {
-            pool: 0,
-            total_staked: 0,
-        });
+    let mut state: StakingRewardsState =
+        env.storage()
+            .persistent()
+            .get(&pool_key)
+            .unwrap_or(StakingRewardsState {
+                pool: 0,
+                total_staked: 0,
+            });
     state.pool = state
         .pool
         .checked_add(share)
@@ -1760,7 +1775,9 @@ fn sub_staked_balance(env: &Env, creator: &Address, holder: &Address, amount: u3
         if new_staked == 0 {
             env.storage().persistent().remove(&staked_balance_key);
         } else {
-            env.storage().persistent().set(&staked_balance_key, &new_staked);
+            env.storage()
+                .persistent()
+                .set(&staked_balance_key, &new_staked);
             extend_key_ttl_to_full_window(env, &staked_balance_key);
         }
     }
@@ -2218,6 +2235,50 @@ fn extend_key_ttl_to_full_window(env: &Env, key: &DataKey) {
         .extend_ttl(key, CREATOR_TTL_LEDGERS, CREATOR_TTL_LEDGERS);
 }
 
+/// Appends `holder` to the registry for `creator` (the key_id) if it is not
+/// already present.
+///
+/// The holder registry is an append-only `Vec<Address>` of every wallet that
+/// has ever held a key for a creator. Addresses are appended on first
+/// acquisition and never removed, even when the holder's balance later
+/// reaches zero, preserving historical accuracy for snapshot and airdrop
+/// entrypoints. Duplicate appends for the same wallet are no-ops.
+///
+/// Call this in every code path that transitions a holder's balance from 0 to
+/// non-zero (buy, airdrop, transfer-in, claim_locked_allocation, vesting
+/// claim, batch buy).
+fn record_holder_in_registry(env: &Env, creator: &Address, holder: &Address) {
+    let reg_key = constants::storage::holder_registry(creator);
+    let mut registry: Vec<Address> = env
+        .storage()
+        .persistent()
+        .get(&reg_key)
+        .unwrap_or_else(|| Vec::new(env));
+    let already_registered = registry.contains(holder);
+    if !already_registered {
+        registry.push_back(holder.clone());
+        env.storage().persistent().set(&reg_key, &registry);
+    }
+    // Bump the TTL on every registry write (and read via the calling path) so
+    // actively used history never expires.
+    extend_key_ttl_to_full_window(env, &reg_key);
+}
+
+/// Reads the append-only holder registry `Vec<Address>` for `creator` (the
+/// key_id) and bumps the entry's TTL.
+///
+/// Returns an empty `Vec` when no wallet has ever held a key for this creator.
+fn read_holder_registry(env: &Env, creator: &Address) -> Vec<Address> {
+    let reg_key = constants::storage::holder_registry(creator);
+    let registry: Vec<Address> = env.storage().persistent().get(&reg_key).unwrap_or_else(|| {
+        // Constructing an empty Vec requires the env; use a closure fallback.
+        Vec::new(env)
+    });
+    // Bump the TTL of the registry entry on every read.
+    extend_key_ttl_to_full_window(env, &reg_key);
+    registry
+}
+
 /// Extends the TTL of a persistent storage entry to at least
 /// [`TTL_MIN_EXTENSION_LEDGERS`] (~30 days) from the current ledger.
 ///
@@ -2575,6 +2636,13 @@ impl CreatorKeysContract {
             .map(|config| profile.supply < config.auction_supply)
             .unwrap_or(false);
 
+        // Circuit breaker threshold, stored as a percentage (default 30%).
+        let threshold_pct: u32 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::CIRCUIT_BREAKER_THRESHOLD)
+            .unwrap_or(30);
+
         let price = if in_auction {
             // Auction-phase buys settle at the fixed auction price. The
             // circuit breaker only guards bonding-curve price movement, so
@@ -2594,25 +2662,26 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
             let post_price = compute_bonding_curve_price(&env, &creator, base_price, post_supply)?;
 
-        if pre_price > 0 && post_price > pre_price {
-            let price_change = (post_price - pre_price) as u128;
-            let pre_price_u128 = pre_price as u128;
-            let threshold_pct_u128 = threshold_pct as u128;
-            if price_change
-                .checked_mul(100)
-                .ok_or(ContractError::Overflow)?
-                >= pre_price_u128
-                    .checked_mul(threshold_pct_u128)
+            if pre_price > 0 && post_price > pre_price {
+                let price_change = (post_price - pre_price) as u128;
+                let pre_price_u128 = pre_price as u128;
+                let threshold_pct_u128 = threshold_pct as u128;
+                if price_change
+                    .checked_mul(100)
                     .ok_or(ContractError::Overflow)?
-            {
-                env.events().publish(
-                    (events::circuit_breaker_triggered_topics(),),
-                    events::CircuitBreakerTriggeredEvent {
-                        pre_price,
-                        post_price,
-                    },
-                );
-                return Err(ContractError::CircuitBreakerTriggered);
+                    >= pre_price_u128
+                        .checked_mul(threshold_pct_u128)
+                        .ok_or(ContractError::Overflow)?
+                {
+                    env.events().publish(
+                        (events::circuit_breaker_triggered_topics(),),
+                        events::CircuitBreakerTriggeredEvent {
+                            pre_price,
+                            post_price,
+                        },
+                    );
+                    return Err(ContractError::CircuitBreakerTriggered);
+                }
             }
 
             pre_price
@@ -2687,6 +2756,7 @@ impl CreatorKeysContract {
                 .holder_count
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
+            record_holder_in_registry(&env, &creator, &buyer);
         }
 
         // Persist holder_count before write_creator_supply reads the profile.
@@ -2870,9 +2940,7 @@ impl CreatorKeysContract {
             .unwrap_or(0);
         let liquid_balance = current_balance
             .saturating_sub(staked_balance)
-            .saturating_sub(read_self_frozen_balance(
-            &env, &creator, &seller,
-        ));
+            .saturating_sub(read_self_frozen_balance(&env, &creator, &seller));
 
         if liquid_balance == 0 {
             return Err(ContractError::InsufficientBalance);
@@ -2972,9 +3040,7 @@ impl CreatorKeysContract {
             .get::<DataKey, u32>(&constants::storage::created_at_ledger(&creator))
         {
             let current_ledger = env.ledger().sequence();
-            if current_ledger
-                .checked_sub(created_at)
-                .unwrap_or(u32::MAX)
+            if current_ledger.checked_sub(created_at).unwrap_or(u32::MAX)
                 < crate::LAUNCH_PENALTY_WINDOW_LEDGERS
             {
                 let penalty_bps: u32 = env
@@ -2985,8 +3051,7 @@ impl CreatorKeysContract {
                 let capped_bps = penalty_bps.min(crate::MAX_LAUNCH_PENALTY_BPS);
                 if capped_bps > 0 {
                     let penalty_amount =
-                        crate::fee::apply_percentage_fee(proceeds, capped_bps)
-                            .unwrap_or(0);
+                        crate::fee::apply_percentage_fee(proceeds, capped_bps).unwrap_or(0);
                     if penalty_amount > 0 {
                         final_proceeds = final_proceeds
                             .checked_sub(penalty_amount)
@@ -3244,6 +3309,7 @@ impl CreatorKeysContract {
                     .holder_count
                     .checked_add(1)
                     .ok_or(ContractError::Overflow)?;
+                record_holder_in_registry(&env, &creator, &entry.address);
             }
             let new_balance = current_balance
                 .checked_add(entry.amount)
@@ -3418,11 +3484,24 @@ impl CreatorKeysContract {
         }
         let key = constants::storage::self_frozen_balance(&key_id, &wallet);
         let frozen = read_self_frozen_balance(&env, &key_id, &wallet);
-        env.storage().persistent().set(&key, &frozen.checked_add(quantity).ok_or(ContractError::Overflow)?);
+        env.storage().persistent().set(
+            &key,
+            &frozen
+                .checked_add(quantity)
+                .ok_or(ContractError::Overflow)?,
+        );
         extend_key_ttl_to_full_window(&env, &key);
         env.events().publish(
-            (events::SELF_FREEZE_APPLIED_EVENT_NAME, key_id.clone(), wallet.clone()),
-            events::SelfFreezeEvent { key_id, wallet, quantity },
+            (
+                events::SELF_FREEZE_APPLIED_EVENT_NAME,
+                key_id.clone(),
+                wallet.clone(),
+            ),
+            events::SelfFreezeEvent {
+                key_id,
+                wallet,
+                quantity,
+            },
         );
         Ok(())
     }
@@ -3451,8 +3530,16 @@ impl CreatorKeysContract {
             extend_key_ttl_to_full_window(&env, &key);
         }
         env.events().publish(
-            (events::SELF_FREEZE_LIFTED_EVENT_NAME, key_id.clone(), wallet.clone()),
-            events::SelfFreezeEvent { key_id, wallet, quantity },
+            (
+                events::SELF_FREEZE_LIFTED_EVENT_NAME,
+                key_id.clone(),
+                wallet.clone(),
+            ),
+            events::SelfFreezeEvent {
+                key_id,
+                wallet,
+                quantity,
+            },
         );
         Ok(())
     }
@@ -3496,6 +3583,37 @@ impl CreatorKeysContract {
             key_count,
             creator_exists,
         }
+    }
+
+    /// Read-only view: returns whether `holder` has ever held a key for `creator`.
+    ///
+    /// Once a wallet acquires any key for a creator, the registry entry persists
+    /// permanently even after the holder sells all their keys. Returns `false`
+    /// for unregistered creators. Bumps the TTL of the registry entry on every
+    /// read.
+    pub fn has_ever_held(env: Env, creator: Address, holder: Address) -> bool {
+        read_holder_registry(&env, &creator).contains(&holder)
+    }
+
+    /// Read-only view: returns the full append-only holder registry for a key.
+    ///
+    /// Returns the `Vec<Address>` of every wallet that has ever held a key for
+    /// `creator` (the key_id). Addresses are never removed, so the list is
+    /// historical accuracy that snapshot and airdrop entrypoints can iterate.
+    /// Returns an empty `Vec` when no wallet has ever held a key for this
+    /// creator. Bumps the TTL of the registry entry on every read.
+    pub fn get_holder_registry(env: Env, creator: Address) -> Vec<Address> {
+        read_holder_registry(&env, &creator)
+    }
+
+    /// Read-only view: returns the total number of distinct wallets that have
+    /// ever held a key for `creator`.
+    ///
+    /// This count is monotonically increasing — it never decrements when
+    /// holders sell. Returns `0` for unregistered creators. Derived from the
+    /// length of the append-only registry and bumps its TTL on every read.
+    pub fn get_historical_holder_count(env: Env, creator: Address) -> u32 {
+        read_holder_registry(&env, &creator).len()
     }
 
     pub fn get_creator(env: Env, creator: Address) -> Result<CreatorProfile, ContractError> {
@@ -4486,6 +4604,7 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
             let profile_key = constants::storage::creator(&creator);
             env.storage().persistent().set(&profile_key, &profile);
+            record_holder_in_registry(&env, &creator, &creator);
         }
 
         env.events().publish(
@@ -4801,6 +4920,7 @@ impl CreatorKeysContract {
                 .holder_count
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
+            record_holder_in_registry(&env, &creator, &to);
         }
 
         // Write updated profile (holder_count changes).
@@ -5057,11 +5177,7 @@ impl CreatorKeysContract {
     /// Returns the next sequential stake id for a `(creator, holder)` pair.
     fn next_stake_id(env: &Env, creator: &Address, holder: &Address) -> Result<u32, StakingError> {
         let id_key = constants::storage::next_stake_id(creator, holder);
-        let next: u32 = env
-            .storage()
-            .persistent()
-            .get(&id_key)
-            .unwrap_or(0);
+        let next: u32 = env.storage().persistent().get(&id_key).unwrap_or(0);
         let new_next = next.checked_add(1).ok_or(StakingError::Overflow)?;
         env.storage().persistent().set(&id_key, &new_next);
         env.storage()
@@ -5102,7 +5218,8 @@ impl CreatorKeysContract {
 
         let balance_key = constants::storage::key_balance(&creator, &holder);
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        let current_staked: u32 = Self::get_staked_balance(env.clone(), creator.clone(), holder.clone());
+        let current_staked: u32 =
+            Self::get_staked_balance(env.clone(), creator.clone(), holder.clone());
         let liquid_balance = current_balance.saturating_sub(current_staked);
         if liquid_balance < amount {
             return Err(StakingError::InsufficientBalance);
@@ -5137,14 +5254,14 @@ impl CreatorKeysContract {
 
         // Track the cross-holder staked total for reward distribution.
         let pool_key = constants::storage::staking_rewards_pool(&creator);
-        let mut state: StakingRewardsState = env
-            .storage()
-            .persistent()
-            .get(&pool_key)
-            .unwrap_or(StakingRewardsState {
-                pool: 0,
-                total_staked: 0,
-            });
+        let mut state: StakingRewardsState =
+            env.storage()
+                .persistent()
+                .get(&pool_key)
+                .unwrap_or(StakingRewardsState {
+                    pool: 0,
+                    total_staked: 0,
+                });
         state.total_staked = state
             .total_staked
             .checked_add(amount)
@@ -5242,14 +5359,14 @@ impl CreatorKeysContract {
         }
 
         let pool_key = constants::storage::staking_rewards_pool(&creator);
-        let mut state: StakingRewardsState = env
-            .storage()
-            .persistent()
-            .get(&pool_key)
-            .unwrap_or(StakingRewardsState {
-                pool: 0,
-                total_staked: 0,
-            });
+        let mut state: StakingRewardsState =
+            env.storage()
+                .persistent()
+                .get(&pool_key)
+                .unwrap_or(StakingRewardsState {
+                    pool: 0,
+                    total_staked: 0,
+                });
 
         // Pro-rata share of the current pool this position would have earned at
         // maturity. Guard division by zero.
@@ -5258,11 +5375,9 @@ impl CreatorKeysContract {
         } else {
             0
         };
-        let penalty = fee::apply_percentage_fee(
-            reward_share,
-            crate::staking::EARLY_UNSTAKE_PENALTY_BPS,
-        )
-        .ok_or(StakingError::Overflow)?;
+        let penalty =
+            fee::apply_percentage_fee(reward_share, crate::staking::EARLY_UNSTAKE_PENALTY_BPS)
+                .ok_or(StakingError::Overflow)?;
 
         // Remove the entitlement, then retain the penalty on behalf of the
         // remaining stakers: pool' = pool - entitlement + penalty.
@@ -5335,14 +5450,14 @@ impl CreatorKeysContract {
         }
 
         let pool_key = constants::storage::staking_rewards_pool(&creator);
-        let mut state: StakingRewardsState = env
-            .storage()
-            .persistent()
-            .get(&pool_key)
-            .unwrap_or(StakingRewardsState {
-                pool: 0,
-                total_staked: 0,
-            });
+        let mut state: StakingRewardsState =
+            env.storage()
+                .persistent()
+                .get(&pool_key)
+                .unwrap_or(StakingRewardsState {
+                    pool: 0,
+                    total_staked: 0,
+                });
 
         let reward = if state.total_staked > 0 {
             (i128::from(position.amount) * state.pool) / i128::from(state.total_staked)
@@ -5399,7 +5514,9 @@ impl CreatorKeysContract {
     ) -> Option<StakePosition> {
         env.storage()
             .persistent()
-            .get(&constants::storage::staking_position(&creator, &holder, stake_id))
+            .get(&constants::storage::staking_position(
+                &creator, &holder, stake_id,
+            ))
     }
 
     /// Read-only view: returns the current staking rewards pool for `creator`.
@@ -5870,6 +5987,7 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
             let profile_key = constants::storage::creator(&creator);
             env.storage().persistent().set(&profile_key, &profile);
+            record_holder_in_registry(&env, &creator, &beneficiary);
         }
 
         env.events().publish(
@@ -6503,6 +6621,7 @@ impl CreatorKeysContract {
                         .holder_count
                         .checked_add(1)
                         .ok_or(ContractError::Overflow)?;
+                    record_holder_in_registry(&env, &creator, &buyer);
                 }
 
                 let key = constants::storage::creator(&creator);
