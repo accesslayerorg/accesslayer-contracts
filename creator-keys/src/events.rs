@@ -220,6 +220,37 @@ pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address,
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())
 }
 
+/// Event name for a purchase settled at the fixed pre-launch auction price.
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_pur");
+
+/// Stable auction purchase event payload for downstream indexers.
+///
+/// Emitted when a buy is settled at the fixed auction price during the
+/// pre-launch auction phase instead of at the bonding curve price.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionPurchaseEvent {
+    /// Address of the buyer performing the purchase.
+    pub buyer: Address,
+    /// Address of the creator whose keys are being purchased.
+    pub creator_id: Address,
+    /// Number of keys bought.
+    pub quantity: u32,
+    /// Price paid for the keys (before fees).
+    pub price_paid: i128,
+    /// New supply of keys for this creator after the purchase.
+    pub new_supply: u32,
+    /// Total number of keys sold through the auction so far, including this one.
+    pub auction_sold: u32,
+    /// Ledger sequence number at the time of the purchase.
+    pub ledger: u32,
+}
+
+/// Shared auction purchase event topics tuple.
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
 /// Shared peer-to-peer transfer event topics tuple.
 pub fn transfer_event_topics(creator: &Address, from: &Address) -> (Symbol, Address, Address) {
     (TRANSFER_EVENT_NAME, creator.clone(), from.clone())
@@ -1181,6 +1212,30 @@ pub fn curve_migrated_topics(admin: &Address) -> (Symbol, Address) {
 /// Event name for royalty configuration update.
 pub const ROYALTY_UPDATED_EVENT_NAME: Symbol = symbol_short!("roy_upd");
 
+/// Event name for graduated bonding curve configuration (PR #829).
+pub const GRADUATED_CURVE_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("grad_cur");
+
+/// Stable graduated curve configured event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(GRADUATED_CURVE_CONFIGURED_EVENT_NAME, creator)`
+/// - data: `GraduatedCurveConfiguredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GraduatedCurveConfiguredEvent {
+    /// Creator whose curve was configured.
+    pub creator: Address,
+    /// All milestone `(supply_threshold, exponent)` pairs.
+    pub milestones: Vec<(u32, u32)>,
+    /// Ledger sequence at the time of configuration.
+    pub ledger: u32,
+}
+
+/// Shared graduated curve configured event topics tuple.
+pub fn graduated_curve_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (GRADUATED_CURVE_CONFIGURED_EVENT_NAME, creator.clone())
+}
+
 /// Stable royalty updated event payload for downstream indexers.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -1194,64 +1249,6 @@ pub struct RoyaltyUpdatedEvent {
 /// Shared royalty updated event topics tuple.
 pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
-}
-
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
-
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
-
-/// Stable fee collection event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
-/// - data: `FeeCollectedEvent`
-///
-/// Emitted on every buy and sell once the protocol trade fee is configured,
-/// carrying the deducted amount and the treasury address that received it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
-    pub ledger: u32,
-}
-
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
-}
-
-/// Stable lockup-blocked event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
-/// - data: `LockupBlockedEvent`
-///
-/// Emitted when a sell is rejected because the seller's most recent buy for
-/// this creator falls inside the configured lockup window.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
-    pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
-}
-
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
 }
 
 /// Event name for a new staking position created via `stake_keys_locked`.

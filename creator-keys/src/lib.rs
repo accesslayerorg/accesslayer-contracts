@@ -77,6 +77,8 @@ pub enum ContractError {
     MaxHoldingExceeded = 51,
     LockupPeriodActive = 52,
     InvalidHolderCap = 53,
+    GlobalTradingHalted = 54,
+    FreezeQuantityExceedsBalance = 55,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
@@ -110,6 +112,27 @@ pub enum StakingError {
     FreezeQuantityExceedsBalance = 53,
 }
 
+/// Errors raised by the graduated bonding curve configuration entrypoint
+/// ([`CreatorKeysContract::set_graduated_curve`]).
+///
+/// Kept separate from [`ContractError`] because Soroban caps `#[contracterror]`
+/// enums at 50 variants and `ContractError` is already at that limit.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum CurveConfigError {
+    /// Configuration attempted after keys have already been sold.
+    CurveAlreadyActive = 1,
+    /// A milestone exponent is outside the allowed range `1..=5`.
+    InvalidExponent = 2,
+    /// Milestones must be provided in strictly ascending supply-threshold order.
+    InvalidMilestoneOrder = 3,
+    /// The milestone list must not be empty.
+    EmptyMilestones = 4,
+    /// The creator is not registered.
+    NotRegistered = 5,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -132,6 +155,78 @@ pub enum FeatureError {
     InvalidAuctionConfig = 9,
     StakeLockActive = 10,
     NoStakeFound = 11,
+}
+
+/// Internal staking account keys that are not part of the public data-key ABI.
+///
+/// Used to keep [`DataKey`] within Soroban's 50-variant `#[contracttype]` cap;
+/// `NextStakeId` is keyed per `(creator, holder)` pair.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub enum StakingKey {
+    /// Next sequential stake id for a `(creator, holder)` pair -> `u32`.
+    NextStakeId(Address, Address),
+}
+
+/// A single locked staking position held by a holder.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StakePosition {
+    /// Sequential id scoped to the `(creator, holder)` pair.
+    pub stake_id: u32,
+    /// Number of keys locked in this position.
+    pub amount: u32,
+    /// Ledger sequence at which the position matures and can be claimed.
+    pub unlock_ledger: u32,
+}
+
+/// Per-creator staking rewards accounting.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StakingRewardsState {
+    /// Accumulated reward pool, funded from a share of protocol trade fees.
+    pub pool: i128,
+    /// Total keys currently staked for the creator across all holders.
+    pub total_staked: u32,
+}
+
+/// Result of the early-unstake entrypoint.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StakeExit {
+    /// Id of the closed position.
+    pub stake_id: u32,
+    /// Keys released back to the holder's liquid balance.
+    pub amount: u32,
+    /// Pro-rata reward entitlement removed from the pool.
+    pub forgone_reward: i128,
+    /// Penalty retained in the pool.
+    pub penalty: i128,
+}
+
+/// Result of the stake-reward-claim entrypoint.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StakeRewardClaim {
+    /// Id of the closed position.
+    pub stake_id: u32,
+    /// Keys released back to the holder's liquid balance.
+    pub amount: u32,
+    /// Reward paid out to the staker from the pool.
+    pub reward: i128,
+}
+
+/// Fixed-price pre-launch auction configuration for a creator's keys.
+///
+/// While `auction_sold < auction_supply`, buys settle at `auction_price`
+/// instead of the bonding curve price. The contract transitions to the
+/// bonding curve automatically once the auction supply is exhausted.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AuctionConfig {
+    pub auction_price: i128,
+    pub auction_supply: u32,
+    pub auction_sold: u32,
 }
 
 pub mod fee {
@@ -536,16 +631,27 @@ pub mod constants {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
 
-        pub fn holder_cap_bps(creator: &Address) -> DataKey {
-            DataKey::HolderCapBps(creator.clone())
-        }
-
-        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
-            DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
-        }
-
         pub fn quorum_bps(creator: &Address) -> DataKey {
             DataKey::QuorumBps(creator.clone())
+        }
+
+        pub fn graduated_curve(creator: &Address) -> DataKey {
+            DataKey::GraduatedCurve(creator.clone())
+        }
+
+        /// Per-creator auction configuration, resolved via `auction_config`.
+        pub fn auction_config(creator: &Address) -> DataKey {
+            DataKey::AuctionConfig(creator.clone())
+        }
+
+        /// Total keys currently staked for a creator -> `u32`.
+        pub fn total_staked(creator: &Address) -> DataKey {
+            DataKey::TotalStaked(creator.clone())
+        }
+
+        /// Ledger sequence at which a holder may claim their stake reward.
+        pub fn stake_unlock_ledger(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::StakeUnlockLedger(creator.clone(), holder.clone())
         }
     }
 
@@ -913,16 +1019,34 @@ pub enum DataKey {
     WhitelistMode(Address),
     ProtocolFeeBps,
     HolderCapBps(Address),
+    /// Timestamp of a holder's most recent buy for a creator.
     LastBuyTimestamp(Address, Address),
     LockupDurationSecs,
-    RoyaltyConfig(Address),
-    CurveExponent(Address),
+    /// Per-creator ledger sequence at which the creator was registered.
+    CreatedAtLedger(Address),
+    /// Per-creator launch penalty in basis points applied to early sells.
+    LaunchPenaltyBps(Address),
+    /// Per-creator staking position, keyed `(creator, holder, stake_id)`.
+    StakePosition(Address, Address, u32),
+    /// Per-creator staking rewards pool balance, keyed by creator.
+    StakingRewardsPool(Address),
     QuorumBps(Address),
     GlobalTradingPaused,
     GlobalPauseAdmins,
     GlobalPauseVote(Address),
     GlobalResumeVote(Address),
     SelfFrozenBalance(Address, Address),
+    /// Per-creator pre-launch auction configuration.
+    AuctionConfig(Address),
+    /// Total keys currently staked for a creator -> `u32`.
+    TotalStaked(Address),
+    /// Ledger sequence at which a holder may claim their stake reward.
+    StakeUnlockLedger(Address, Address),
+    /// Graduated bonding curve milestones per creator (PR #829).
+    /// A `Vec<(supply_threshold, exponent)>` where the exponent applies at and
+    /// above its supply threshold. Buyers below the first threshold use the
+    /// base exponent of `1`.
+    GraduatedCurve(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1703,37 +1827,6 @@ fn collect_protocol_trade_fee(
     fee::checked_sub_i128(amount, trade_fee).ok_or(ContractError::Overflow)
 }
 
-/// Credits the configured share of a protocol trade fee into the creator's
-/// staking rewards pool. No-op for zero share/dormant pools (the pool entry is
-/// only created once a fee actually accrues).
-fn credit_staking_rewards_pool(
-    env: &Env,
-    creator: &Address,
-    trade_fee: i128,
-) -> Result<(), ContractError> {
-    let share = fee::apply_percentage_fee(trade_fee, crate::staking::REWARDS_SHARE_BPS)
-        .ok_or(ContractError::Overflow)?;
-    if share == 0 {
-        return Ok(());
-    }
-    let pool_key = constants::storage::staking_rewards_pool(creator);
-    let mut state: StakingRewardsState = env
-        .storage()
-        .persistent()
-        .get(&pool_key)
-        .unwrap_or(StakingRewardsState {
-            pool: 0,
-            total_staked: 0,
-        });
-    state.pool = state
-        .pool
-        .checked_add(share)
-        .ok_or(ContractError::Overflow)?;
-    env.storage().persistent().set(&pool_key, &state);
-    extend_key_ttl_to_full_window(env, &pool_key);
-    Ok(())
-}
-
 /// Maps [`ContractError`] values raised by shared guards (`assert_not_paused`,
 /// `read_registered_creator_profile`) into the [`StakingError`] surface used by
 /// the staking lifecycle entrypoints.
@@ -1780,7 +1873,8 @@ fn read_lockup_duration_secs(env: &Env) -> Option<u64> {
 pub fn read_staking_rewards_pool(env: &Env, creator: &Address) -> i128 {
     env.storage()
         .persistent()
-        .get(&constants::storage::staking_rewards_pool(creator))
+        .get::<DataKey, StakingRewardsState>(&constants::storage::staking_rewards_pool(creator))
+        .map(|s| s.pool)
         .unwrap_or(0)
 }
 
@@ -1788,7 +1882,8 @@ pub fn read_staking_rewards_pool(env: &Env, creator: &Address) -> i128 {
 pub fn read_total_staked(env: &Env, creator: &Address) -> u32 {
     env.storage()
         .persistent()
-        .get(&constants::storage::total_staked(creator))
+        .get::<DataKey, StakingRewardsState>(&constants::storage::staking_rewards_pool(creator))
+        .map(|s| s.total_staked)
         .unwrap_or(0)
 }
 
@@ -1812,10 +1907,20 @@ fn credit_staking_rewards_pool(
         return Ok(());
     }
     let key = constants::storage::staking_rewards_pool(creator);
-    let updated = read_staking_rewards_pool(env, creator)
+    let mut state: StakingRewardsState = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(StakingRewardsState {
+            pool: 0,
+            total_staked: 0,
+        });
+    state.pool = state
+        .pool
         .checked_add(share)
         .ok_or(ContractError::Overflow)?;
-    env.storage().persistent().set(&key, &updated);
+    env.storage().persistent().set(&key, &state);
+    extend_key_ttl_to_full_window(env, &key);
     Ok(())
 }
 
@@ -2043,12 +2148,47 @@ fn read_curve_exponent(env: &Env, creator: &Address) -> Option<u32> {
         .get(&constants::storage::curve_exponent(creator))
 }
 
-fn compute_bonding_curve_price(
+fn read_graduated_curve(env: &Env, creator: &Address) -> Option<Vec<(u32, u32)>> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::graduated_curve(creator))
+}
+
+/// Selects the bonding curve exponent for `supply` given the configured
+/// milestones. The exponent of the last milestone whose `supply_threshold <=
+/// supply` applies; below the first milestone the base exponent `1` is used.
+fn graduated_exponent_for_supply(milestones: &Vec<(u32, u32)>, supply: u32) -> u32 {
+    let mut exponent = 1u32;
+    let mut idx = 0u32;
+    while idx < milestones.len() {
+        if let Some((threshold, exp)) = milestones.get(idx) {
+            if threshold <= supply {
+                exponent = exp;
+            }
+        }
+        idx += 1;
+    }
+    exponent
+}
+
+pub fn compute_bonding_curve_price(
     env: &Env,
     creator: &Address,
     base_price: i128,
     supply: u32,
 ) -> Result<i128, ContractError> {
+    if let Some(milestones) = read_graduated_curve(env, creator) {
+        let exponent = graduated_exponent_for_supply(&milestones, supply);
+        let slope = read_curve_slope(env);
+        let supply_exp = checked_pow_i128(supply as i128, exponent)?;
+        let supply_component = slope
+            .checked_mul(supply_exp)
+            .ok_or(ContractError::Overflow)?;
+        return base_price
+            .checked_add(supply_component)
+            .ok_or(ContractError::Overflow);
+    }
+
     if let Some(exponent) = read_curve_exponent(env, creator) {
         let slope = read_curve_slope(env);
         let supply_exp = checked_pow_i128(supply as i128, exponent)?;
@@ -2594,6 +2734,11 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
             let post_price = compute_bonding_curve_price(&env, &creator, base_price, post_supply)?;
 
+        let threshold_pct: u32 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::CIRCUIT_BREAKER_THRESHOLD)
+            .unwrap_or(0);
         if pre_price > 0 && post_price > pre_price {
             let price_change = (post_price - pre_price) as u128;
             let pre_price_u128 = pre_price as u128;
@@ -2614,6 +2759,7 @@ impl CreatorKeysContract {
                 );
                 return Err(ContractError::CircuitBreakerTriggered);
             }
+        }
 
             pre_price
         };
@@ -3870,6 +4016,75 @@ impl CreatorKeysContract {
     /// Read-only view: returns the current bonding curve slope.
     pub fn get_curve_slope(env: Env) -> i128 {
         read_curve_slope(&env)
+    }
+
+    /// Configures a graduated bonding curve for `creator`, applying a steeper
+    /// pricing exponent at and above each configured supply milestone.
+    ///
+    /// Each milestone is a `(supply_threshold, exponent)` pair. The exponent
+    /// must be between `1` and `5`. Buyers at a supply below the first
+    /// threshold use the base exponent `1`. Milestones must be supplied in
+    /// strictly ascending supply-threshold order so that the correct exponent
+    /// is selected at every supply tier.
+    ///
+    /// Only callable by the key creator. The configuration must be set before
+    /// any keys are sold; if sales have already started this panics with
+    /// [`CurveConfigError::CurveAlreadyActive`].
+    pub fn set_graduated_curve(
+        env: Env,
+        creator: Address,
+        milestones: Vec<(u32, u32)>,
+    ) -> Result<(), CurveConfigError> {
+        creator.require_auth();
+
+        read_registered_creator_profile(&env, &creator)
+            .map_err(|_| CurveConfigError::NotRegistered)?;
+
+        if read_creator_supply(&env, &creator) != 0 {
+            return Err(CurveConfigError::CurveAlreadyActive);
+        }
+
+        if milestones.len() == 0 {
+            return Err(CurveConfigError::EmptyMilestones);
+        }
+
+        let mut prev_threshold = 0u32;
+        let mut idx = 0u32;
+        while idx < milestones.len() {
+            let (threshold, exponent) = milestones
+                .get(idx)
+                .ok_or(CurveConfigError::InvalidMilestoneOrder)?;
+            if !(1..=5).contains(&exponent) {
+                return Err(CurveConfigError::InvalidExponent);
+            }
+            if idx > 0 && threshold <= prev_threshold {
+                return Err(CurveConfigError::InvalidMilestoneOrder);
+            }
+            prev_threshold = threshold;
+            idx += 1;
+        }
+
+        env.storage()
+            .persistent()
+            .set(&constants::storage::graduated_curve(&creator), &milestones);
+        extend_key_ttl_to_full_window(&env, &constants::storage::graduated_curve(&creator));
+
+        env.events().publish(
+            events::graduated_curve_configured_topics(&creator),
+            events::GraduatedCurveConfiguredEvent {
+                creator: creator.clone(),
+                milestones: milestones.clone(),
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns the configured graduated curve milestones, or
+    /// an empty vector if none are configured.
+    pub fn get_graduated_curve(env: Env, creator: Address) -> Vec<(u32, u32)> {
+        read_graduated_curve(&env, &creator).unwrap_or_else(|| Vec::new(&env))
     }
 
     pub fn get_fee_config(env: Env) -> Option<fee::FeeConfig> {
@@ -7762,3 +7977,6 @@ mod test_issues;
 
 #[cfg(test)]
 mod test_staking_lifecycle;
+
+#[cfg(test)]
+mod test_graduated_curve;
