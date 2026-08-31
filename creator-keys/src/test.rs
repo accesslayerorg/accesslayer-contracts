@@ -2451,3 +2451,195 @@ fn test_buy_and_sell_events_contain_matching_creator_id() {
         "sell event creator_id field must match the creator address"
     );
 }
+
+// ── transfer_keys holder-count accounting ──────────────────────────────────
+//
+// `holder_count` is the number of wallets with a non-zero balance, and
+// `transfer_keys` is the one path that can both remove and add a holder in a
+// single call. The existing transfer tests assert balances and supply but
+// never the holder count, so the three transitions below were untested:
+// a sender emptied out, a first-time recipient, and a partial transfer that
+// changes neither.
+
+/// Registers a creator and gives `holder` `count` keys, returning nothing —
+/// the tests below read holder_count through the public view.
+fn setup_creator_with_keys(
+    env: &Env,
+    client: &CreatorKeysContractClient,
+    admin: &Address,
+    creator: &Address,
+    holder: &Address,
+    count: u32,
+) {
+    client.set_key_price(admin, &100i128);
+    client.register_creator(
+        &crate::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+    for _ in 0..count {
+        client.buy_key(creator, holder, &100i128, &None);
+    }
+}
+
+#[test]
+fn test_transfer_keys_full_balance_decrements_holder_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    setup_creator_with_keys(&env, &client, &admin, &creator, &sender, 2);
+
+    // One holder: the sender. The recipient holds nothing yet.
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+
+    // Sender transfers their entire balance out.
+    client.transfer_keys(&creator, &sender, &recipient, &2);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 0);
+
+    // Net count is still 1 — the sender left the holder set as the recipient
+    // joined it — so assert the membership directly rather than trusting the
+    // total, which a decrement-only or increment-only bug would also satisfy.
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+}
+
+#[test]
+fn test_transfer_keys_full_balance_to_existing_holder_decrements_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    setup_creator_with_keys(&env, &client, &admin, &creator, &sender, 2);
+    // Give the recipient a key of their own so they are already a holder.
+    client.buy_key(&creator, &recipient, &100i128, &None);
+    assert_eq!(client.get_creator_holder_count(&creator), 2);
+
+    // Sender empties out to a wallet that already holds keys. Only the
+    // decrement should fire, which isolates it from the increment.
+    client.transfer_keys(&creator, &sender, &recipient, &2);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 0);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+}
+
+#[test]
+fn test_transfer_keys_first_time_recipient_increments_holder_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    setup_creator_with_keys(&env, &client, &admin, &creator, &sender, 3);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+
+    // Partial transfer to a wallet holding nothing: the sender stays a holder
+    // and the recipient becomes one, so the count must rise to 2. This
+    // isolates the increment from the decrement.
+    client.transfer_keys(&creator, &sender, &recipient, &1);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 2);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 1);
+    assert_eq!(client.get_creator_holder_count(&creator), 2);
+}
+
+#[test]
+fn test_transfer_keys_partial_to_existing_holder_leaves_count_unchanged() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    setup_creator_with_keys(&env, &client, &admin, &creator, &sender, 3);
+    client.buy_key(&creator, &recipient, &100i128, &None);
+
+    let before = client.get_creator_holder_count(&creator);
+    assert_eq!(before, 2);
+
+    // Neither side crosses zero, so neither branch should fire.
+    client.transfer_keys(&creator, &sender, &recipient, &1);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 2);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+    assert_eq!(client.get_creator_holder_count(&creator), before);
+}
+
+#[test]
+fn test_transfer_keys_holder_count_survives_a_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    setup_creator_with_keys(&env, &client, &admin, &creator, &sender, 1);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+
+    // Out and back again. A decrement that did not pair with its increment
+    // would leave the count drifting after repeated transfers, which is the
+    // failure mode this guards.
+    client.transfer_keys(&creator, &sender, &recipient, &1);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+
+    client.transfer_keys(&creator, &recipient, &sender, &1);
+    assert_eq!(client.get_creator_holder_count(&creator), 1);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 1);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 0);
+}
+
+#[test]
+fn test_transfer_keys_holder_count_never_exceeds_distinct_holders() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+
+    setup_creator_with_keys(&env, &client, &admin, &creator, &sender, 4);
+
+    // Two first-time recipients, sender retains a balance throughout.
+    client.transfer_keys(&creator, &sender, &first, &1);
+    client.transfer_keys(&creator, &sender, &second, &1);
+
+    // Three wallets hold keys, so the count is three — a second transfer to
+    // an existing holder must not count them twice.
+    client.transfer_keys(&creator, &sender, &first, &1);
+
+    assert_eq!(client.get_creator_holder_count(&creator), 3);
+    assert_eq!(client.get_key_balance(&creator, &sender), 1);
+    assert_eq!(client.get_key_balance(&creator, &first), 2);
+    assert_eq!(client.get_key_balance(&creator, &second), 1);
+}
