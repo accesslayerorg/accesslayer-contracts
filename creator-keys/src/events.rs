@@ -1269,62 +1269,45 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+// --- Auction events ---
 
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+/// Event name for auction purchase.
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
 
-/// Stable fee collection event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
-/// - data: `FeeCollectedEvent`
-///
-/// Emitted on every buy and sell once the protocol trade fee is configured,
-/// carrying the deducted amount and the treasury address that received it.
+/// Stable auction purchase event payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
+pub struct AuctionPurchaseEvent {
+    pub buyer: Address,
+    pub creator_id: Address,
+    pub quantity: u32,
+    pub price_paid: i128,
+    pub new_supply: u32,
+    pub auction_sold: u32,
     pub ledger: u32,
 }
 
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+/// Shared auction purchase event topics tuple.
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
 }
 
-/// Stable lockup-blocked event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
-/// - data: `LockupBlockedEvent`
-///
-/// Emitted when a sell is rejected because the seller's most recent buy for
-/// this creator falls inside the configured lockup window.
+/// Event name for auction configured.
+pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
+
+/// Stable auction configured event payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
+pub struct AuctionConfiguredEvent {
     pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
+    pub auction_supply: u32,
+    pub auction_price: i128,
+    pub ledger: u32,
 }
 
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+/// Shared auction configured event topics tuple.
+pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
 }
 
 /// Event name for a new staking position created via `stake_keys_locked`.
@@ -1509,4 +1492,30 @@ pub struct LaunchPenaltySetEvent {
 /// Shared set launch penalty event topics tuple.
 pub fn launch_penalty_set_topics(creator: &Address) -> (Symbol, Address) {
     (LAUNCH_PENALTY_SET_EVENT_NAME, creator.clone())
+}
+
+// --- Max buy quantity per transaction (#828) ---
+
+/// Event name emitted when the creator updates the max buy quantity per transaction.
+pub const MAX_BUY_QUANTITY_UPDATED_EVENT_NAME: Symbol = symbol_short!("mbq_upd");
+
+/// Stable max-buy-quantity-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator_id)`
+/// - data: `MaxBuyQuantityUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MaxBuyQuantityUpdatedEvent {
+    /// Address of the creator whose limit was changed.
+    pub creator_id: Address,
+    /// New per-transaction buy quantity limit.
+    pub max_qty: u32,
+    /// Ledger sequence at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared max-buy-quantity-updated event topics tuple.
+pub fn max_buy_quantity_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator.clone())
 }
