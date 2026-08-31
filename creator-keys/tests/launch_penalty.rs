@@ -6,15 +6,12 @@
 
 mod contract_test_env;
 
-use contract_test_env::{
-    register_creator_keys, register_test_creator, test_env_with_auths,
-};
+use contract_test_env::{register_creator_keys, register_test_creator, test_env_with_auths};
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env,
 };
-
 
 const KEY_PRICE: i128 = 100;
 
@@ -30,7 +27,6 @@ fn setup(env: &Env) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
     let creator = register_test_creator(env, &client, "alice");
     (client, creator)
 }
-
 
 /// Advance the ledger sequence by `n` steps (each step ~5 seconds).
 fn advance_ledgers(env: &Env, n: u32) {
@@ -53,15 +49,16 @@ fn test_sell_within_launch_window_applies_penalty() {
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(client.get_key_balance(&creator, &buyer), 2);
 
-
     // Sell within the launch window — no ledger advance.
     client.sell_key(&creator, &buyer, &None);
 
     // Launch penalty was applied and credited to the staking rewards pool.
     let pool_after = client.get_staking_rewards_pool(&creator);
-    assert!(pool_after > 0, "expected launch penalty to seed staking rewards pool");
+    assert!(
+        pool_after > 0,
+        "expected launch penalty to seed staking rewards pool"
+    );
 }
-
 
 // ============================================================================
 // Sell after 7 days proceeds with no launch penalty
@@ -84,9 +81,7 @@ fn test_sell_after_launch_window_no_penalty() {
 
     // Staking rewards pool receives only the standard trade fee share, no launch penalty.
     assert_eq!(pool_after - pool_before, 1);
-
 }
-
 
 // ============================================================================
 // set_launch_penalty configures custom penalty bps

@@ -11,8 +11,6 @@ use soroban_sdk::{
     Address, IntoVal, Symbol,
 };
 
-
-
 const KEY_PRICE: i128 = 1000;
 const CREATOR_BPS: u32 = 9000;
 const PROTOCOL_BPS: u32 = 1000;
@@ -59,7 +57,6 @@ fn test_early_unstake_default_penalty_and_rewards_pool() {
     let mut found_event = false;
     for (contract, topics, data) in events.iter() {
         if contract != contract_id {
-
             continue;
         }
         let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
@@ -72,15 +69,11 @@ fn test_early_unstake_default_penalty_and_rewards_pool() {
             found_event = true;
         }
     }
-    assert!(found_event, "expected EarlyUnstakePenaltyEvent to be emitted");
+    assert!(
+        found_event,
+        "expected EarlyUnstakePenaltyEvent to be emitted"
+    );
 }
-
-
-
-
-
-
-
 
 #[test]
 fn test_early_unstake_custom_penalty() {
@@ -107,7 +100,6 @@ fn test_early_unstake_custom_penalty() {
     assert_eq!(client.get_staked_balance(&creator, &holder), 0);
     assert_eq!(client.get_liquid_balance(&creator, &holder), 6);
     assert_eq!(client.get_staking_rewards_pool(&creator), pool_before + 4);
-
 }
 
 #[test]

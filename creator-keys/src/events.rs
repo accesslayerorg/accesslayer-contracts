@@ -254,7 +254,6 @@ pub const CO_CREATOR_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("co_fee");
 /// Event name for co-creator removal.
 pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("co_rem");
 
-
 /// Stable field order for dividend distributed event payloads.
 pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
     ["creator", "total_amount", "snapshot_supply", "ledger"];
@@ -752,10 +751,16 @@ pub struct CoCreatorRemovedEvent {
     pub co_creator: Address,
 }
 
-pub fn co_creator_removed_topics(creator: &Address, co_creator: &Address) -> (Symbol, Address, Address) {
-    (CO_CREATOR_REMOVED_EVENT_NAME, creator.clone(), co_creator.clone())
+pub fn co_creator_removed_topics(
+    creator: &Address,
+    co_creator: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_REMOVED_EVENT_NAME,
+        creator.clone(),
+        co_creator.clone(),
+    )
 }
-
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -1212,8 +1217,6 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-
-
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:
@@ -1253,7 +1256,11 @@ pub struct StakeEvent {
 }
 
 /// Shared stake event topics tuple.
-pub fn stake_topics(creator: &Address, holder: &Address, stake_id: u32) -> (Symbol, Address, Address, u32) {
+pub fn stake_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
     (STAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
 }
 
@@ -1283,7 +1290,12 @@ pub fn stake_extended_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (STAKE_EXTENDED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        STAKE_EXTENDED_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
 
 /// Stable early-unstake event payload for downstream indexers.
@@ -1316,7 +1328,12 @@ pub fn early_unstake_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (EARLY_UNSTAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        EARLY_UNSTAKE_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
 
 /// Stable stake-reward-claim event payload for downstream indexers.
@@ -1349,9 +1366,13 @@ pub fn stake_reward_claimed_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (STAKE_REWARD_CLAIMED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        STAKE_REWARD_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
-
 
 // ============================================================================
 // Launch Penalty (#798)
@@ -1381,7 +1402,11 @@ pub fn launch_penalty_applied_topics(
     creator: &Address,
     seller: &Address,
 ) -> (Symbol, Address, Address) {
-    (LAUNCH_PENALTY_APPLIED_EVENT_NAME, creator.clone(), seller.clone())
+    (
+        LAUNCH_PENALTY_APPLIED_EVENT_NAME,
+        creator.clone(),
+        seller.clone(),
+    )
 }
 
 /// Event name for set_launch_penalty.
@@ -1426,7 +1451,11 @@ pub fn early_unstake_penalty_topics(
     key_id: &Address,
     wallet: &Address,
 ) -> (Symbol, Address, Address) {
-    (EARLY_UNSTAKE_PENALTY_EVENT_NAME, key_id.clone(), wallet.clone())
+    (
+        EARLY_UNSTAKE_PENALTY_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
 }
 
 // ============================================================================
@@ -1460,8 +1489,6 @@ pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
     (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
 }
 
-
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct AuctionPurchaseEvent {
@@ -1477,4 +1504,3 @@ pub struct AuctionPurchaseEvent {
 pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
     (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
 }
-
