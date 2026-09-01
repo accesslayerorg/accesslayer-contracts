@@ -18,6 +18,7 @@ fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     client.set_treasury_address(&admin, &treasury);
     client.set_treasury_address(&admin, &treasury);
     client.set_key_price(&admin, &100i128);
+    client.set_curve_slope(&admin, &100i128);
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
     (env, client, admin, treasury)
@@ -116,6 +117,7 @@ fn test_whitelist_mode_and_permissions() {
 
     // An unregistered caller cannot act as a whitelist owner: the profile
     // lookup fails with NotRegistered before any ownership check.
+    // Non-creator caller panics with NotRegistered on whitelist functions
     assert_eq!(
         client.try_enable_whitelist(&attacker),
         Err(Ok(ContractError::NotRegistered))

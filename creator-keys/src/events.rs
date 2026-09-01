@@ -21,12 +21,25 @@
 //! - `payment`: Total amount paid by the buyer (for buy events, ≥ key price)
 
 use crate::{
-    constants, read_registered_creator_profile, CreatorKeysContract, CreatorKeysContractArgs,
-    CreatorKeysContractClient,
+    constants, read_creator_supply, read_registered_creator_profile, CreatorKeysContract,
+    CreatorKeysContractArgs, CreatorKeysContractClient,
 };
 use soroban_sdk::{
-    contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
+    contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Symbol,
+    Vec,
 };
+
+/// Event name for protocol trade fee collected on a buy or sell.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+
+/// Event name for a sell rejected by the anti-flash-trade lockup window.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
+/// Event name for quorum threshold update.
+pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
+
+/// Event name for proposal/poll closed.
+pub const POLL_CLOSED_EVENT_NAME: Symbol = symbol_short!("poll_cls");
 
 /// Event name for protocol pause.
 pub const PAUSE_EVENT_NAME: Symbol = symbol_short!("pause");
@@ -239,6 +252,9 @@ pub const CREATOR_FEE_RECIPIENT_UPDATED_EVENT_NAME: Symbol = symbol_short!("c_fe
 /// Event name for co-creator fee accrual.
 pub const CO_CREATOR_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("co_fee");
 
+/// Event name for a creator (re)designating their co-creator split (issue #782).
+pub const CO_CREATOR_SET_EVENT_NAME: Symbol = symbol_short!("co_set");
+
 /// Stable field order for dividend distributed event payloads.
 pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
     ["creator", "total_amount", "snapshot_supply", "ledger"];
@@ -357,6 +373,75 @@ pub fn co_creator_fee_earned_topics(
         CO_CREATOR_FEE_EARNED_EVENT_NAME,
         creator_id.clone(),
         co_creator.clone(),
+    )
+}
+
+/// Emitted by `set_co_creator` whenever a creator designates or updates their
+/// co-creator split (issue #782).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorSetEvent {
+    pub creator_id: Address,
+    pub co_creator: Address,
+    pub split_bps: u32,
+}
+
+pub fn co_creator_set_topics(creator_id: &Address, co_creator: &Address) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_SET_EVENT_NAME,
+        creator_id.clone(),
+        co_creator.clone(),
+    )
+}
+
+/// Event name for a completed holder snapshot (issue #778).
+pub const SNAPSHOT_TAKEN_EVENT_NAME: Symbol = symbol_short!("snap_take");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SnapshotTakenEvent {
+    pub creator_id: Address,
+    pub snapshot_id: u32,
+    pub snapshot_ledger: u32,
+    pub total_holders: u32,
+}
+
+pub fn snapshot_taken_topics(creator_id: &Address, snapshot_id: u32) -> (Symbol, Address, u32) {
+    (SNAPSHOT_TAKEN_EVENT_NAME, creator_id.clone(), snapshot_id)
+}
+
+/// Event name for creator key identity initialization (issue #779).
+pub const KEY_INITIALISED_EVENT_NAME: Symbol = symbol_short!("key_init");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyInitialisedEvent {
+    pub creator_id: Address,
+    pub name: Bytes,
+    pub bio: Bytes,
+    pub avatar_uri: Bytes,
+}
+
+pub fn key_initialised_topics(creator_id: &Address) -> (Symbol, Address) {
+    (KEY_INITIALISED_EVENT_NAME, creator_id.clone())
+}
+
+/// Event name for a blocked same-ledger buy-then-sell attempt (issue #781).
+pub const FLASH_LOAN_BLOCKED_EVENT_NAME: Symbol = symbol_short!("fl_block");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FlashLoanBlockedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub ledger: u32,
+}
+
+pub fn flash_loan_blocked_topics(wallet: &Address, key_id: &Address) -> (Symbol, Address, Address) {
+    (
+        FLASH_LOAN_BLOCKED_EVENT_NAME,
+        wallet.clone(),
+        key_id.clone(),
     )
 }
 
@@ -742,94 +827,66 @@ pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
     (KEYS_BURNED_EVENT_NAME, key_id.clone())
 }
 
-// --- Co-creator removal, auction, and staking reward events ---
-
-/// Event name for co-creator removal.
-pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("co_rem");
-
-/// Event name for auction configuration.
-pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
-
-/// Event name for auction cancellation.
-pub const AUCTION_CANCELLED_EVENT_NAME: Symbol = symbol_short!("auc_can");
-
-/// Event name for a purchase made during a creator's auction phase.
-pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
-
-/// Event name for a staking reward claim.
-pub const STAKE_REWARD_CLAIMED_EVENT_NAME: Symbol = symbol_short!("stk_clm");
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct CoCreatorRemovedEvent {
-    pub creator_id: Address,
-    pub co_creator: Address,
+pub struct FeeCollectedEvent {
+    /// Treasury address that received the fee.
+    pub treasury: Address,
+    /// Fee amount deducted from the trade.
+    pub amount: i128,
+    /// Ledger sequence number at the time of the trade.
     pub ledger: u32,
 }
 
-pub fn co_creator_removed_topics(creator: &Address) -> (Symbol, Address) {
-    (CO_CREATOR_REMOVED_EVENT_NAME, creator.clone())
+/// Shared fee collected event topics tuple.
+pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct AuctionConfiguredEvent {
+pub struct LockupBlockedEvent {
+    /// Creator whose keys the seller attempted to sell.
     pub creator_id: Address,
-    pub auction_price: i128,
-    pub auction_supply: u32,
+    /// Seller whose sale was rejected.
+    pub seller: Address,
+    /// Ledger timestamp of the seller's most recent buy.
+    pub last_buy_timestamp: u64,
+    /// Timestamp at which the lockup expires (exclusive).
+    pub unlock_at: u64,
+    /// Ledger timestamp at rejection.
+    pub current_timestamp: u64,
 }
 
-pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
-    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
+/// Shared lockup blocked event topics tuple.
+pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct AuctionCancelledEvent {
-    pub creator_id: Address,
-    pub auction_price: i128,
-    pub auction_supply: u32,
-}
-
-pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
-    (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct AuctionPurchaseEvent {
-    pub buyer: Address,
-    pub creator_id: Address,
-    pub quantity: u32,
-    pub price_paid: i128,
-    pub new_supply: u32,
-    pub auction_sold: u32,
+pub struct QuorumUpdatedEvent {
+    pub creator: Address,
+    pub quorum_bps: u32,
     pub ledger: u32,
 }
 
-pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
-    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
+pub fn quorum_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (QUORUM_UPDATED_EVENT_NAME, creator.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct StakeRewardClaimedEvent {
-    pub wallet: Address,
-    pub key_id: Address,
-    pub quantity_unlocked: u32,
-    pub reward_amount: i128,
+pub struct PollClosedEvent {
+    pub creator_id: Address,
+    pub poll_id: u32,
+    pub total_weight: u32,
+    pub quorum_reached: bool,
     pub ledger: u32,
 }
 
-pub fn stake_reward_claimed_topics(
-    creator: &Address,
-    wallet: &Address,
-) -> (Symbol, Address, Address) {
-    (
-        STAKE_REWARD_CLAIMED_EVENT_NAME,
-        creator.clone(),
-        wallet.clone(),
-    )
+pub fn poll_closed_topics(creator: &Address, poll_id: u32) -> (Symbol, Address, u32) {
+    (POLL_CLOSED_EVENT_NAME, creator.clone(), poll_id)
 }
 
 #[contracterror]
@@ -845,6 +902,11 @@ pub enum PollError {
     PollExpired = 26,
     NotAHolder = 27,
     InvalidOption = 28,
+    QuorumNotReached = 29,
+    QuorumTooHigh = 30,
+    QuorumTooLow = 31,
+    Unauthorized = 32,
+    AlreadyClosed = 33,
 }
 
 #[derive(Clone)]
@@ -855,7 +917,7 @@ pub enum PollDataKey {
     Vote(Address, u32, Address),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct Poll {
     pub question: String,
@@ -863,16 +925,17 @@ pub struct Poll {
     pub vote_counts: Vec<u32>,
     pub total_weight: u32,
     pub expires_at: u32,
+    pub closed: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct PollVote {
     pub option_index: u32,
     pub weight: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct PollResult {
     pub question: String,
@@ -880,6 +943,7 @@ pub struct PollResult {
     pub vote_counts: Vec<u32>,
     pub total_weight: u32,
     pub expired: bool,
+    pub closed: bool,
 }
 
 pub fn poll_storage_key(creator_id: &Address, poll_id: u32) -> PollDataKey {
@@ -962,6 +1026,7 @@ impl CreatorKeysContract {
             vote_counts,
             total_weight: 0,
             expires_at,
+            closed: false,
         };
 
         env.storage()
@@ -991,6 +1056,9 @@ impl CreatorKeysContract {
         voter.require_auth();
         let mut poll = read_poll(&env, &creator_id, poll_id)?;
 
+        if poll.closed {
+            return Err(PollError::AlreadyClosed);
+        }
         if is_poll_expired(&env, &poll) {
             return Err(PollError::PollExpired);
         }
@@ -1070,7 +1138,80 @@ impl CreatorKeysContract {
             vote_counts: poll.vote_counts,
             total_weight: poll.total_weight,
             expired,
+            closed: poll.closed,
         })
+    }
+
+    /// Closes a creator poll if the configured quorum threshold has been reached.
+    ///
+    /// Computes participation as `total_voting_weight / circulating_supply` (in basis points)
+    /// against the creator's configured `quorum_bps`. If participation is below the quorum
+    /// threshold, returns `Err(PollError::QuorumNotReached)`.
+    pub fn close_poll(
+        env: Env,
+        creator_id: Address,
+        poll_id: u32,
+    ) -> Result<PollResult, PollError> {
+        let mut poll = read_poll(&env, &creator_id, poll_id)?;
+
+        if poll.closed {
+            return Err(PollError::AlreadyClosed);
+        }
+
+        let circulating_supply = read_creator_supply(&env, &creator_id);
+        let quorum_key = constants::storage::quorum_bps(&creator_id);
+        let quorum_bps: u32 = env.storage().persistent().get(&quorum_key).unwrap_or(0);
+
+        if quorum_bps > 0 {
+            if circulating_supply == 0 {
+                return Err(PollError::QuorumNotReached);
+            }
+            let total_weight_bps = (poll.total_weight as u128)
+                .checked_mul(10_000)
+                .ok_or(PollError::Overflow)?;
+            let required_bps = (circulating_supply as u128)
+                .checked_mul(quorum_bps as u128)
+                .ok_or(PollError::Overflow)?;
+
+            if total_weight_bps < required_bps {
+                return Err(PollError::QuorumNotReached);
+            }
+        }
+
+        poll.closed = true;
+        env.storage()
+            .persistent()
+            .set(&poll_storage_key(&creator_id, poll_id), &poll);
+
+        env.events().publish(
+            poll_closed_topics(&creator_id, poll_id),
+            PollClosedEvent {
+                creator_id: creator_id.clone(),
+                poll_id,
+                total_weight: poll.total_weight,
+                quorum_reached: true,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        let expired = is_poll_expired(&env, &poll);
+        Ok(PollResult {
+            question: poll.question,
+            options: poll.options,
+            vote_counts: poll.vote_counts,
+            total_weight: poll.total_weight,
+            expired,
+            closed: true,
+        })
+    }
+
+    /// Alias for `close_poll`.
+    pub fn close_proposal(
+        env: Env,
+        creator_id: Address,
+        poll_id: u32,
+    ) -> Result<PollResult, PollError> {
+        Self::close_poll(env, creator_id, poll_id)
     }
 }
 
