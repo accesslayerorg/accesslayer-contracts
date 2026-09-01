@@ -25,7 +25,8 @@ use crate::{
     CreatorKeysContractArgs, CreatorKeysContractClient,
 };
 use soroban_sdk::{
-    contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
+    contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Symbol,
+    Vec,
 };
 
 /// Event name for protocol trade fee collected on a buy or sell.
@@ -251,6 +252,9 @@ pub const CREATOR_FEE_RECIPIENT_UPDATED_EVENT_NAME: Symbol = symbol_short!("c_fe
 /// Event name for co-creator fee accrual.
 pub const CO_CREATOR_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("co_fee");
 
+/// Event name for a creator (re)designating their co-creator split (issue #782).
+pub const CO_CREATOR_SET_EVENT_NAME: Symbol = symbol_short!("co_set");
+
 /// Stable field order for dividend distributed event payloads.
 pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
     ["creator", "total_amount", "snapshot_supply", "ledger"];
@@ -369,6 +373,75 @@ pub fn co_creator_fee_earned_topics(
         CO_CREATOR_FEE_EARNED_EVENT_NAME,
         creator_id.clone(),
         co_creator.clone(),
+    )
+}
+
+/// Emitted by `set_co_creator` whenever a creator designates or updates their
+/// co-creator split (issue #782).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorSetEvent {
+    pub creator_id: Address,
+    pub co_creator: Address,
+    pub split_bps: u32,
+}
+
+pub fn co_creator_set_topics(creator_id: &Address, co_creator: &Address) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_SET_EVENT_NAME,
+        creator_id.clone(),
+        co_creator.clone(),
+    )
+}
+
+/// Event name for a completed holder snapshot (issue #778).
+pub const SNAPSHOT_TAKEN_EVENT_NAME: Symbol = symbol_short!("snap_take");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SnapshotTakenEvent {
+    pub creator_id: Address,
+    pub snapshot_id: u32,
+    pub snapshot_ledger: u32,
+    pub total_holders: u32,
+}
+
+pub fn snapshot_taken_topics(creator_id: &Address, snapshot_id: u32) -> (Symbol, Address, u32) {
+    (SNAPSHOT_TAKEN_EVENT_NAME, creator_id.clone(), snapshot_id)
+}
+
+/// Event name for creator key identity initialization (issue #779).
+pub const KEY_INITIALISED_EVENT_NAME: Symbol = symbol_short!("key_init");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyInitialisedEvent {
+    pub creator_id: Address,
+    pub name: Bytes,
+    pub bio: Bytes,
+    pub avatar_uri: Bytes,
+}
+
+pub fn key_initialised_topics(creator_id: &Address) -> (Symbol, Address) {
+    (KEY_INITIALISED_EVENT_NAME, creator_id.clone())
+}
+
+/// Event name for a blocked same-ledger buy-then-sell attempt (issue #781).
+pub const FLASH_LOAN_BLOCKED_EVENT_NAME: Symbol = symbol_short!("fl_block");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FlashLoanBlockedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub ledger: u32,
+}
+
+pub fn flash_loan_blocked_topics(wallet: &Address, key_id: &Address) -> (Symbol, Address, Address) {
+    (
+        FLASH_LOAN_BLOCKED_EVENT_NAME,
+        wallet.clone(),
+        key_id.clone(),
     )
 }
 

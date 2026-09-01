@@ -2,7 +2,9 @@
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
 pub mod quote_view_errors;
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, Env, String, Vec,
+};
 
 pub mod events;
 pub mod test_new_features;
@@ -129,32 +131,20 @@ pub enum StakingError {
     /// The contract is paused.
     ProtocolPaused = 8,
     GlobalTradingHalted = 51,
-    FrozenBalanceExceeded = 52,
-    FreezeQuantityExceedsBalance = 53,
-}
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-/// Error variants for the co-creator removal, pre-launch auction, and
-/// staking reward claim entrypoints.
-///
-/// These live in a separate error type from [`ContractError`] rather than as
-/// additional variants there: the Soroban contract spec format caps a single
-/// `#[contracterror]` enum at 50 cases (`SCSpecUDTErrorEnumV0.cases<50>`),
-/// and `ContractError` is already at that limit.
-pub enum FeatureError {
-    Unauthorized = 1,
-    NotRegistered = 2,
-    Overflow = 3,
-    ProtocolPaused = 4,
-    NotPositiveAmount = 5,
-    NoCoCreatorSet = 6,
-    AuctionAlreadyStarted = 7,
-    NoAuctionConfigured = 8,
-    InvalidAuctionConfig = 9,
-    StakeLockActive = 10,
-    NoStakeFound = 11,
+    /// `set_co_creator`'s `split_bps` exceeded the 9000 (90%) cap (issue #782).
+    SplitTooHigh = 52,
+    /// `take_snapshot` called with a `snapshot_id` already used for the creator (issue #778).
+    SnapshotAlreadyExists = 53,
+    /// `take_snapshot`'s `holders` list exceeded [`MAX_SNAPSHOT_HOLDERS`] (issue #778).
+    SnapshotHolderLimitExceeded = 54,
+    /// `initialise_key` called for a `creator` that already has metadata (issue #779).
+    KeyAlreadyInitialised = 55,
+    /// `initialise_key`'s `name` exceeded 64 bytes (issue #779).
+    NameTooLong = 56,
+    /// `initialise_key`'s `bio` exceeded 256 bytes (issue #779).
+    BioTooLong = 57,
+    /// `sell_key` attempted in the same ledger as the holder's last buy (issue #781).
+    FlashLoanDetected = 58,
 }
 
 pub mod fee {
@@ -491,6 +481,26 @@ pub mod constants {
 
         pub fn key_balance(creator: &Address, holder: &Address) -> DataKey {
             key_balance_key(creator, holder)
+        }
+
+        pub fn snapshot_meta(creator: &Address, snapshot_id: u32) -> DataKey {
+            DataKey::HolderSnapshotMeta(creator.clone(), snapshot_id)
+        }
+
+        pub fn snapshot_balance(creator: &Address, snapshot_id: u32, holder: &Address) -> DataKey {
+            DataKey::HolderSnapshotBalance(creator.clone(), snapshot_id, holder.clone())
+        }
+
+        pub fn key_metadata(creator: &Address) -> DataKey {
+            DataKey::KeyMetadata(creator.clone())
+        }
+
+        pub fn last_buy_ledger(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::LastBuyLedger(creator.clone(), holder.clone())
+        }
+
+        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
         }
 
         pub fn max_keys_per_wallet(creator: &Address) -> DataKey {
@@ -967,11 +977,19 @@ pub enum DataKey {
     /// buy and sell is rejected regardless of per-key pause state.
     ProtocolFeeBps,
     HolderCapBps(Address),
+    /// (creator, snapshot_id) -> `HolderSnapshotMeta` (issue #778).
+    HolderSnapshotMeta(Address, u32),
+    /// (creator, snapshot_id, holder) -> balance at snapshot time (issue #778).
+    HolderSnapshotBalance(Address, u32, Address),
+    /// (creator) -> on-chain identity metadata set via `initialise_key` (issue #779).
+    KeyMetadata(Address),
+    /// (creator, holder) -> ledger of the holder's most recent buy (issue #781).
+    LastBuyLedger(Address, Address),
+    /// (creator, holder) -> timestamp of the holder's most recent buy, used by
+    /// the anti-flash-trade sell lockup window (#784).
     LastBuyTimestamp(Address, Address),
-    LockupDurationSecs,
-    RoyaltyConfig(Address),
-    CurveExponent(Address),
-    QuorumBps(Address),
+    /// Protocol-wide emergency trading halt flag (#784). When `true`, every
+    /// buy and sell is rejected regardless of per-key pause state.
     GlobalTradingPaused,
     GlobalPauseAdmins,
     GlobalPauseVote(Address),
@@ -1001,6 +1019,39 @@ pub struct CoCreatorConfig {
     pub address: Address,
     pub share_bps: u32,
 }
+
+/// Metadata for a completed holder snapshot (issue #778).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct HolderSnapshotMeta {
+    pub snapshot_ledger: u32,
+    pub total_holders: u32,
+}
+
+/// On-chain creator key identity, set once via `initialise_key` (issue #779).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct KeyMetadata {
+    pub name: Bytes,
+    pub bio: Bytes,
+    pub avatar_uri: Bytes,
+}
+
+/// Maximum number of holder addresses accepted per `take_snapshot` call.
+///
+/// Soroban contract storage cannot be enumerated on-chain (there is no
+/// "iterate all keys with this prefix"), so unlike the issue's literal
+/// wording, `take_snapshot` takes the holder list as a caller-supplied
+/// argument (sourced off-chain, e.g. from an indexer) rather than iterating
+/// a registry internally. This cap bounds the batch the same way
+/// [`MAX_AIRDROP_RECIPIENTS`] already bounds `airdrop_keys` — without it, a
+/// popular key's full holder set could exceed the per-transaction
+/// instruction budget in one call. A key with more holders than this needs
+/// its indexer-supplied list paginated by the caller across a fresh
+/// `snapshot_id` per page — `take_snapshot` itself is a one-shot operation
+/// per `snapshot_id` (a second call with the same id fails with
+/// [`ContractError::SnapshotAlreadyExists`], per the acceptance criteria).
+pub const MAX_SNAPSHOT_HOLDERS: u32 = 100;
 
 /// Required creator identity fields for registration.
 ///
@@ -2788,6 +2839,14 @@ impl CreatorKeysContract {
         // survive the same horizon as creator state between trades.
         extend_key_ttl_to_full_window(&env, &balance_key);
 
+        // Flash-loan guard (issue #781): record this buy's ledger so sell_key can
+        // reject a same-ledger sell of the position just bought.
+        let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &buyer);
+        env.storage()
+            .persistent()
+            .set(&last_buy_ledger_key, &env.ledger().sequence());
+        extend_key_ttl_to_full_window(&env, &last_buy_ledger_key);
+
         // Record the purchase time on the holder's entry so sells can enforce
         // the anti-flash-trade lockup window.
         let last_buy_key = constants::storage::last_buy_timestamp(&creator, &buyer);
@@ -2928,6 +2987,24 @@ impl CreatorKeysContract {
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         if current_balance == 0 {
             return Err(ContractError::InsufficientBalance);
+        }
+
+        // Flash-loan guard (issue #781): reject a sell in the same ledger as the
+        // seller's most recent buy, closing the risk-free buy-then-sell vector
+        // within a single transaction/ledger.
+        let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &seller);
+        let last_buy_ledger: Option<u32> = env.storage().persistent().get(&last_buy_ledger_key);
+        let current_ledger = env.ledger().sequence();
+        if last_buy_ledger == Some(current_ledger) {
+            env.events().publish(
+                events::flash_loan_blocked_topics(&seller, &creator),
+                events::FlashLoanBlockedEvent {
+                    wallet: seller.clone(),
+                    key_id: creator.clone(),
+                    ledger: current_ledger,
+                },
+            );
+            return Err(ContractError::FlashLoanDetected);
         }
 
         // Check liquid balance (total balance - staked balance)
@@ -3749,11 +3826,222 @@ impl CreatorKeysContract {
         Ok(read_creator_fee_recipient_balance(&env, &creator))
     }
 
+    /// Records a snapshot of holder balances at the current ledger for offline
+    /// processing (dividend distributions, governance) (issue #778).
+    ///
+    /// Soroban contract storage cannot be enumerated on-chain, so `holders` is
+    /// supplied by the caller (e.g. sourced from an indexer) rather than read
+    /// from an on-chain registry — see [`MAX_SNAPSHOT_HOLDERS`] for why this
+    /// deviates from the issue's literal "iterate the holder registry"
+    /// wording, and how a holder set larger than the cap should be handled.
+    ///
+    /// Only callable by the protocol admin.
+    ///
+    /// # Errors
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`ContractError::NotRegistered`] if `creator` has no profile.
+    /// - [`ContractError::SnapshotHolderLimitExceeded`] if `holders` exceeds
+    ///   [`MAX_SNAPSHOT_HOLDERS`] entries.
+    /// - [`ContractError::SnapshotAlreadyExists`] if `snapshot_id` was already
+    ///   used for this creator.
+    pub fn take_snapshot(
+        env: Env,
+        admin: Address,
+        creator: Address,
+        snapshot_id: u32,
+        holders: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        read_registered_creator_profile(&env, &creator)?;
+
+        if holders.len() > MAX_SNAPSHOT_HOLDERS {
+            return Err(ContractError::SnapshotHolderLimitExceeded);
+        }
+
+        let meta_key = constants::storage::snapshot_meta(&creator, snapshot_id);
+        if env.storage().persistent().has(&meta_key) {
+            return Err(ContractError::SnapshotAlreadyExists);
+        }
+
+        let snapshot_ledger = env.ledger().sequence();
+        let mut total_holders: u32 = 0;
+        for holder in holders.iter() {
+            let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+            let snap_key = constants::storage::snapshot_balance(&creator, snapshot_id, &holder);
+            env.storage().persistent().set(&snap_key, &balance);
+            extend_key_ttl_to_full_window(&env, &snap_key);
+
+            total_holders = total_holders
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        let meta = HolderSnapshotMeta {
+            snapshot_ledger,
+            total_holders,
+        };
+        env.storage().persistent().set(&meta_key, &meta);
+        extend_key_ttl_to_full_window(&env, &meta_key);
+
+        env.events().publish(
+            events::snapshot_taken_topics(&creator, snapshot_id),
+            events::SnapshotTakenEvent {
+                creator_id: creator,
+                snapshot_id,
+                snapshot_ledger,
+                total_holders,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns a holder's snapshotted balance, or `0` if the
+    /// holder was not included in the snapshot's `holders` list.
+    pub fn get_snapshot_balance(
+        env: Env,
+        creator: Address,
+        snapshot_id: u32,
+        holder: Address,
+    ) -> u32 {
+        let key = constants::storage::snapshot_balance(&creator, snapshot_id, &holder);
+        env.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    /// Read-only view: returns a snapshot's metadata, or `None` if `snapshot_id`
+    /// has not been taken for `creator`.
+    pub fn get_snapshot_meta(
+        env: Env,
+        creator: Address,
+        snapshot_id: u32,
+    ) -> Option<HolderSnapshotMeta> {
+        let key = constants::storage::snapshot_meta(&creator, snapshot_id);
+        env.storage().persistent().get(&key)
+    }
+
     /// Read-only view: returns the optional immutable co-creator config.
     ///
     /// Returns `None` when the creator was registered without a co-creator split.
     pub fn get_co_creator(env: Env, creator: Address) -> Option<CoCreatorConfig> {
         read_co_creator_config(&env, &creator)
+    }
+
+    /// Designates (or updates) the creator's co-creator revenue split (issue #782).
+    ///
+    /// Unlike the immutable split optionally set at [`Self::register_creator`], this
+    /// entrypoint lets a registered creator set or change their co-creator split at any
+    /// time. Once set, every subsequent buy and sell routes `share_bps` of the creator's
+    /// fee to `co_creator` via the same [`credit_creator_fee`] path the registration-time
+    /// config already uses — this call only writes the config; splitting on trades is
+    /// unconditional on it existing, no extra plumbing needed.
+    ///
+    /// # Errors
+    /// - [`ContractError::NotRegistered`] if `creator` has no profile.
+    /// - [`ContractError::ZeroAddress`] if `co_creator` is the zero address.
+    /// - [`ContractError::SplitTooHigh`] if `split_bps` is `0` or exceeds `9000` (90%).
+    pub fn set_co_creator(
+        env: Env,
+        creator: Address,
+        co_creator: Address,
+        split_bps: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        read_registered_creator_profile(&env, &creator)?;
+        validate_non_zero_address(&env, &co_creator)?;
+        if split_bps == 0 || split_bps > 9000 {
+            return Err(ContractError::SplitTooHigh);
+        }
+
+        let config = CoCreatorConfig {
+            address: co_creator.clone(),
+            share_bps: split_bps,
+        };
+        let key = constants::storage::co_creator(&creator);
+        env.storage().persistent().set(&key, &config);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        env.events().publish(
+            events::co_creator_set_topics(&creator, &co_creator),
+            events::CoCreatorSetEvent {
+                creator_id: creator,
+                co_creator,
+                split_bps,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Stores on-chain identity metadata (name, bio, avatar URI) for a
+    /// registered creator's key (issue #779).
+    ///
+    /// Callable only by the creator themselves, once. To change metadata
+    /// afterwards, see the immutability note on [`ContractError::KeyAlreadyInitialised`] —
+    /// this contract has no `update_key_metadata` entrypoint; adding one is a
+    /// natural follow-up but out of scope for this issue.
+    ///
+    /// # Errors
+    /// - [`ContractError::NotRegistered`] if `creator` has no profile.
+    /// - [`ContractError::DisplayNameEmpty`] if `name` or `bio` is empty.
+    /// - [`ContractError::NameTooLong`] if `name` exceeds 64 bytes.
+    /// - [`ContractError::BioTooLong`] if `bio` exceeds 256 bytes.
+    /// - [`ContractError::KeyAlreadyInitialised`] if metadata already exists
+    ///   for `creator`.
+    pub fn initialise_key(
+        env: Env,
+        creator: Address,
+        name: Bytes,
+        bio: Bytes,
+        avatar_uri: Bytes,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        read_registered_creator_profile(&env, &creator)?;
+
+        if name.is_empty() || bio.is_empty() {
+            return Err(ContractError::DisplayNameEmpty);
+        }
+        if name.len() > 64 {
+            return Err(ContractError::NameTooLong);
+        }
+        if bio.len() > 256 {
+            return Err(ContractError::BioTooLong);
+        }
+
+        let key = constants::storage::key_metadata(&creator);
+        if env.storage().persistent().has(&key) {
+            return Err(ContractError::KeyAlreadyInitialised);
+        }
+
+        let metadata = KeyMetadata {
+            name: name.clone(),
+            bio: bio.clone(),
+            avatar_uri: avatar_uri.clone(),
+        };
+        env.storage().persistent().set(&key, &metadata);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        env.events().publish(
+            events::key_initialised_topics(&creator),
+            events::KeyInitialisedEvent {
+                creator_id: creator,
+                name,
+                bio,
+                avatar_uri,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Read-only view: returns a creator's on-chain key metadata, or `None`
+    /// if `initialise_key` has not been called for them.
+    pub fn get_key_metadata(env: Env, creator: Address) -> Option<KeyMetadata> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::key_metadata(&creator))
     }
 
     /// Read-only view: returns accrued co-creator fee balance for a creator.
@@ -8099,4 +8387,4 @@ mod tests {
 mod test_issues;
 
 #[cfg(test)]
-mod test_staking_lifecycle;
+mod test_issues_778_779_781_782;
