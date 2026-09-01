@@ -289,6 +289,9 @@ mod issue_tests {
             soroban_sdk::vec![&env, buyer.clone()],
         );
 
+        // Advance the ledger past the buy so the flash-loan guard is satisfied.
+        env.ledger().with_mut(|l| l.sequence_number += 1);
+
         for _ in 0..4 {
             client.sell_key(&creator, &buyer, &None);
         }
