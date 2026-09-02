@@ -4,7 +4,10 @@
 
 #[cfg(test)]
 mod issue_tests {
-    use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, Env, String, Vec,
+    };
 
     use crate::{
         compute_bonding_curve_price, constants, ContractError, CreatorKeysContract,
@@ -288,6 +291,9 @@ mod issue_tests {
             &creator,
             soroban_sdk::vec![&env, buyer.clone()],
         );
+
+        // Advance the ledger past the buy so the flash-loan guard is satisfied.
+        env.ledger().with_mut(|l| l.sequence_number += 1);
 
         for _ in 0..4 {
             client.sell_key(&creator, &buyer, &None);

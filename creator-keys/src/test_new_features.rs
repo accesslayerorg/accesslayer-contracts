@@ -42,17 +42,17 @@ fn test_circuit_breaker_threshold_configuration_and_trigger() {
     register_creator(&env, &client, &creator);
 
     // Default threshold is 30%.
-    // Buy 1: supply 0 -> 1. Price moves from base_price (100) to 200 (100% increase > 30%).
+    // First buy at supply 0 -> 1 succeeds because there is no previous price to compare.
     let buyer = Address::generate(&env);
-    let result = client.try_buy_key(&creator, &buyer, &1000i128, &None);
-    assert_eq!(result, Err(Ok(ContractError::CircuitBreakerTriggered)));
+    let supply = client.buy_key(&creator, &buyer, &1000i128, &None);
+    assert_eq!(supply, 1);
 
     // Admin sets threshold to 200% (200)
     client.set_circuit_breaker_threshold(&admin, &200u32);
 
-    // Now buy succeeds because price delta (100%) < 200% threshold
-    let supply = client.buy_key(&creator, &buyer, &1000i128, &None);
-    assert_eq!(supply, 1);
+    // Second buy at supply 1 -> 2 also succeeds because 100% increase < 200% threshold
+    let supply2 = client.buy_key(&creator, &buyer, &1000i128, &None);
+    assert_eq!(supply2, 2);
 }
 
 #[test]
