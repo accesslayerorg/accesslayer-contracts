@@ -1293,12 +1293,6 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-/// Stable fee collection event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
-/// - data: `FeeCollectedEvent`
-
 /// Event name for a new staking position created via `stake_keys_locked`.
 pub const STAKE_EVENT_NAME: Symbol = symbol_short!("stake");
 
