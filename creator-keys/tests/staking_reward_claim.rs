@@ -117,7 +117,7 @@ fn test_claim_stake_reward_splits_pool_pro_rata_across_stakers() {
 
     let pool_total = client.get_staking_rewards_pool(&creator);
     let expected_a = pool_total * 3 / 4;
-    let expected_b_before_a_claims = pool_total * 1 / 4;
+    let expected_b_before_a_claims = pool_total / 4;
 
     let start_sequence = env.ledger().sequence();
     set_ledger_sequence(&env, start_sequence + STAKE_LOCK_LEDGERS);
