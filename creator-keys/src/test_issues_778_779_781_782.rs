@@ -257,7 +257,10 @@ fn test_set_co_creator_splits_fee_on_buy() {
     client.buy_key(&creator, &buyer, &1000i128, &None);
 
     // price=1000, creator_bps=9000 -> creator_fee=900. 20% of 900 = 180 to co-creator.
-    assert_eq!(client.get_co_creator_fee_balance(&creator, &co_creator), 180);
+    assert_eq!(
+        client.get_co_creator_fee_balance(&creator, &co_creator),
+        180
+    );
     assert_eq!(client.get_creator_fee_balance(&creator), 720);
 }
 
