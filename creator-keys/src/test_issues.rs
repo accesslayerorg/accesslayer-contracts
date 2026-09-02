@@ -4,7 +4,10 @@
 
 #[cfg(test)]
 mod issue_tests {
-    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String, Vec};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, Env, String, Vec,
+    };
 
     use crate::{
         compute_bonding_curve_price, constants, ContractError, CreatorKeysContract,
