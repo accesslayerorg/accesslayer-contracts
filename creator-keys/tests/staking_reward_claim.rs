@@ -20,7 +20,8 @@ const PROTOCOL_BPS: u32 = 1000;
 fn test_claim_stake_reward_fails_with_no_stake() {
     let env = test_env_with_auths();
     env.ledger().set_max_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
-    env.ledger().set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
+    env.ledger()
+        .set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
     let (client, _) = register_creator_keys(&env);
     set_pricing_and_fees(&env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(&env, &client, "alice");
@@ -34,7 +35,8 @@ fn test_claim_stake_reward_fails_with_no_stake() {
 fn test_claim_stake_reward_fails_while_lock_is_active() {
     let env = test_env_with_auths();
     env.ledger().set_max_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
-    env.ledger().set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
+    env.ledger()
+        .set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
     let (client, _) = register_creator_keys(&env);
     set_pricing_and_fees(&env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(&env, &client, "alice");
@@ -56,7 +58,8 @@ fn test_claim_stake_reward_fails_while_lock_is_active() {
 fn test_claim_stake_reward_pays_out_and_unlocks_after_lock_period() {
     let env = test_env_with_auths();
     env.ledger().set_max_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
-    env.ledger().set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
+    env.ledger()
+        .set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
     let (client, _) = register_creator_keys(&env);
     set_pricing_and_fees(&env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(&env, &client, "alice");
@@ -92,7 +95,8 @@ fn test_claim_stake_reward_pays_out_and_unlocks_after_lock_period() {
 fn test_claim_stake_reward_splits_pool_pro_rata_across_stakers() {
     let env = test_env_with_auths();
     env.ledger().set_max_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
-    env.ledger().set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
+    env.ledger()
+        .set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
     let (client, _) = register_creator_keys(&env);
     set_pricing_and_fees(&env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(&env, &client, "alice");
@@ -132,7 +136,8 @@ fn test_claim_stake_reward_splits_pool_pro_rata_across_stakers() {
 fn test_claim_stake_reward_emits_event_with_expected_payload() {
     let env = test_env_with_auths();
     env.ledger().set_max_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
-    env.ledger().set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
+    env.ledger()
+        .set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
     let (client, contract_id) = register_creator_keys(&env);
     set_pricing_and_fees(&env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(&env, &client, "alice");
@@ -167,7 +172,8 @@ fn test_claim_stake_reward_emits_event_with_expected_payload() {
 fn test_claim_stake_reward_fails_while_protocol_paused() {
     let env = test_env_with_auths();
     env.ledger().set_max_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
-    env.ledger().set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
+    env.ledger()
+        .set_min_persistent_entry_ttl(STAKE_LOCK_LEDGERS + 100_000);
     let (client, _) = register_creator_keys(&env);
     let admin = set_pricing_and_fees(&env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(&env, &client, "alice");

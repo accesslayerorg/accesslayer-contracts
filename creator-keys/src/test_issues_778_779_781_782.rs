@@ -254,7 +254,9 @@ fn test_set_co_creator_splits_fee_on_buy() {
 
     // price=100, creator_bps=9000 -> creator_fee=90. 20% of 90 = 18 to co-creator.
     assert_eq!(
-        client.get_co_creator_fee_balance(&creator, &co_creator).unwrap(),
+        client
+            .get_co_creator_fee_balance(&creator, &co_creator)
+            .unwrap(),
         18
     );
     assert_eq!(client.get_creator_fee_balance(&creator).unwrap(), 72);
@@ -272,9 +274,13 @@ fn test_set_co_creator_splits_fee_on_sell() {
     client.set_co_creator(&creator, &co_creator, &2000u32); // 20%
     env.ledger().with_mut(|l| l.sequence_number += 1);
 
-    let balance_before = client.get_co_creator_fee_balance(&creator, &co_creator).unwrap();
+    let balance_before = client
+        .get_co_creator_fee_balance(&creator, &co_creator)
+        .unwrap();
     client.sell_key(&creator, &trader, &None);
-    let balance_after = client.get_co_creator_fee_balance(&creator, &co_creator).unwrap();
+    let balance_after = client
+        .get_co_creator_fee_balance(&creator, &co_creator)
+        .unwrap();
 
     assert!(balance_after > balance_before);
 }
