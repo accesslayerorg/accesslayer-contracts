@@ -255,6 +255,9 @@ pub const CO_CREATOR_FEE_EARNED_EVENT_NAME: Symbol = symbol_short!("co_fee");
 /// Event name for co-creator removal.
 pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("co_rem");
 
+/// Event name for co-creator set.
+pub const CO_CREATOR_SET_EVENT_NAME: Symbol = symbol_short!("co_set");
+
 /// Stable field order for dividend distributed event payloads.
 pub const DIVIDEND_DISTRIBUTED_DATA_FIELDS: [&str; 4] =
     ["creator", "total_amount", "snapshot_supply", "ledger"];

@@ -81,6 +81,26 @@ pub enum ContractError {
     InvalidHolderCap = 53,
     GlobalTradingHalted = 54,
     FreezeQuantityExceedsBalance = 55,
+    FlashLoanDetected = 56,
+    SnapshotHolderLimitExceeded = 57,
+    SnapshotAlreadyExists = 58,
+    SplitTooHigh = 59,
+    NameTooLong = 60,
+    BioTooLong = 61,
+    KeyAlreadyInitialised = 62,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum FeatureError {
+    Unauthorized = 1,
+    NoCoCreatorSet = 2,
+    NotPositiveAmount = 3,
+    InvalidAuctionConfig = 4,
+    NotRegistered = 5,
+    AuctionAlreadyStarted = 6,
+    NoAuctionConfigured = 7,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
@@ -495,10 +515,6 @@ pub mod constants {
             DataKey::HolderCapBps(creator.clone())
         }
 
-        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
-            DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
-        }
-
         pub fn royalty_config(creator: &Address) -> DataKey {
             DataKey::RoyaltyConfig(creator.clone())
         }
@@ -904,6 +920,8 @@ pub enum DataKey {
     StakedBalance(Address, Address), // (creator, holder) -> staked amount
     MaxKeysPerWallet(Address),
     ReferralFeeBps,
+    ProtocolFeeBps,
+    HolderCapBps(Address),
     DiscountTiers,
     CreatorVolume(Address),
     /// Absolute live-until ledger the contract last set for the creator key
