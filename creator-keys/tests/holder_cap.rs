@@ -57,7 +57,9 @@ fn test_buy_pushing_holder_above_cap_panics() {
     let result = client.try_buy_key(&creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         result,
-        Err(Ok(ContractError::WalletCapExceeded)),
+        Err(Err(soroban_sdk::InvokeError::Contract(
+            ContractError::MaxHoldingExceeded as u32
+        ))),
         "a buy past 10% of supply must be rejected"
     );
     assert_eq!(client.get_key_balance(&creator, &buyer), 2);
@@ -118,6 +120,20 @@ fn test_set_holder_cap_rejects_values_outside_one_and_twenty_five_percent() {
     let (client, creator) = setup(&env);
 
     let too_small = client.try_set_holder_cap(&creator, &Some(99));
+    assert_eq!(
+        too_small,
+        Err(Err(soroban_sdk::InvokeError::Contract(
+            ContractError::InvalidHolderCap as u32
+        )))
+    );
+
+    let too_large = client.try_set_holder_cap(&creator, &Some(2501));
+    assert_eq!(
+        too_large,
+        Err(Err(soroban_sdk::InvokeError::Contract(
+            ContractError::InvalidHolderCap as u32
+        )))
+    );
     assert_eq!(too_small, Err(Ok(ContractError::WalletCapExceeded)));
 
     let too_large = client.try_set_holder_cap(&creator, &Some(2501));
