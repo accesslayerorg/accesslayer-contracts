@@ -386,7 +386,10 @@ pub struct CoCreatorSetEvent {
     pub split_bps: u32,
 }
 
-pub fn co_creator_set_topics(creator_id: &Address, co_creator: &Address) -> (Symbol, Address, Address) {
+pub fn co_creator_set_topics(
+    creator_id: &Address,
+    co_creator: &Address,
+) -> (Symbol, Address, Address) {
     (
         CO_CREATOR_SET_EVENT_NAME,
         creator_id.clone(),
