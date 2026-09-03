@@ -197,6 +197,8 @@ pub struct KeysSoldEvent {
     pub quantity: u32,
     /// Net proceeds received by the seller after fees.
     pub proceeds: i128,
+    /// Total supply of keys for this creator after the sale.
+    pub new_supply: u32,
     /// Ledger sequence number at the time of the sale.
     pub ledger: u32,
 }
