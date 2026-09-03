@@ -23,7 +23,7 @@ fn setup(env: &Env) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
     (client, creator)
 }
 
-fn registry_contains(registry: &Vec<Address>, wallet: &Address) -> bool {
+fn registry_contains(registry: &[Address], wallet: &Address) -> bool {
     registry.contains(wallet.clone())
 }
 
