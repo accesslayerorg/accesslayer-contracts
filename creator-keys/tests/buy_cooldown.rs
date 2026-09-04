@@ -12,7 +12,7 @@ use contract_test_env::{
     test_env_with_auths,
 };
 use creator_keys::events::{self, COOLDOWN_BLOCKED_EVENT_NAME};
-use creator_keys::{CooldownError, MAX_BUY_COOLDOWN_LEDGERS};
+use creator_keys::{ContractError, CooldownError, MAX_BUY_COOLDOWN_LEDGERS};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     Address, Env, IntoVal, Symbol,
@@ -71,7 +71,7 @@ fn test_second_buy_within_cooldown_is_rejected() {
     let result = s.client.try_buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         result,
-        Err(Ok(CooldownError::CooldownActive)),
+        Err(Ok(ContractError::CooldownActive)),
         "buy within cooldown must return CooldownActive"
     );
     // Supply must be unchanged after the rejection.
@@ -206,11 +206,11 @@ fn test_cooldown_is_independent_per_wallet() {
 
     // buyer_a is blocked.
     let result_a = s.client.try_buy_key(&s.creator, &buyer_a, &KEY_PRICE, &None);
-    assert_eq!(result_a, Err(Ok(CooldownError::CooldownActive)));
+    assert_eq!(result_a, Err(Ok(ContractError::CooldownActive)));
 
     // buyer_b is also blocked independently.
     let result_b = s.client.try_buy_key(&s.creator, &buyer_b, &KEY_PRICE, &None);
-    assert_eq!(result_b, Err(Ok(CooldownError::CooldownActive)));
+    assert_eq!(result_b, Err(Ok(ContractError::CooldownActive)));
 }
 
 /// AC: Setting cooldown to 0 disables it; consecutive buys succeed freely.
@@ -247,7 +247,7 @@ fn test_last_buy_ledger_refreshes_on_each_buy() {
     let result = s.client.try_buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         result,
-        Err(Ok(CooldownError::CooldownActive)),
+        Err(Ok(ContractError::CooldownActive)),
         "cooldown window must reset after each successful buy"
     );
 
@@ -283,7 +283,7 @@ fn test_cooldown_is_independent_per_creator() {
     // Blocked for creator_a.
     assert_eq!(
         client.try_buy_key(&creator_a, &buyer, &KEY_PRICE, &None),
-        Err(Ok(CooldownError::CooldownActive))
+        Err(Ok(ContractError::CooldownActive))
     );
     // Unrestricted for creator_b.
     let supply_b = client.buy_key(&creator_b, &buyer, &KEY_PRICE, &None);

@@ -64,6 +64,7 @@ pub enum ContractError {
     AirdropRecipientLimitExceeded = 33,
     InvalidReferrer = 34,
     WalletCapExceeded = 35,
+    CooldownActive = 36,
     WalletBlacklisted = 37,
     SchemaVersionTooOld = 38,
     SchemaVersionUnsupported = 39,
@@ -171,6 +172,8 @@ pub enum CooldownError {
     CooldownActive = 1,
     /// The requested cooldown exceeds the maximum of 720 ledgers (~1 hour).
     CooldownTooLong = 2,
+    /// The creator address is not registered.
+    NotRegistered = 3,
 }
 
 pub mod fee {
@@ -2896,7 +2899,7 @@ impl CreatorKeysContract {
                             ledgers_remaining,
                         },
                     );
-                    env.panic_with_error(CooldownError::CooldownActive);
+                    return Err(ContractError::CooldownActive);
                 }
             }
         }
@@ -5255,6 +5258,8 @@ impl CreatorKeysContract {
         cooldown_ledgers: u32,
     ) -> Result<(), CooldownError> {
         creator.require_auth();
+        read_registered_creator_profile(&env, &creator)
+            .map_err(|_| CooldownError::NotRegistered)?;
         if cooldown_ledgers > MAX_BUY_COOLDOWN_LEDGERS {
             return Err(CooldownError::CooldownTooLong);
         }
