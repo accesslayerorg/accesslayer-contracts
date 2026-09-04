@@ -49,7 +49,8 @@ fn test_sell_within_launch_window_applies_penalty() {
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(client.get_key_balance(&creator, &buyer), 2);
 
-    // Sell within the launch window — no ledger advance.
+    // Sell within the launch window — advance 1 ledger to pass anti-flash-loan check.
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
 
     // Launch penalty was applied and credited to the staking rewards pool.
@@ -97,6 +98,7 @@ fn test_set_launch_penalty_custom_bps() {
 
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
 
     // The penalty applied should be 10% instead of the default 5%.

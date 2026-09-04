@@ -16,7 +16,7 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::ContractError;
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address};
 
 const KEY_PRICE: i128 = 1_000;
 const CREATOR_BPS: u32 = 9_000;
@@ -84,6 +84,7 @@ fn test_sell_succeeds_after_resume() {
     assert_eq!(client.get_key_balance(&creator, &seller), 2);
 
     // Pause the contract — sell must fail.
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.pause(&admin);
     assert!(client.get_is_paused());
     let paused_result = client.try_sell_key(&creator, &seller, &None);
@@ -229,6 +230,7 @@ fn test_full_pause_sell_lifecycle() {
     assert_eq!(balance_before_pause, 2);
 
     // --- Phase 1: Pause the contract ---
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.pause(&admin);
     assert!(client.get_is_paused());
 

@@ -12,7 +12,7 @@ use contract_test_env::{
     assert_storage_absent, register_creator_keys, register_test_creator, set_key_price_for_tests,
 };
 use creator_keys::constants;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address, Env};
 
 const KEY_PRICE: i128 = 250;
 const HOLDER_KEYS: u32 = 3;
@@ -41,6 +41,7 @@ fn test_full_sell_removes_holder_balance_storage_key() {
     set_key_price_for_tests(&env, &client, KEY_PRICE);
     let (creator, holder) = setup_holder_with_full_balance(&env, &client, "alice");
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for _ in 0..HOLDER_KEYS {
         client.sell_key(&creator, &holder, &None);
     }
@@ -64,6 +65,7 @@ fn test_full_sell_decrements_creator_supply_by_full_sold_quantity() {
     let supply_before = client.get_total_key_supply(&creator);
     assert_eq!(supply_before, HOLDER_KEYS);
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for _ in 0..HOLDER_KEYS {
         client.sell_key(&creator, &holder, &None);
     }
@@ -85,6 +87,7 @@ fn test_balance_read_after_full_sell_returns_zero_without_error() {
     set_key_price_for_tests(&env, &client, KEY_PRICE);
     let (creator, holder) = setup_holder_with_full_balance(&env, &client, "carol");
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for _ in 0..HOLDER_KEYS {
         client.sell_key(&creator, &holder, &None);
     }
@@ -106,6 +109,7 @@ fn test_partial_sell_does_not_remove_holder_balance_storage_key() {
     let (creator, holder) = setup_holder_with_full_balance(&env, &client, "dave");
 
     // Sell fewer than the full balance.
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &holder, &None);
     assert_eq!(client.get_key_balance(&creator, &holder), HOLDER_KEYS - 1);
 
