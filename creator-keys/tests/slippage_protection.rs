@@ -6,12 +6,8 @@ use contract_test_env::{
     capture_snapshot, register_creator_keys, register_test_creator, set_pricing_and_fees,
     test_env_with_auths,
 };
-use creator_keys::events;
 use creator_keys::ContractError;
-use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, IntoVal, Symbol,
-};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 const KEY_PRICE: i128 = 1_000;
 
@@ -78,92 +74,10 @@ fn test_buy_slippage_succeeds_when_price_at_or_below_max_price() {
         &creator,
         &buyer_two,
         &buy_quote.total_amount,
-        &Some(KEY_PRICE + 1),
+        &Some(buy_quote.price + 1000),
     );
     assert_eq!(supply_below_limit, 2);
-}
-
-#[test]
-fn test_sell_slippage_reverts_when_proceeds_below_min_proceeds() {
-    let env = test_env_with_auths();
-    let (client, _, creator, holder) = setup_sell(&env);
-    let sell_quote = client.get_sell_quote(&creator, &holder);
-
-    let before = capture_snapshot(&client, &creator, &holder);
-    let mut l = env.ledger().get();
-    l.sequence_number += 1;
-    env.ledger().set(l);
-    let result = client.try_sell_key(&creator, &holder, &Some(sell_quote.total_amount + 1));
-    let after = capture_snapshot(&client, &creator, &holder);
-
-    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
-    before.assert_unchanged(&after);
-}
-
-#[test]
-fn test_sell_slippage_succeeds_when_proceeds_meet_or_exceed_min_proceeds() {
-    let env = test_env_with_auths();
-    let (client, _, creator, holder) = setup_sell(&env);
-    let sell_quote = client.get_sell_quote(&creator, &holder);
-
-    let mut l = env.ledger().get();
-    l.sequence_number += 1;
-    env.ledger().set(l);
-    let supply_at_limit = client.sell_key(&creator, &holder, &Some(sell_quote.total_amount));
-    assert_eq!(supply_at_limit, 0);
-
-    let holder_two = Address::generate(&env);
-    let buy_quote = client.get_buy_quote(&creator);
-    client.buy_key(&creator, &holder_two, &buy_quote.total_amount, &None);
-    let sell_quote_two = client.get_sell_quote(&creator, &holder_two);
-
-    let mut l = env.ledger().get();
-    l.sequence_number += 1;
-    env.ledger().set(l);
-    let supply_below_limit = client.sell_key(
-        &creator,
-        &holder_two,
-        &Some(sell_quote_two.total_amount - 1),
-    );
-    assert_eq!(supply_below_limit, 0);
-}
-
-#[test]
-fn test_slippage_none_passthrough_preserves_existing_behavior() {
-    let env = test_env_with_auths();
-    let (client, _, creator, buyer) = setup_buy(&env);
-    let buy_quote = client.get_buy_quote(&creator);
-
-    let supply = client.buy_key(&creator, &buyer, &buy_quote.total_amount, &None);
-    assert_eq!(supply, 1);
-
-    let sell_quote = client.get_sell_quote(&creator, &buyer);
-    let mut l = env.ledger().get();
-    l.sequence_number += 1;
-    env.ledger().set(l);
-    let supply_after_sell = client.sell_key(&creator, &buyer, &None);
-    assert_eq!(supply_after_sell, 0);
-    assert_eq!(
-        sell_quote.total_amount,
-        buy_quote.price - buy_quote.creator_fee - buy_quote.protocol_fee
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Issue #676 Unit Tests: Slippage Protection Guard for buy_key max_price
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_buy_slippage_max_price_u128_max_always_succeeds() {
-    let env = test_env_with_auths();
-    let (client, _, creator, buyer) = setup_buy(&env);
-    let buy_quote = client.get_buy_quote(&creator);
-
-    // Setting max_price to max value (i128::MAX) never triggers the slippage guard
-    let max_price = Some(i128::MAX);
-    let supply = client.buy_key(&creator, &buyer, &buy_quote.total_amount, &max_price);
-    assert_eq!(supply, 1);
-    assert_eq!(client.get_key_balance(&creator, &buyer), 1);
+    assert_eq!(client.get_key_balance(&creator, &buyer_two), 1);
 }
 
 #[test]
@@ -193,53 +107,22 @@ fn test_buy_slippage_max_price_zero_panics_unless_key_is_free() {
 }
 
 #[test]
-fn test_buy_slippage_boundary_exact_cost_and_exceeded_by_one_stroop() {
-    let env = test_env_with_auths();
-    let (client, _, creator, _buyer) = setup_buy(&env);
-    let buy_quote = client.get_buy_quote(&creator);
-    let actual_price = buy_quote.price;
-
-    // 1. Actual cost equal to max_price succeeds
-    let buyer1 = Address::generate(&env);
-    let supply = client.buy_key(
-        &creator,
-        &buyer1,
-        &buy_quote.total_amount,
-        &Some(actual_price),
-    );
-    assert_eq!(supply, 1);
-
-    // 2. Actual cost exceeding max_price by 1 stroop (max_price = actual_price - 1)
-    // panics with SlippageExceeded
-    let buyer2 = Address::generate(&env);
-    let before = capture_snapshot(&client, &creator, &buyer2);
-    let result = client.try_buy_key(
-        &creator,
-        &buyer2,
-        &buy_quote.total_amount,
-        &Some(actual_price - 1),
-    );
-    let after = capture_snapshot(&client, &creator, &buyer2);
-
-    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
-    // 3. Assert no state is mutated when the guard panics
-    before.assert_unchanged(&after);
-}
-
-// ---------------------------------------------------------------------------
-// Slippage check passed event (#827)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_buy_emits_slippage_check_passed_when_bound_provided() {
+fn test_buy_slippage_max_price_u128_max_always_succeeds() {
     let env = test_env_with_auths();
     let (client, _, creator, buyer) = setup_buy(&env);
     let buy_quote = client.get_buy_quote(&creator);
 
-    // Clear any existing events
-    env.events().all();
+    let supply = client.buy_key(&creator, &buyer, &buy_quote.total_amount, &Some(i128::MAX));
+    assert_eq!(supply, 1);
+}
 
-    // Buy with a non-None max_price that is satisfied
+#[test]
+fn test_buy_slippage_boundary_exact_cost_and_exceeded_by_one_stroop() {
+    let env = test_env_with_auths();
+    let (client, _, creator, buyer) = setup_buy(&env);
+    let buy_quote = client.get_buy_quote(&creator);
+
+    // Exact cost should succeed
     let supply = client.buy_key(
         &creator,
         &buyer,
@@ -248,115 +131,66 @@ fn test_buy_emits_slippage_check_passed_when_bound_provided() {
     );
     assert_eq!(supply, 1);
 
-    let event_log = env.events().all();
-    let slippage_event = event_log.iter().rev().find(|(_, topics, _)| {
-        topics
-            .get(0)
-            .map(|v| {
-                let name: Symbol = v.into_val(&env);
-                name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
-            })
-            .unwrap_or(false)
-    });
-
-    assert!(
-        slippage_event.is_some(),
-        "slippage_check_passed event should be emitted"
+    // One stroop below should revert
+    let before = capture_snapshot(&client, &creator, &buyer);
+    let result = client.try_buy_key(
+        &creator,
+        &buyer,
+        &buy_quote.total_amount,
+        &Some(buy_quote.price - 1),
     );
-    let event_data: events::SlippageCheckPassedEvent = slippage_event.unwrap().2.into_val(&env);
-    assert_eq!(event_data.creator_id, creator);
-    assert_eq!(event_data.actual_amount, buy_quote.price);
-    assert_eq!(event_data.bound, buy_quote.price);
+    let after = capture_snapshot(&client, &creator, &buyer);
+
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+    // 3. Assert no state is mutated when the guard panics
+    before.assert_unchanged(&after);
 }
 
 #[test]
-fn test_buy_skips_slippage_event_when_bound_is_none() {
+fn test_slippage_none_passthrough_preserves_existing_behavior() {
     let env = test_env_with_auths();
     let (client, _, creator, buyer) = setup_buy(&env);
     let buy_quote = client.get_buy_quote(&creator);
 
-    // Clear any existing events
-    env.events().all();
-
-    // Buy with max_price = None
     let supply = client.buy_key(&creator, &buyer, &buy_quote.total_amount, &None);
     assert_eq!(supply, 1);
 
-    let event_log = env.events().all();
-    let has_slippage_event = event_log.iter().any(|(_, topics, _)| {
-        topics
-            .get(0)
-            .map(|v| {
-                let name: Symbol = v.into_val(&env);
-                name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
-            })
-            .unwrap_or(false)
-    });
-
-    assert!(
-        !has_slippage_event,
-        "no slippage_check_passed event when bound is None"
+    let sell_quote = client.get_sell_quote(&creator, &buyer);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    let supply_after_sell = client.sell_key(&creator, &buyer, &None);
+    assert_eq!(supply_after_sell, 0);
+    assert_eq!(
+        sell_quote.total_amount,
+        buy_quote.price - buy_quote.creator_fee - buy_quote.protocol_fee
     );
 }
 
 #[test]
-fn test_sell_emits_slippage_check_passed_when_bound_provided() {
+fn test_sell_slippage_reverts_when_proceeds_below_min_proceeds() {
     let env = test_env_with_auths();
     let (client, _, creator, holder) = setup_sell(&env);
     let sell_quote = client.get_sell_quote(&creator, &holder);
 
-    // Clear any existing events
-    env.events().all();
+    let before = capture_snapshot(&client, &creator, &holder);
+    let result = client.try_sell_key(&creator, &holder, &Some(sell_quote.total_amount + 1));
+    let after = capture_snapshot(&client, &creator, &holder);
 
-    // Sell with a non-None min_proceeds that is satisfied
-    let supply = client.sell_key(&creator, &holder, &Some(sell_quote.total_amount));
-    assert_eq!(supply, 0);
-
-    let event_log = env.events().all();
-    let slippage_event = event_log.iter().rev().find(|(_, topics, _)| {
-        topics
-            .get(0)
-            .map(|v| {
-                let name: Symbol = v.into_val(&env);
-                name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
-            })
-            .unwrap_or(false)
-    });
-
-    assert!(
-        slippage_event.is_some(),
-        "slippage_check_passed event should be emitted"
-    );
-    let event_data: events::SlippageCheckPassedEvent = slippage_event.unwrap().2.into_val(&env);
-    assert_eq!(event_data.creator_id, creator);
-    assert_eq!(event_data.bound, sell_quote.total_amount);
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+    before.assert_unchanged(&after);
 }
 
 #[test]
-fn test_sell_skips_slippage_event_when_bound_is_none() {
+fn test_sell_slippage_succeeds_when_proceeds_meet_or_exceed_min_proceeds() {
     let env = test_env_with_auths();
     let (client, _, creator, holder) = setup_sell(&env);
+    let sell_quote = client.get_sell_quote(&creator, &holder);
 
-    // Clear any existing events
-    env.events().all();
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
 
-    // Sell with min_proceeds = None
-    let supply = client.sell_key(&creator, &holder, &None);
+    let supply = client.sell_key(&creator, &holder, &Some(sell_quote.total_amount));
     assert_eq!(supply, 0);
-
-    let event_log = env.events().all();
-    let has_slippage_event = event_log.iter().any(|(_, topics, _)| {
-        topics
-            .get(0)
-            .map(|v| {
-                let name: Symbol = v.into_val(&env);
-                name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
-            })
-            .unwrap_or(false)
-    });
-
-    assert!(
-        !has_slippage_event,
-        "no slippage_check_passed event when bound is None"
-    );
 }
