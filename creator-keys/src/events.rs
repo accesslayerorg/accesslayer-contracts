@@ -1271,6 +1271,10 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for protocol trade fee collection.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_col");
+
+/// Stable protocol trade fee collection payload for downstream indexers.
 /// Event name for the protocol trade fee collected on a buy or sell.
 pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
 
@@ -1283,6 +1287,13 @@ pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
 /// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
 /// - data: `FeeCollectedEvent`
 ///
+/// Emitted on every buy and sell once a protocol trade fee is configured via
+/// `set_protocol_fee`, carrying the treasury address and the amount deducted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    pub treasury: Address,
+    pub amount: i128,
 /// Emitted on every buy and sell once the protocol trade fee is configured,
 /// carrying the deducted amount and the treasury address that received it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1301,6 +1312,23 @@ pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
     (FEE_COLLECTED_EVENT_NAME, treasury.clone())
 }
 
+/// Event name for a sell rejected by the anti-flash-trade lockup.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lockup");
+
+/// Stable sell lockup rejection payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator, seller)`
+/// - data: `LockupBlockedEvent`
+///
+/// Emitted when `sell_key` rejects a sale inside the configured lockup window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    pub creator_id: Address,
+    pub seller: Address,
+    pub last_buy_timestamp: u64,
+    pub unlock_at: u64,
 /// Stable lockup-blocked event payload for downstream indexers.
 ///
 /// Event shape:

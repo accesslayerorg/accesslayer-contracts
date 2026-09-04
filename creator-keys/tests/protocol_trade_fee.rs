@@ -71,6 +71,11 @@ fn test_buy_routes_one_percent_to_treasury_and_remainder_to_creator() {
     let buyer = Address::generate(&env);
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
 
+    // Read the event log immediately after the trade: the test host only
+    // exposes the events of the most recent contract invocation.
+    let fees = collected_fees(&env);
+    assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
+    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
     // Capture events immediately after the trade — view calls below will
     // flush the Soroban test-env event buffer.
     let fees = collected_fees(&env);
@@ -103,6 +108,20 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
 
     s.client.sell_key(&s.creator, &trader, &None);
 
+    // Read the event log immediately after the trade: the test host only
+    // exposes the events of the most recent contract invocation.
+    let mut sell_events = Vec::new(&env);
+    for (_, topics, data) in env.events().all().iter() {
+        let is_sell = topics.get(0).map(|v| {
+            let name: Symbol = v.into_val(&env);
+            name == events::SELL_EVENT_NAME
+        }) == Some(true);
+        if is_sell {
+            sell_events.push_back(data);
+        }
+    }
+    assert_eq!(sell_events.len(), 1, "exactly one sell event expected");
+    let data = sell_events.get(0).unwrap();
     // Capture events immediately after the sell — any subsequent contract
     // invocation (including view calls) will flush the test-env event buffer.
     //
@@ -134,6 +153,7 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
     // seller receives 0 stroops (proceeds are the seller's share only).
     assert_eq!(
         payload.proceeds, 0,
+        "the full post-trade-fee remainder flows to the creator fee, so the seller nets 0"
         "seller proceeds are 0 when 100% of net is routed to the creator"
     );
 
@@ -144,6 +164,17 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
     assert!(
         fees.iter().any(|fee| fee.0 == s.treasury && fee.1 == 1),
         "the sell's fee_collected event must carry the treasury and 1 stroop"
+    );
+
+    assert_eq!(
+        s.client.get_treasury_balance(),
+        2,
+        "the sell must add another 1% of the 100 stroop price"
+    );
+    assert_eq!(
+        s.client.get_creator_fee_balance(&s.creator),
+        198,
+        "the buy's 99 plus the sell's 99 remainder both accrue to the creator fee"
     );
 }
 

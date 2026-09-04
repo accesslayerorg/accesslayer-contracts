@@ -184,8 +184,14 @@ fn test_global_resume_with_two_approvals_lifts_halt() {
     f.client.global_resume(&f.signers[1]);
     assert!(f.client.get_global_trading_paused());
 
-    // Second distinct approval lifts the halt.
+    // Second distinct approval lifts the halt. Read the event log immediately
+    // after the lifting call — an intervening host read resets the test event
+    // view, so the lifted event must be inspected before checking pause state.
     f.client.global_resume(&f.signers[2]);
+    assert!(env.events().all().iter().any(|(_, topics, _)| {
+        topics == global_pause_lifted_topics(&f.signers[2]).into_val(&env)
+    }));
+    assert!(!f.client.get_global_trading_paused());
     let events = env.events().all();
     assert!(!f.client.get_global_trading_paused());
 
