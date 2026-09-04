@@ -35,7 +35,7 @@ use contract_test_env::{
 };
 use creator_keys::events;
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger},
     Address, IntoVal, Symbol,
 };
 
@@ -58,11 +58,13 @@ fn buy_n_keys(
 
 /// Sell `count` keys for `seller` from `creator`, one at a time.
 fn sell_n_keys(
+    env: &soroban_sdk::Env,
     client: &creator_keys::CreatorKeysContractClient<'_>,
     creator: &soroban_sdk::Address,
     seller: &soroban_sdk::Address,
     count: u32,
 ) {
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for _ in 0..count {
         client.sell_key(creator, seller, &None);
     }
@@ -84,9 +86,9 @@ fn test_final_supply_equals_pre_buy_supply_after_net_zero_buy_sell() {
     let supply_before = client.get_total_key_supply(&creator);
     assert_eq!(supply_before, 0, "precondition: creator starts at supply 0");
 
-    // Buy 5 keys then sell 5 keys — same ledger, no sequence bump between them.
+    // Buy 5 keys then sell 5 keys.
     buy_n_keys(&client, &creator, &trader, 5);
-    sell_n_keys(&client, &creator, &trader, 5);
+    sell_n_keys(&env, &client, &creator, &trader, 5);
 
     let supply_after = client.get_total_key_supply(&creator);
     assert_eq!(
@@ -123,7 +125,8 @@ fn test_supply_transitions_correctly_through_buy_and_sell() {
         "supply must be 5 after 5 buys"
     );
 
-    // Track supply after each sell (same ledger — no sequence bump)
+    // Track supply after each sell
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for expected in (0u32..5).rev() {
         let new_supply = client.sell_key(&creator, &trader, &None);
         assert_eq!(
@@ -165,7 +168,7 @@ fn test_holder_count_returns_to_pre_buy_value_after_full_exit() {
         "holder count must be 1 while trader holds 5 keys"
     );
 
-    sell_n_keys(&client, &creator, &trader, 5);
+    sell_n_keys(&env, &client, &creator, &trader, 5);
     let holder_count_after = client.get_creator_holder_count(&creator);
 
     assert_eq!(
@@ -193,7 +196,7 @@ fn test_holder_count_unchanged_after_partial_sell() {
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
     // Partial sell: 3 out of 5 — trader still holds 2
-    sell_n_keys(&client, &creator, &trader, 3);
+    sell_n_keys(&env, &client, &creator, &trader, 3);
 
     assert_eq!(
         client.get_creator_holder_count(&creator),
@@ -265,7 +268,7 @@ fn test_trader_balance_is_zero_after_full_exit() {
         "precondition: trader holds 5 keys"
     );
 
-    sell_n_keys(&client, &creator, &trader, 5);
+    sell_n_keys(&env, &client, &creator, &trader, 5);
 
     assert_eq!(
         client.get_key_balance(&creator, &trader),
@@ -290,7 +293,7 @@ fn test_supply_equals_sum_of_holder_balances_after_net_zero_trade() {
     buy_n_keys(&client, &creator, &bystander, 3);
 
     buy_n_keys(&client, &creator, &trader, 5);
-    sell_n_keys(&client, &creator, &trader, 5);
+    sell_n_keys(&env, &client, &creator, &trader, 5);
 
     let supply = client.get_total_key_supply(&creator);
     let bal_trader = client.get_key_balance(&creator, &trader);
@@ -337,6 +340,7 @@ fn test_buy_and_sell_return_values_form_consistent_supply_sequence() {
     }
 
     // Sell 5 keys; collect each return value
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     let mut sell_returns = Vec::new();
     for _ in 0..5 {
         let new_supply = client.sell_key(&creator, &trader, &None);
@@ -410,6 +414,7 @@ fn test_buy_and_sell_events_both_emitted_and_correctly_tagged() {
     }
 
     // Count sell events — one per invocation
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     let mut sell_count = 0usize;
     for _ in 0..5 {
         client.sell_key(&creator, &trader, &None);
@@ -491,6 +496,7 @@ fn test_sell_events_carry_correct_addresses() {
     let trader = Address::generate(&env);
 
     buy_n_keys(&client, &creator, &trader, 5);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
 
     for _ in 0..5 {
         client.sell_key(&creator, &trader, &None);
@@ -550,9 +556,9 @@ fn test_bystander_unaffected_by_same_ledger_buy_sell() {
     let bystander_balance_before = client.get_key_balance(&creator, &bystander);
     let supply_after_bystander = client.get_total_key_supply(&creator);
 
-    // Trader's same-ledger buy+sell
+    // Trader's buy+sell
     buy_n_keys(&client, &creator, &trader, 5);
-    sell_n_keys(&client, &creator, &trader, 5);
+    sell_n_keys(&env, &client, &creator, &trader, 5);
 
     // Bystander must see no change
     assert_eq!(

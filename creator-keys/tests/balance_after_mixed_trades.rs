@@ -9,7 +9,7 @@ use contract_test_env::{
     compute_expected_balance_after_trades, register_creator_keys, register_test_creator,
     set_key_price_for_tests, test_env_with_auths, TradeOperation,
 };
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::Address;
 
 #[test]
@@ -37,8 +37,10 @@ fn test_balance_after_sequence_of_buys_and_sells() {
     // Execute trades
     client.buy_key(&creator, &buyer, &100i128, &None);
     client.buy_key(&creator, &buyer, &100i128, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
     client.buy_key(&creator, &buyer, &100i128, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
     client.sell_key(&creator, &buyer, &None);
 
@@ -72,6 +74,7 @@ fn test_balance_after_buys_then_sells() {
     for _ in 0..5 {
         client.buy_key(&creator, &buyer, &100i128, &None);
     }
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for _ in 0..2 {
         client.sell_key(&creator, &buyer, &None);
     }
@@ -107,6 +110,7 @@ fn test_balance_with_non_zero_initial() {
     assert_eq!(expected, 5);
 
     client.buy_key(&creator, &buyer, &100i128, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
     client.sell_key(&creator, &buyer, &None);
     client.buy_key(&creator, &buyer, &100i128, &None);

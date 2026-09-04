@@ -5,7 +5,10 @@ mod contract_test_env;
 use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
 };
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address,
+};
 
 #[test]
 fn test_buy_holder_count_behavior() {
@@ -46,6 +49,7 @@ fn test_buy_holder_count_behavior() {
 
     // 4. Selling all keys and rebuying increments count again (wallet re-enters as a holder)
     // Sell first key of buyer3
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer3, &None);
     // buyer3 has 0 keys left, holder count decrements
     assert_eq!(client.get_key_balance(&creator, &buyer3), 0);

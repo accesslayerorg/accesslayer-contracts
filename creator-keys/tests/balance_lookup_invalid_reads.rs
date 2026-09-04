@@ -8,7 +8,10 @@ mod contract_test_env;
 use contract_test_env::{
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
-use soroban_sdk::{testutils::Address as _, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Env,
+};
 
 // ── get_key_balance: unregistered creator ────────────────────────────────────
 
@@ -180,6 +183,7 @@ fn test_get_balance_no_history_and_sold_all_returns_zero_no_panic() {
     // 2. Buy and sell all keys
     client.buy_key(&creator, &buyer, &100, &None);
     assert_eq!(client.get_balance(&creator, &buyer), 1);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
 
     // Wallet that sold all keys returns 0 and does not panic

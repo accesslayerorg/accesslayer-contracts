@@ -6,7 +6,7 @@ mod contract_test_env;
 use contract_test_env::{register_creator_keys, register_test_creator, set_key_price_for_tests};
 use creator_keys::events;
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger},
     Address, Env, IntoVal, Symbol,
 };
 
@@ -69,6 +69,7 @@ fn test_buy_and_sell_event_topics_are_distinct() {
     client.buy_key(&creator, &user, &KEY_PRICE, &None);
     let buy_event_name = extract_first_event_name(&env, events::BUY_EVENT_NAME);
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &user, &None);
     let sell_event_name = extract_first_event_name(&env, events::SELL_EVENT_NAME);
 
