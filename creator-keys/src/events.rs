@@ -832,42 +832,6 @@ pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
-    pub ledger: u32,
-}
-
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
-    pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
-}
-
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
 pub struct QuorumUpdatedEvent {
     pub creator: Address,
     pub quorum_bps: u32,
@@ -1271,12 +1235,6 @@ pub struct RoyaltyUpdatedEvent {
 pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
-
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
-
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
 
 /// Stable fee collection event payload for downstream indexers.
 ///
