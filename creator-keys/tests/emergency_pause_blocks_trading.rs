@@ -17,7 +17,7 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::{ContractError, CreatorKeysContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 const KEY_PRICE: i128 = 1_000;
 const CREATOR_BPS: u32 = 9_000;
@@ -104,6 +104,9 @@ fn test_pause_blocks_buy_and_sell_then_unpause_restores_trading() {
     );
 
     // Selling works again too, returning the holder to the pre-pause baseline.
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply_after_sell = client.sell_key(&creator, &trader, &None);
     assert_eq!(supply_after_sell, supply_before);
     assert_eq!(client.get_key_balance(&creator, &trader), balance_before);

@@ -125,9 +125,24 @@ fn repeated_sells_reset_the_ttl_window_rather_than_accumulate() {
         CREATOR_TTL_LEDGERS,
     );
     let key_price_key = storage::KEY_PRICE;
+    let last_buy_key = storage::last_buy_ledger(&creator, &holder);
+    let created_at_key = storage::created_at_ledger(&creator);
     env.as_contract(&contract_id, || {
         env.storage().persistent().extend_ttl(
             &key_price_key,
+            CREATOR_TTL_LEDGERS,
+            CREATOR_TTL_LEDGERS,
+        );
+        // These keys are barely alive after the first advance; extend them
+        // so the second sell can still read the flash-loan guard and launch
+        // penalty entries.
+        env.storage().persistent().extend_ttl(
+            &last_buy_key,
+            CREATOR_TTL_LEDGERS,
+            CREATOR_TTL_LEDGERS,
+        );
+        env.storage().persistent().extend_ttl(
+            &created_at_key,
             CREATOR_TTL_LEDGERS,
             CREATOR_TTL_LEDGERS,
         );
@@ -142,6 +157,9 @@ fn repeated_sells_reset_the_ttl_window_rather_than_accumulate() {
         "precondition: advancing the ledger should have consumed TTL"
     );
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     let ttl_after_second = creator_ttl_remaining(&env, &contract_id, &creator);
 

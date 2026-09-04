@@ -10,7 +10,7 @@ use contract_test_env::{
     test_env_with_auths,
 };
 use creator_keys::ContractError;
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address};
 
 const KEY_PRICE: i128 = 1_000;
 
@@ -77,6 +77,9 @@ fn test_sell_succeeds_when_min_proceeds_equals_actual_proceeds() {
 
     let sell_quote = client.get_sell_quote(&creator, &holder);
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply = client.sell_key(&creator, &holder, &Some(sell_quote.total_amount));
     assert_eq!(
         supply, 0,
@@ -98,6 +101,9 @@ fn test_sell_reverts_when_min_proceeds_is_one_stroop_above() {
     let sell_quote = client.get_sell_quote(&creator, &holder);
 
     let before = capture_snapshot(&client, &creator, &holder);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let result = client.try_sell_key(&creator, &holder, &Some(sell_quote.total_amount + 1));
     let after = capture_snapshot(&client, &creator, &holder);
 

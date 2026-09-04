@@ -197,6 +197,8 @@ pub struct KeysSoldEvent {
     pub quantity: u32,
     /// Net proceeds received by the seller after fees.
     pub proceeds: i128,
+    /// Total supply of keys for this creator after the sale.
+    pub new_supply: u32,
     /// Ledger sequence number at the time of the sale.
     pub ledger: u32,
 }
@@ -386,7 +388,10 @@ pub struct CoCreatorSetEvent {
     pub split_bps: u32,
 }
 
-pub fn co_creator_set_topics(creator_id: &Address, co_creator: &Address) -> (Symbol, Address, Address) {
+pub fn co_creator_set_topics(
+    creator_id: &Address,
+    co_creator: &Address,
+) -> (Symbol, Address, Address) {
     (
         CO_CREATOR_SET_EVENT_NAME,
         creator_id.clone(),
@@ -829,42 +834,6 @@ pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
-    pub ledger: u32,
-}
-
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
-    pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
-}
-
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
 pub struct QuorumUpdatedEvent {
     pub creator: Address,
     pub quorum_bps: u32,
@@ -1269,12 +1238,14 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-// --- Auction events ---
-
-/// Event name for auction purchase.
-pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
-
-/// Stable auction purchase event payload.
+/// Stable fee collection event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
+/// - data: `FeeCollectedEvent`
+///
+/// Emitted on every buy and sell once the protocol trade fee is configured,
+/// carrying the deducted amount and the treasury address that received it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct AuctionPurchaseEvent {
@@ -1343,7 +1314,11 @@ pub struct StakeEvent {
 }
 
 /// Shared stake event topics tuple.
-pub fn stake_topics(creator: &Address, holder: &Address, stake_id: u32) -> (Symbol, Address, Address, u32) {
+pub fn stake_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
     (STAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
 }
 
@@ -1373,7 +1348,12 @@ pub fn stake_extended_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (STAKE_EXTENDED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        STAKE_EXTENDED_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
 
 /// Stable early-unstake event payload for downstream indexers.
@@ -1406,7 +1386,12 @@ pub fn early_unstake_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (EARLY_UNSTAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        EARLY_UNSTAKE_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
 
 /// Stable stake-reward-claim event payload for downstream indexers.
@@ -1439,9 +1424,13 @@ pub fn stake_reward_claimed_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (STAKE_REWARD_CLAIMED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        STAKE_REWARD_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
-
 
 // ============================================================================
 // Launch Penalty (#798)
@@ -1471,7 +1460,11 @@ pub fn launch_penalty_applied_topics(
     creator: &Address,
     seller: &Address,
 ) -> (Symbol, Address, Address) {
-    (LAUNCH_PENALTY_APPLIED_EVENT_NAME, creator.clone(), seller.clone())
+    (
+        LAUNCH_PENALTY_APPLIED_EVENT_NAME,
+        creator.clone(),
+        seller.clone(),
+    )
 }
 
 /// Event name for set_launch_penalty.
@@ -1494,28 +1487,78 @@ pub fn launch_penalty_set_topics(creator: &Address) -> (Symbol, Address) {
     (LAUNCH_PENALTY_SET_EVENT_NAME, creator.clone())
 }
 
-// --- Max buy quantity per transaction (#828) ---
+/// Event name for a pre-launch auction being configured.
+pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
 
-/// Event name emitted when the creator updates the max buy quantity per transaction.
-pub const MAX_BUY_QUANTITY_UPDATED_EVENT_NAME: Symbol = symbol_short!("mbq_upd");
-
-/// Stable max-buy-quantity-updated event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator_id)`
-/// - data: `MaxBuyQuantityUpdatedEvent`
+/// Payload emitted when a creator configures a pre-launch auction (issue #787).
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct MaxBuyQuantityUpdatedEvent {
-    /// Address of the creator whose limit was changed.
+pub struct AuctionConfiguredEvent {
     pub creator_id: Address,
-    /// New per-transaction buy quantity limit.
-    pub max_qty: u32,
-    /// Ledger sequence at the time of the update.
+    pub auction_price: i128,
+    pub auction_supply: u32,
+}
+
+/// Shared auction-configured event topics tuple.
+pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for a pre-launch auction being cancelled.
+pub const AUCTION_CANCELLED_EVENT_NAME: Symbol = symbol_short!("auc_cnl");
+
+/// Payload emitted when a creator cancels a pre-launch auction (issue #790).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionCancelledEvent {
+    pub creator_id: Address,
+}
+
+/// Shared auction-cancelled event topics tuple.
+pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for an auction-phase key purchase.
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
+
+/// Stable auction purchase event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionPurchaseEvent {
+    pub buyer: Address,
+    pub creator_id: Address,
+    pub quantity: u32,
+    pub price_paid: i128,
+    pub new_supply: u32,
+    pub auction_sold: u32,
     pub ledger: u32,
 }
 
-/// Shared max-buy-quantity-updated event topics tuple.
-pub fn max_buy_quantity_updated_topics(creator: &Address) -> (Symbol, Address) {
-    (MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator.clone())
+/// Shared auction purchase event topics tuple.
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+/// Event name for a co-creator removal.
+pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("co_rm");
+
+/// Payload emitted when a creator removes their co-creator split (issue #791).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorRemovedEvent {
+    pub creator_id: Address,
+    pub co_creator: Address,
+}
+
+/// Shared co-creator removal event topics tuple.
+pub fn co_creator_removed_topics(
+    creator: &Address,
+    co_creator: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_REMOVED_EVENT_NAME,
+        creator.clone(),
+        co_creator.clone(),
+    )
 }
