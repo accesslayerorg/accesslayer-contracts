@@ -110,7 +110,11 @@ fn test_cooldown_blocked_event_has_correct_ledgers_remaining() {
     let _ = s.client.try_buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
 
     let found = cooldown_blocked_events(&env);
-    assert_eq!(found.len(), 1, "exactly one cooldown_blocked event per rejection");
+    assert_eq!(
+        found.len(),
+        1,
+        "exactly one cooldown_blocked event per rejection"
+    );
 
     let ev = found.get(0).unwrap();
     assert_eq!(ev.wallet, buyer, "event.wallet must be the blocked buyer");
@@ -205,11 +209,15 @@ fn test_cooldown_is_independent_per_wallet() {
     set_ledger_sequence(&env, BASE_LEDGER + 3);
 
     // buyer_a is blocked.
-    let result_a = s.client.try_buy_key(&s.creator, &buyer_a, &KEY_PRICE, &None);
+    let result_a = s
+        .client
+        .try_buy_key(&s.creator, &buyer_a, &KEY_PRICE, &None);
     assert_eq!(result_a, Err(Ok(ContractError::CooldownActive)));
 
     // buyer_b is also blocked independently.
-    let result_b = s.client.try_buy_key(&s.creator, &buyer_b, &KEY_PRICE, &None);
+    let result_b = s
+        .client
+        .try_buy_key(&s.creator, &buyer_b, &KEY_PRICE, &None);
     assert_eq!(result_b, Err(Ok(ContractError::CooldownActive)));
 }
 
