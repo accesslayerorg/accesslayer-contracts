@@ -6,8 +6,12 @@ use contract_test_env::{
     capture_snapshot, register_creator_keys, register_test_creator, set_pricing_and_fees,
     test_env_with_auths,
 };
+use creator_keys::events;
 use creator_keys::ContractError;
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _, Ledger as _},
+    Address, Env, IntoVal, Symbol,
+};
 
 const KEY_PRICE: i128 = 1_000;
 
@@ -236,24 +240,29 @@ fn test_buy_emits_slippage_check_passed_when_bound_provided() {
     env.events().all();
 
     // Buy with a non-None max_price that is satisfied
-    let supply = client.buy_key(&creator, &buyer, &buy_quote.total_amount, &Some(buy_quote.price));
+    let supply = client.buy_key(
+        &creator,
+        &buyer,
+        &buy_quote.total_amount,
+        &Some(buy_quote.price),
+    );
     assert_eq!(supply, 1);
 
     let event_log = env.events().all();
-    let slippage_event = event_log
-        .iter()
-        .rev()
-        .find(|(_, topics, _)| {
-            topics
-                .get(0)
-                .map(|v| {
-                    let name: Symbol = v.into_val(&env);
-                    name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
-                })
-                .unwrap_or(false)
-        });
+    let slippage_event = event_log.iter().rev().find(|(_, topics, _)| {
+        topics
+            .get(0)
+            .map(|v| {
+                let name: Symbol = v.into_val(&env);
+                name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
+            })
+            .unwrap_or(false)
+    });
 
-    assert!(slippage_event.is_some(), "slippage_check_passed event should be emitted");
+    assert!(
+        slippage_event.is_some(),
+        "slippage_check_passed event should be emitted"
+    );
     let event_data: events::SlippageCheckPassedEvent = slippage_event.unwrap().2.into_val(&env);
     assert_eq!(event_data.creator_id, creator);
     assert_eq!(event_data.actual_amount, buy_quote.price);
@@ -284,7 +293,10 @@ fn test_buy_skips_slippage_event_when_bound_is_none() {
             .unwrap_or(false)
     });
 
-    assert!(!has_slippage_event, "no slippage_check_passed event when bound is None");
+    assert!(
+        !has_slippage_event,
+        "no slippage_check_passed event when bound is None"
+    );
 }
 
 #[test]
@@ -301,20 +313,20 @@ fn test_sell_emits_slippage_check_passed_when_bound_provided() {
     assert_eq!(supply, 0);
 
     let event_log = env.events().all();
-    let slippage_event = event_log
-        .iter()
-        .rev()
-        .find(|(_, topics, _)| {
-            topics
-                .get(0)
-                .map(|v| {
-                    let name: Symbol = v.into_val(&env);
-                    name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
-                })
-                .unwrap_or(false)
-        });
+    let slippage_event = event_log.iter().rev().find(|(_, topics, _)| {
+        topics
+            .get(0)
+            .map(|v| {
+                let name: Symbol = v.into_val(&env);
+                name == events::SLIPPAGE_CHECK_PASSED_EVENT_NAME
+            })
+            .unwrap_or(false)
+    });
 
-    assert!(slippage_event.is_some(), "slippage_check_passed event should be emitted");
+    assert!(
+        slippage_event.is_some(),
+        "slippage_check_passed event should be emitted"
+    );
     let event_data: events::SlippageCheckPassedEvent = slippage_event.unwrap().2.into_val(&env);
     assert_eq!(event_data.creator_id, creator);
     assert_eq!(event_data.bound, sell_quote.total_amount);
@@ -343,5 +355,8 @@ fn test_sell_skips_slippage_event_when_bound_is_none() {
             .unwrap_or(false)
     });
 
-    assert!(!has_slippage_event, "no slippage_check_passed event when bound is None");
+    assert!(
+        !has_slippage_event,
+        "no slippage_check_passed event when bound is None"
+    );
 }

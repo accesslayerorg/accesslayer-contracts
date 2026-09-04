@@ -571,8 +571,8 @@ pub mod constants {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
 
-        pub fn quorum_bps(creator: &Address) -> DataKey {
-            DataKey::QuorumBps(creator.clone())
+        pub fn holder_cap_bps(creator: &Address) -> DataKey {
+            DataKey::HolderCapBps(creator.clone())
         }
 
         pub fn quorum_bps(creator: &Address) -> DataKey {
@@ -1287,52 +1287,6 @@ pub struct AirdropSummary {
     pub total_cost: i128,
     pub recipient_count: u32,
     pub skipped_count: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct AuctionConfig {
-    pub auction_supply: u32,
-    pub auction_price: i128,
-    pub auction_sold: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct StakingRewardsState {
-    pub pool: i128,
-    pub total_staked: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct StakePosition {
-    pub stake_id: u32,
-    pub amount: u32,
-    pub unlock_ledger: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct StakeExit {
-    pub stake_id: u32,
-    pub amount: u32,
-    pub forgone_reward: i128,
-    pub penalty: i128,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct StakeRewardClaim {
-    pub stake_id: u32,
-    pub reward: i128,
-    pub amount: u32,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum StakingKey {
-    NextStakeId(Address, Address),
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
