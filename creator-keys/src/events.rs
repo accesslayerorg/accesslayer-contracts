@@ -388,7 +388,10 @@ pub struct CoCreatorSetEvent {
     pub split_bps: u32,
 }
 
-pub fn co_creator_set_topics(creator_id: &Address, co_creator: &Address) -> (Symbol, Address, Address) {
+pub fn co_creator_set_topics(
+    creator_id: &Address,
+    co_creator: &Address,
+) -> (Symbol, Address, Address) {
     (
         CO_CREATOR_SET_EVENT_NAME,
         creator_id.clone(),
@@ -831,42 +834,6 @@ pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
-    pub ledger: u32,
-}
-
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
-    pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
-}
-
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
 pub struct QuorumUpdatedEvent {
     pub creator: Address,
     pub quorum_bps: u32,
@@ -1271,12 +1238,6 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
-
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
-
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:
@@ -1362,7 +1323,11 @@ pub struct StakeEvent {
 }
 
 /// Shared stake event topics tuple.
-pub fn stake_topics(creator: &Address, holder: &Address, stake_id: u32) -> (Symbol, Address, Address, u32) {
+pub fn stake_topics(
+    creator: &Address,
+    holder: &Address,
+    stake_id: u32,
+) -> (Symbol, Address, Address, u32) {
     (STAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
 }
 
@@ -1392,7 +1357,12 @@ pub fn stake_extended_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (STAKE_EXTENDED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        STAKE_EXTENDED_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
 
 /// Stable early-unstake event payload for downstream indexers.
@@ -1425,7 +1395,12 @@ pub fn early_unstake_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (EARLY_UNSTAKE_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        EARLY_UNSTAKE_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
 
 /// Stable stake-reward-claim event payload for downstream indexers.
@@ -1458,9 +1433,13 @@ pub fn stake_reward_claimed_topics(
     holder: &Address,
     stake_id: u32,
 ) -> (Symbol, Address, Address, u32) {
-    (STAKE_REWARD_CLAIMED_EVENT_NAME, creator.clone(), holder.clone(), stake_id)
+    (
+        STAKE_REWARD_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        holder.clone(),
+        stake_id,
+    )
 }
-
 
 // ============================================================================
 // Launch Penalty (#798)
@@ -1490,7 +1469,11 @@ pub fn launch_penalty_applied_topics(
     creator: &Address,
     seller: &Address,
 ) -> (Symbol, Address, Address) {
-    (LAUNCH_PENALTY_APPLIED_EVENT_NAME, creator.clone(), seller.clone())
+    (
+        LAUNCH_PENALTY_APPLIED_EVENT_NAME,
+        creator.clone(),
+        seller.clone(),
+    )
 }
 
 /// Event name for set_launch_penalty.
