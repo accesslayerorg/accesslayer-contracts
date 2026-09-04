@@ -921,6 +921,8 @@ pub enum DataKey {
     ReferralEarnings(Address),
     WhitelistMap(Address, Address),
     WhitelistMode(Address),
+    /// Pre-launch auction configuration for a creator's keys.
+    AuctionConfig(Address),
     /// (creator, snapshot_id) -> `HolderSnapshotMeta` (issue #778).
     HolderSnapshotMeta(Address, u32),
     /// (creator, snapshot_id, holder) -> balance at snapshot time (issue #778).
@@ -939,6 +941,19 @@ pub enum DataKey {
     GlobalPauseVote(Address),
     GlobalResumeVote(Address),
     SelfFrozenBalance(Address, Address),
+}
+
+/// Fixed-price pre-launch auction configuration for a creator's keys.
+///
+/// While `auction_sold < auction_supply`, buys settle at `auction_price`
+/// instead of the bonding curve price. The contract transitions to the
+/// bonding curve automatically once the auction supply is exhausted.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct AuctionConfig {
+    pub auction_price: i128,
+    pub auction_supply: u32,
+    pub auction_sold: u32,
 }
 
 /// Time-locked key allocation for creator self-vesting.
