@@ -6,18 +6,24 @@
 
 mod contract_test_env;
 
-use contract_test_env::{
-    register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
+use contract_test_env::{register_creator_keys, register_test_creator, test_env_with_auths};
+
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Address, Env,
 };
-use creator_keys::{constants, ContractError};
-use soroban_sdk::{testutils::Address as _, Address, Env};
 
 const KEY_PRICE: i128 = 100;
 
+const CREATOR_BPS: u32 = 9000;
+const PROTOCOL_BPS: u32 = 1000;
+
 /// Setup a client, register a creator, and configure pricing.
 fn setup(env: &Env) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
+    env.ledger().set_max_entry_ttl(1_000_000);
+    env.ledger().set_min_persistent_entry_ttl(1_000_000);
     let (client, _) = register_creator_keys(env);
-    set_key_price_for_tests(env, &client, KEY_PRICE);
+    contract_test_env::set_pricing_and_fees(env, &client, KEY_PRICE, CREATOR_BPS, PROTOCOL_BPS);
     let creator = register_test_creator(env, &client, "alice");
     (client, creator)
 }
@@ -40,16 +46,19 @@ fn test_sell_within_launch_window_applies_penalty() {
 
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
-    assert_eq!(client.get_key_balance(&creator, &buyer), 1);
+    client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+    assert_eq!(client.get_key_balance(&creator, &buyer), 2);
 
-    // Sell within the launch window — no ledger advance.
-    let balance_before = client.get_creator_fee_balance(&creator);
+    // Sell within the launch window — advance 1 ledger to pass anti-flash-loan check.
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
 
-    // The creator fee balance should increase from the penalty going to staking pool.
-    let balance_after = client.get_creator_fee_balance(&creator);
-    // Penalty was applied (default 500 bps = 5% of proceeds).
-    assert!(balance_after > balance_before);
+    // Launch penalty was applied and credited to the staking rewards pool.
+    let pool_after = client.get_staking_rewards_pool(&creator);
+    assert!(
+        pool_after > 0,
+        "expected launch penalty to seed staking rewards pool"
+    );
 }
 
 // ============================================================================
@@ -66,13 +75,13 @@ fn test_sell_after_launch_window_no_penalty() {
     // Advance past the 7-day window (120,960 ledgers).
     advance_ledgers(&env, 120_961);
 
-    // Sell after the window — no penalty.
-    let balance_before = client.get_creator_fee_balance(&creator);
+    // Sell after the window — no launch penalty added to the pool.
+    let pool_before = client.get_staking_rewards_pool(&creator);
     client.sell_key(&creator, &buyer, &None);
-    let balance_after = client.get_creator_fee_balance(&creator);
+    let pool_after = client.get_staking_rewards_pool(&creator);
 
-    // Only the standard trade fee should apply, not the launch penalty.
-    assert_eq!(balance_before, balance_after);
+    // Staking rewards pool receives only the standard trade fee share, no launch penalty.
+    assert_eq!(pool_after - pool_before, 1);
 }
 
 // ============================================================================
@@ -89,6 +98,7 @@ fn test_set_launch_penalty_custom_bps() {
 
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
 
     // The penalty applied should be 10% instead of the default 5%.

@@ -10,7 +10,7 @@ use contract_test_env::{
     compute_expected_protocol_fee, register_creator_keys, register_test_creator,
     set_pricing_and_fees, test_env_with_auths,
 };
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 
 const KEY_PRICE: i128 = 1000;
 const CREATOR_BPS: u32 = 9000;
@@ -38,6 +38,7 @@ fn test_sell_increases_protocol_fee_recipient_balance_by_bps_fee() {
         "sell quote protocol fee should match bps calculation"
     );
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &holder, &None);
 
     let balance_after = client.get_protocol_recipient_balance();
@@ -71,6 +72,7 @@ fn test_sell_protocol_fee_recipient_balance_accumulates_across_two_sells() {
     let expected_protocol_fee = compute_expected_protocol_fee(KEY_PRICE, PROTOCOL_BPS);
     let balance_before = client.get_protocol_recipient_balance();
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &holder, &None);
     let balance_after_first_sell = client.get_protocol_recipient_balance();
     assert_eq!(

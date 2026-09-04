@@ -8,7 +8,7 @@ use contract_test_env::{
     DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 use creator_keys::ContractError;
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address};
 
 #[test]
 fn test_claim_dividend_no_claimable_fails() {
@@ -143,6 +143,7 @@ fn test_claim_dividend_after_sell_captures_pending() {
     distribute_test_dividend(&client, &creator, &distributor, amount);
 
     // Seller exits; settlement should save dividends to pending.
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer, &None);
 
     // After selling all keys, holder can still claim previously earned dividends.

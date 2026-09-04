@@ -299,6 +299,7 @@ fn zero_liquid_balance_after_sell_reverts_with_not_a_holder() {
 
     let before = client.get_poll_result(&creator, &poll_id);
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &holder, &None);
 
     let result = client.try_cast_vote(&creator, &holder, &poll_id, &0);

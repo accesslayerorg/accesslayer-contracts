@@ -7,7 +7,7 @@
 mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, register_test_creator, test_env_with_auths};
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 
 /// After updating the protocol fee config, a sell execution applies the new fee, not
 /// the original. The seller receives the correct proceeds and the fee matches the
@@ -37,6 +37,7 @@ fn test_sell_execution_applies_updated_protocol_fee() {
     // Update fee config before executing sell
     client.set_fee_config(&admin, &8000, &2000); // updated: 80/20 split
 
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     let supply = client.sell_key(&creator, &holder, &None);
     assert_eq!(supply, 0, "supply should decrement to 0 after sell");
 
@@ -92,6 +93,7 @@ fn test_sell_execution_fee_matches_quote_after_fee_config_update() {
     let quote = client.get_sell_quote(&creator, &holder);
 
     // Execute the sell
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     let supply = client.sell_key(&creator, &holder, &None);
     assert_eq!(supply, 0, "supply should be 0 after sell");
     assert_eq!(

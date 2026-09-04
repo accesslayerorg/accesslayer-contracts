@@ -263,6 +263,7 @@ fn test_get_creator_registered_at_is_immutable_after_buy_and_sell() {
     client.set_key_price(&admin, &500_i128);
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &500_i128, &None);
+    set_ledger_sequence(&env, 201);
     client.sell_key(&creator, &buyer, &None);
 
     // registered_at must still reflect the original registration sequence.

@@ -41,7 +41,9 @@ fn test_circuit_breaker_threshold_configuration_and_trigger() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    // Default threshold is 30%.
+    // Set initial threshold to 30%.
+    client.set_circuit_breaker_threshold(&admin, &30u32);
+
     // Buy 1: supply 0 -> 1. Price moves from base_price (100) to 200 (100% increase > 30%).
     let buyer = Address::generate(&env);
     let result = client.try_buy_key(&creator, &buyer, &1000i128, &None);
