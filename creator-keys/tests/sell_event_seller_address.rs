@@ -6,7 +6,7 @@
 
 use creator_keys::{events, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     Address, Env, IntoVal, String, Symbol, Val,
 };
 
@@ -44,6 +44,9 @@ fn test_sell_event_seller_address_matches_caller() {
 
     // Clear event log and then perform the sell
     env.events().all(); // Clear existing events
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &seller, &None);
 
     // Extract and verify the sell event
@@ -112,6 +115,9 @@ fn test_sell_event_seller_address_field_is_non_zero() {
         &None,
     );
     client.buy_key(&creator, &seller, &KEY_PRICE, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &seller, &None);
 
     // Verify the seller address field is present and non-zero

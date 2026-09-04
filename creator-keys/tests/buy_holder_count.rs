@@ -5,7 +5,7 @@ mod contract_test_env;
 use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
 };
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address};
 
 #[test]
 fn test_buy_holder_count_behavior() {
@@ -45,6 +45,10 @@ fn test_buy_holder_count_behavior() {
     assert_eq!(client.get_creator(&creator).holder_count, 3);
 
     // 4. Selling all keys and rebuying increments count again (wallet re-enters as a holder)
+    // Advance ledger so sell is not blocked by the flash-loan guard.
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     // Sell first key of buyer3
     client.sell_key(&creator, &buyer3, &None);
     // buyer3 has 0 keys left, holder count decrements
