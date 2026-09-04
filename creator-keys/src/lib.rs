@@ -2011,11 +2011,25 @@ pub fn read_retention_policy(env: &Env) -> RetentionPolicy {
         .unwrap_or_else(default_retention_policy)
 }
 
-fn assert_buy_price_slippage(price: i128, max_price: Option<i128>) -> Result<(), ContractError> {
+fn assert_buy_price_slippage(
+    env: &Env,
+    creator: &Address,
+    price: i128,
+    max_price: Option<i128>,
+) -> Result<(), ContractError> {
     if let Some(max) = max_price {
         if price > max {
             return Err(ContractError::SlippageExceeded);
         }
+        env.events().publish(
+            events::slippage_check_passed_topics(creator),
+            events::SlippageCheckPassedEvent {
+                creator_id: creator.clone(),
+                actual_amount: price,
+                bound: max,
+                ledger: env.ledger().sequence(),
+            },
+        );
     }
     Ok(())
 }
@@ -2045,6 +2059,7 @@ fn compute_sell_proceeds(env: &Env, price: i128) -> Result<i128, ContractError> 
 
 fn assert_sell_proceeds_slippage(
     env: &Env,
+    creator: &Address,
     price: i128,
     min_proceeds: Option<i128>,
 ) -> Result<(), ContractError> {
@@ -2053,6 +2068,15 @@ fn assert_sell_proceeds_slippage(
         if proceeds < min {
             return Err(ContractError::SlippageExceeded);
         }
+        env.events().publish(
+            events::slippage_check_passed_topics(creator),
+            events::SlippageCheckPassedEvent {
+                creator_id: creator.clone(),
+                actual_amount: proceeds,
+                bound: min,
+                ledger: env.ledger().sequence(),
+            },
+        );
     }
     Ok(())
 }
@@ -2785,7 +2809,7 @@ impl CreatorKeysContract {
             pre_price
         };
 
-        assert_buy_price_slippage(price, max_price)?;
+        assert_buy_price_slippage(&env, &creator, price, max_price)?;
 
         if payment < price {
             return Err(ContractError::InsufficientPayment);
@@ -3115,7 +3139,7 @@ impl CreatorKeysContract {
         // Settle dividends before balance changes so earnings are captured at old balance.
         settle_holder_dividends(&env, &creator, &seller, current_balance)?;
 
-        assert_sell_proceeds_slippage(&env, price, min_proceeds)?;
+        assert_sell_proceeds_slippage(&env, &creator, price, min_proceeds)?;
 
         let new_balance = current_balance
             .checked_sub(1)
