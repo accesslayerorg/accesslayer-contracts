@@ -609,6 +609,10 @@ pub mod constants {
         pub fn total_staked(creator: &Address) -> DataKey {
             DataKey::TotalStaked(creator.clone())
         }
+
+        pub fn buy_cooldown(creator: &Address) -> DataKey {
+            DataKey::BuyCooldown(creator.clone())
+        }
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -1040,6 +1044,9 @@ pub enum DataKey {
     StakeUnlockLedger(Address, Address),
     /// Total keys currently staked for a creator across all holders.
     TotalStaked(Address),
+    /// Per-creator buy cooldown in ledgers. A value of `0` (or absent) means
+    /// no cooldown is configured. Set via `set_buy_cooldown`.
+    BuyCooldown(Address),
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -2945,7 +2952,9 @@ impl CreatorKeysContract {
         extend_key_ttl_to_full_window(&env, &balance_key);
 
         // Flash-loan guard (issue #781): record this buy's ledger so sell_key can
-        // reject a same-ledger sell of the position just bought.
+        // reject a same-ledger sell of the position just bought. Also used by the
+        // per-wallet cooldown guard so the cooldown check always uses the most
+        // recent purchase ledger.
         let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &buyer);
         env.storage()
             .persistent()
@@ -2959,15 +2968,6 @@ impl CreatorKeysContract {
             .persistent()
             .set(&last_buy_key, &env.ledger().timestamp());
         extend_key_ttl_to_full_window(&env, &last_buy_key);
-
-        // Record the ledger sequence of this buy for the per-wallet cooldown guard.
-        // Written on every successful buy so the cooldown check always uses the
-        // most recent purchase ledger.
-        let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &buyer);
-        env.storage()
-            .persistent()
-            .set(&last_buy_ledger_key, &env.ledger().sequence());
-        extend_key_ttl_to_full_window(&env, &last_buy_ledger_key);
 
         // Deduct the protocol trade fee before computing the creator payout so
         // the fee collector is paid ahead of every other participant. A share
