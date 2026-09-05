@@ -100,23 +100,20 @@ pub enum ContractError {
     LockupPeriodActive = 57,
     /// Emitted when an invalid holder cap configuration is provided.
     InvalidHolderCap = 58,
-    MaxHoldingExceeded = 51,
-    LockupPeriodActive = 52,
-    InvalidHolderCap = 53,
-    GlobalTradingHalted = 54,
-    FlashLoanDetected = 55,
-    FreezeQuantityExceedsBalance = 56,
-    SnapshotHolderLimitExceeded = 57,
-    SnapshotAlreadyExists = 58,
-    SplitTooHigh = 59,
-    NameTooLong = 60,
-    BioTooLong = 61,
-    KeyAlreadyInitialised = 62,
+    GlobalTradingHalted = 59,
+    FlashLoanDetected = 60,
+    FreezeQuantityExceedsBalance = 61,
+    SnapshotHolderLimitExceeded = 62,
+    SnapshotAlreadyExists = 63,
+    SplitTooHigh = 64,
+    NameTooLong = 65,
+    BioTooLong = 66,
+    KeyAlreadyInitialised = 67,
     /// The key has been deprecated by its creator; new buys are no longer accepted.
-    KeyDeprecated = 63,
+    KeyDeprecated = 68,
     /// The creator did not provide enough XLM to cover the full buyback escrow
     /// (`circulating_supply * buyback_price_per_key`).
-    InsufficientEscrow = 64,
+    InsufficientEscrow = 69,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
