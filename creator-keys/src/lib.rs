@@ -1060,10 +1060,6 @@ pub enum DataKey {
     HolderCapBps(Address),
     /// Timestamp of last buy for a (creator, buyer) pair, used for lockup enforcement.
     LastBuyTimestamp(Address, Address),
-    /// Protocol-wide emergency trading halt flag (#784). When `true`, every
-    /// buy and sell is rejected regardless of per-key pause state.
-    ProtocolFeeBps,
-    HolderCapBps(Address),
     /// (creator, snapshot_id) -> `HolderSnapshotMeta` (issue #778).
     HolderSnapshotMeta(Address, u32),
     /// (creator, snapshot_id, holder) -> balance at snapshot time (issue #778).
@@ -1072,16 +1068,7 @@ pub enum DataKey {
     KeyMetadata(Address),
     /// (creator, holder) -> ledger of the holder's most recent buy (issue #781).
     LastBuyLedger(Address, Address),
-    /// (creator, holder) -> timestamp of the holder's most recent buy, used by
-    /// the anti-flash-trade sell lockup window (#784).
-    LastBuyTimestamp(Address, Address),
-    /// Lockup duration in seconds for sell lockup enforcement.
-    LockupDurationSecs,
     QuorumBps(Address),
-    /// Per-creator holder cap in basis points (max % of supply one wallet may hold).
-    HolderCapBps(Address),
-    /// Protocol fee basis points.
-    ProtocolFeeBps,
     /// Protocol-wide emergency trading halt flag (#784). When `true`, every
     /// buy and sell is rejected regardless of per-key pause state.
     GlobalTradingPaused,
