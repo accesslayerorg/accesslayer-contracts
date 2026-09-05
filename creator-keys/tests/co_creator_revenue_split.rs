@@ -8,7 +8,7 @@ use contract_test_env::{
 };
 use creator_keys::{events, CoCreatorConfig, ContractError};
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     Address, Env, IntoVal, String, Symbol,
 };
 
@@ -168,6 +168,9 @@ fn test_sell_splits_creator_fee_and_keeps_config_immutable() {
         split_creator_fee(sell_quote.creator_fee, CO_CREATOR_SHARE_BPS);
 
     let event_count_before_sell = co_creator_fee_events(&env).len();
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
 
     let recipient_delta = client.get_creator_fee_balance(&creator) - recipient_before;
