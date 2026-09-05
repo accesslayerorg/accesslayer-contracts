@@ -76,6 +76,29 @@ pub enum ContractError {
     VestingNotFound = 46,
     NotWhitelisted = 49,
     CircuitBreakerTriggered = 50,
+
+  /// Emitted when a `batch_transfer_keys` call contains more than the allowed
+    /// number of `(recipient, quantity)` pairs.
+    BatchTransferSizeExceeded = 51,
+    /// Emitted when a `batch_transfer_keys` call contains a recipient address
+    /// that is the same as the sender (self-transfer inside a batch).
+    InvalidRecipient = 52,
+    /// Emitted when a `batch_buy` call contains zero entries or more than
+    /// [`MAX_BATCH_BUY_SIZE`] entries.
+    BatchSizeExceeded = 53,
+    /// Emitted when `migrate_curve` receives an exponent value outside the
+    /// supported range (must be 1–5).
+    InvalidExponent = 54,
+    /// Emitted when `set_royalty` is called with a fee basis points value
+    /// that exceeds [`MAX_ROYALTY_BPS`].
+    RoyaltyExceedsLimit = 55,
+    /// Emitted when a buyer's resulting balance would exceed the per-wallet
+    /// holding cap set by the creator.
+    MaxHoldingExceeded = 56,
+    /// Emitted when a seller attempts to sell before their lockup period ends.
+    LockupPeriodActive = 57,
+    /// Emitted when an invalid holder cap configuration is provided.
+    InvalidHolderCap = 58,
     MaxHoldingExceeded = 51,
     LockupPeriodActive = 52,
     InvalidHolderCap = 53,
@@ -397,8 +420,6 @@ pub mod constants {
         pub const TREASURY_BALANCE: DataKey = DataKey::TreasuryBalance;
         pub const RETENTION_POLICY: DataKey = DataKey::RetentionPolicy;
         pub const GLOBAL_DEADLINE_LEDGER: DataKey = DataKey::GlobalDeadlineLedger;
-        pub const PROTOCOL_FEE_BPS: DataKey = DataKey::ProtocolFeeBps;
-        pub const LOCKUP_DURATION_SECS: DataKey = DataKey::LockupDurationSecs;
 
         /// Protocol-wide emergency trading halt flag (#784).
         pub const GLOBAL_TRADING_PAUSED: DataKey = DataKey::GlobalTradingPaused;
@@ -571,8 +592,25 @@ pub mod constants {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
 
+        pub const PROTOCOL_FEE_BPS: DataKey = DataKey::ProtocolFeeBps;
+        pub const LOCKUP_DURATION_SECS: DataKey = DataKey::LockupDurationSecs;
+
+        pub fn royalty_config(creator: &Address) -> DataKey {
+            DataKey::RoyaltyConfig(creator.clone())
+        }
+
+        pub fn curve_exponent(creator: &Address) -> DataKey {
+            DataKey::CurveExponent(creator.clone())
+        }
+
         pub fn holder_cap_bps(creator: &Address) -> DataKey {
             DataKey::HolderCapBps(creator.clone())
+        }
+
+        pub fn last_buy_timestamp(creator: &Address, buyer: &Address) -> DataKey {
+            DataKey::LastBuyTimestamp(creator.clone(), buyer.clone())
+        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
         }
 
         pub fn quorum_bps(creator: &Address) -> DataKey {
@@ -860,6 +898,12 @@ pub const MAX_DISCOUNT_TIERS: u32 = 5;
 /// Maximum number of entries in a single batch buy call.
 pub const MAX_BATCH_BUY_SIZE: usize = 5;
 
+/// Maximum number of `(recipient, quantity)` pairs accepted by a single
+/// [`CreatorKeysContract::batch_transfer_keys`] call.
+///
+/// Larger lists revert with [`ContractError::BatchTransferSizeExceeded`].
+pub const MAX_BATCH_TRANSFER_SIZE: u32 = 10;
+
 /// Maximum royalty fee basis points (5%).
 pub const MAX_ROYALTY_BPS: u32 = 500;
 
@@ -974,6 +1018,22 @@ pub enum DataKey {
     ReferralEarnings(Address),
     WhitelistMap(Address, Address),
     WhitelistMode(Address),
+    /// Protocol fee basis points (separate from legacy FeeConfig).
+    ProtocolFeeBps,
+    /// Sell lockup duration in seconds.
+    LockupDurationSecs,
+    /// Per-creator royalty fee configuration.
+    RoyaltyConfig(Address),
+    /// Per-creator bonding curve exponent for curve migration.
+    CurveExponent(Address),
+    /// Per-creator per-wallet holding cap in basis points.
+    HolderCapBps(Address),
+    /// Timestamp of last buy for a (creator, buyer) pair, used for lockup enforcement.
+    LastBuyTimestamp(Address, Address),
+    /// Protocol-wide emergency trading halt flag (#784). When `true`, every
+    /// buy and sell is rejected regardless of per-key pause state.
+    ProtocolFeeBps,
+    HolderCapBps(Address),
     /// (creator, snapshot_id) -> `HolderSnapshotMeta` (issue #778).
     HolderSnapshotMeta(Address, u32),
     /// (creator, snapshot_id, holder) -> balance at snapshot time (issue #778).
@@ -1287,6 +1347,21 @@ pub struct AirdropSummary {
     pub total_cost: i128,
     pub recipient_count: u32,
     pub skipped_count: u32,
+}
+
+/// Result of a single order within a [`CreatorKeysContract::batch_buy`] call.
+///
+/// Each entry in the returned `Vec` corresponds to one `(creator, quantity)`
+/// pair from the input orders slice, in the same order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BatchBuyResult {
+    /// Address of the creator whose keys were purchased.
+    pub creator: Address,
+    /// Number of keys purchased for this order.
+    pub quantity: u32,
+    /// Total amount paid (key price × quantity, including protocol fee).
+    pub price_paid: i128,
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
@@ -5374,6 +5449,274 @@ impl CreatorKeysContract {
         Ok(())
     }
 
+    /// Transfers keys from the caller to multiple recipients in a single atomic transaction.
+    ///
+    /// Accepts up to [`MAX_BATCH_TRANSFER_SIZE`] `(recipient, quantity)` pairs.
+    /// All transfers are processed atomically: if any single step fails the entire
+    /// batch panics and no state changes are persisted.
+    ///
+    /// Dividend checkpoints are settled for the sender and for each recipient
+    /// before any balance is modified, so the dividend accounting remains
+    /// consistent across the full batch.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::BatchTransferSizeExceeded`] if `transfers` contains more
+    ///   than [`MAX_BATCH_TRANSFER_SIZE`] entries.
+    /// - [`ContractError::ZeroTransferAmount`] if any entry has a zero quantity.
+    /// - [`ContractError::InvalidRecipient`] if any recipient equals the sender
+    ///   (self-transfer is not allowed inside a batch).
+    /// - [`ContractError::InsufficientBalance`] if the sender's balance is less
+    ///   than the sum of all requested quantities.
+    pub fn batch_transfer_keys(
+        env: Env,
+        creator: Address,
+        from: Address,
+        transfers: Vec<(Address, u32)>,
+    ) -> Result<(), ContractError> {
+        from.require_auth();
+        assert_not_paused(&env)?;
+
+        // Validate batch size: must be between 1 and MAX_BATCH_TRANSFER_SIZE.
+        if transfers.len() > MAX_BATCH_TRANSFER_SIZE {
+            return Err(ContractError::BatchTransferSizeExceeded);
+        }
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+        // --- Pre-flight validation pass ---
+        // Compute total quantity and validate each entry before touching any state.
+        let mut total_quantity: u32 = 0;
+        for (to, qty) in transfers.iter() {
+            if qty == 0 {
+                return Err(ContractError::ZeroTransferAmount);
+            }
+            if to == from {
+                return Err(ContractError::InvalidRecipient);
+            }
+            total_quantity = total_quantity
+                .checked_add(qty)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // Read sender balance and settle dividends before any mutations.
+        let from_balance_key = constants::storage::holder_balance_key(&creator, &from);
+        let from_balance: u32 = env
+            .storage()
+            .persistent()
+            .get(&from_balance_key)
+            .unwrap_or(0);
+        settle_holder_dividends(&env, &creator, &from, from_balance)?;
+
+        if from_balance < total_quantity {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        // --- Apply all transfers ---
+        let mut remaining_from_balance = from_balance;
+        for (to, qty) in transfers.iter() {
+            let to_balance_key = constants::storage::holder_balance_key(&creator, &to);
+            let to_balance: u32 = env.storage().persistent().get(&to_balance_key).unwrap_or(0);
+
+            // Settle dividends for each recipient before their balance changes.
+            settle_holder_dividends(&env, &creator, &to, to_balance)?;
+
+            // Decrement sender running balance.
+            remaining_from_balance = remaining_from_balance
+                .checked_sub(qty)
+                .ok_or(ContractError::InsufficientBalance)?;
+
+            // Increment recipient balance.
+            let new_to_balance = to_balance.checked_add(qty).ok_or(ContractError::Overflow)?;
+            env.storage()
+                .persistent()
+                .set(&to_balance_key, &new_to_balance);
+            extend_key_ttl_to_full_window(&env, &to_balance_key);
+
+            // Increment holder count when recipient crosses zero → positive.
+            if to_balance == 0 {
+                profile.holder_count = profile
+                    .holder_count
+                    .checked_add(1)
+                    .ok_or(ContractError::Overflow)?;
+            }
+        }
+
+        // Write final sender balance.
+        env.storage()
+            .persistent()
+            .set(&from_balance_key, &remaining_from_balance);
+        extend_key_ttl_to_full_window(&env, &from_balance_key);
+
+        // Decrement holder count if sender balance reaches zero.
+        if remaining_from_balance == 0 {
+            profile.holder_count = profile
+                .holder_count
+                .checked_sub(1)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // Write updated profile (holder_count may have changed).
+        let profile_key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&profile_key, &profile);
+
+        env.events().publish(
+            events::batch_transfer_completed_topics(&creator, &from),
+            events::BatchTransferCompletedEvent {
+                creator_id: creator,
+                from,
+                transfers,
+                total_transferred: total_quantity,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Buys keys across multiple creators in a single call.
+    ///
+    /// Accepts 1–[`MAX_BATCH_BUY_SIZE`] `(creator, quantity)` pairs. Each order
+    /// calls [`buy_key`] `quantity` times at the current quote price, so the
+    /// bonding curve advances correctly between buys.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::BatchSizeExceeded`] if `orders` is empty or contains
+    ///   more than [`MAX_BATCH_BUY_SIZE`] entries.
+    /// - Any error that [`buy_key`] itself can return (e.g.
+    ///   [`ContractError::NotRegistered`], [`ContractError::SupplyCapExceeded`]).
+    pub fn batch_buy(
+        env: Env,
+        buyer: Address,
+        orders: Vec<(Address, u32)>,
+    ) -> Result<Vec<BatchBuyResult>, ContractError> {
+        buyer.require_auth();
+        assert_not_paused(&env)?;
+
+        let order_count = orders.len();
+        if order_count == 0 || order_count > MAX_BATCH_BUY_SIZE as u32 {
+            return Err(ContractError::BatchSizeExceeded);
+        }
+
+        let mut results: Vec<BatchBuyResult> = Vec::new(&env);
+
+        for (creator, quantity) in orders.iter() {
+            let mut total_paid: i128 = 0;
+            for _ in 0..quantity {
+                let quote = Self::get_buy_quote(env.clone(), creator.clone())?;
+                let payment = quote.total_amount;
+                Self::buy_key(env.clone(), creator.clone(), buyer.clone(), payment, None)?;
+                total_paid = total_paid
+                    .checked_add(payment)
+                    .ok_or(ContractError::Overflow)?;
+            }
+            results.push_back(BatchBuyResult {
+                creator,
+                quantity,
+                price_paid: total_paid,
+            });
+        }
+
+        Ok(results)
+    }
+
+    /// Sets the royalty fee configuration for a creator's keys.
+    ///
+    /// Both `buy_fee_bps` and `sell_fee_bps` must not exceed [`MAX_ROYALTY_BPS`]
+    /// (500 = 5%). Only the creator themselves may call this.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::RoyaltyExceedsLimit`] if either fee exceeds [`MAX_ROYALTY_BPS`].
+    pub fn set_royalty(
+        env: Env,
+        creator: Address,
+        buy_fee_bps: u32,
+        sell_fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        read_registered_creator_profile(&env, &creator)?;
+
+        if buy_fee_bps > MAX_ROYALTY_BPS || sell_fee_bps > MAX_ROYALTY_BPS {
+            return Err(ContractError::RoyaltyExceedsLimit);
+        }
+
+        let config = RoyaltyConfig {
+            buy_fee_bps,
+            sell_fee_bps,
+        };
+        env.storage()
+            .persistent()
+            .set(&constants::storage::royalty_config(&creator), &config);
+        extend_key_ttl_to_full_window(&env, &constants::storage::royalty_config(&creator));
+
+        env.events().publish(
+            events::royalty_updated_topics(&creator),
+            events::RoyaltyUpdatedEvent {
+                creator: creator.clone(),
+                buy_fee_bps,
+                sell_fee_bps,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Returns the royalty configuration for a creator, or `None` if not set.
+    pub fn get_royalty_config(env: Env, creator: Address) -> Option<RoyaltyConfig> {
+        read_royalty_config(&env, &creator)
+    }
+
+    /// Migrates the bonding curve exponent for a batch of creator keys.
+    ///
+    /// Only the protocol admin may call this. Valid exponent values are 1–5.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`ContractError::InvalidExponent`] if `exponent` is 0 or greater than 5.
+    pub fn migrate_curve(
+        env: Env,
+        admin: Address,
+        exponent: u32,
+        key_ids: Vec<Address>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if exponent == 0 || exponent > 5 {
+            return Err(ContractError::InvalidExponent);
+        }
+
+        for creator in key_ids.iter() {
+            env.storage()
+                .persistent()
+                .set(&constants::storage::curve_exponent(&creator), &exponent);
+            extend_key_ttl_to_full_window(&env, &constants::storage::curve_exponent(&creator));
+        }
+
+        env.events().publish(
+            events::curve_migrated_topics(&admin),
+            events::CurveMigratedEvent {
+                admin: admin.clone(),
+                new_exponent: exponent,
+                key_count: key_ids.len(),
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Returns the curve exponent set for a creator, or `None` if not migrated.
+    pub fn get_curve_exponent(env: Env, creator: Address) -> Option<u32> {
+        read_curve_exponent(&env, &creator)
+    }
+
     /// Returns the current withdrawable treasury balance.
     ///
     /// The treasury balance accumulates from the protocol fee portion of every
@@ -6568,6 +6911,7 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         if current_balance > 0 && new_balance == 0 {
+            profile.holder_count = profile.holder_count.checked_sub(1).unwrap_or(0);
             profile.holder_count = profile.holder_count.saturating_sub(1);
         }
 

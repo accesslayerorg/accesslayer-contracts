@@ -1238,6 +1238,67 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for batch transfer completion.
+pub const BATCH_TRANSFER_COMPLETED_EVENT_NAME: Symbol = symbol_short!("bat_xfer");
+
+/// Stable field order for batch transfer completed event payloads.
+pub const BATCH_TRANSFER_COMPLETED_DATA_FIELDS: [&str; 5] = [
+    "creator_id",
+    "from",
+    "transfers",
+    "total_transferred",
+    "ledger",
+];
+
+/// Stable batch transfer completed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BATCH_TRANSFER_COMPLETED_EVENT_NAME, creator_id, from)`
+/// - data:   `BatchTransferCompletedEvent`
+///
+/// `transfers` is the ordered list of `(recipient, quantity)` pairs processed
+/// in the batch. `total_transferred` is the sum of all quantities.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BatchTransferCompletedEvent {
+    pub creator_id: Address,
+    pub from: Address,
+    pub transfers: Vec<(Address, u32)>,
+    pub total_transferred: u32,
+    pub ledger: u32,
+}
+
+/// Shared batch transfer completed event topics tuple.
+pub fn batch_transfer_completed_topics(
+    creator: &Address,
+    from: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        BATCH_TRANSFER_COMPLETED_EVENT_NAME,
+        creator.clone(),
+        from.clone(),
+    )
+}
+
+/// Event name for protocol trade fee collected.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+
+/// Stable fee collected event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
+/// - data:   `FeeCollectedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    pub treasury: Address,
+    pub amount: i128,
+/// Event name for the protocol trade fee collected on a buy or sell.
+pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+
+/// Event name for a sell rejected by the anti-flash-trade lockup window.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:
@@ -1262,6 +1323,21 @@ pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
     (FEE_COLLECTED_EVENT_NAME, treasury.clone())
 }
 
+/// Event name for sell blocked by lockup period.
+pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lk_blk");
+
+/// Stable lockup blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
+/// - data:   `LockupBlockedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    pub creator_id: Address,
+    pub seller: Address,
+    pub last_buy_timestamp: u64,
+    pub unlock_at: u64,
 /// Stable lockup-blocked event payload for downstream indexers.
 ///
 /// Event shape:
