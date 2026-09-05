@@ -1666,3 +1666,82 @@ pub struct AuctionCancelledEvent {
 pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
     (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
 }
+
+// --- Key deprecation and holder buyback events (#834) ---
+
+/// Event name emitted when a creator deprecates their key.
+pub const KEY_DEPRECATED_EVENT_NAME: Symbol = symbol_short!("key_dep");
+
+/// Event name emitted when a holder redeems keys on a deprecated key.
+pub const KEYS_REDEEMED_EVENT_NAME: Symbol = symbol_short!("key_rdm");
+
+/// Stable field order for the key_deprecated event payload.
+pub const KEY_DEPRECATED_DATA_FIELDS: [&str; 5] = [
+    "creator",
+    "buyback_price_per_key",
+    "circulating_supply",
+    "total_escrow",
+    "ledger",
+];
+
+/// Stable field order for the keys_redeemed event payload.
+pub const KEYS_REDEEMED_DATA_FIELDS: [&str; 6] = [
+    "creator",
+    "holder",
+    "quantity",
+    "payout",
+    "new_supply",
+    "ledger",
+];
+
+/// Stable key-deprecated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEY_DEPRECATED_EVENT_NAME, creator)`
+/// - data: `KeyDeprecatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyDeprecatedEvent {
+    /// Creator who deprecated their key.
+    pub creator: Address,
+    /// Fixed XLM payout per key for all redemptions.
+    pub buyback_price_per_key: i128,
+    /// Circulating supply at the time of deprecation.
+    pub circulating_supply: u32,
+    /// Total XLM escrowed (`circulating_supply * buyback_price_per_key`).
+    pub total_escrow: i128,
+    /// Ledger sequence number at the time of deprecation.
+    pub ledger: u32,
+}
+
+/// Shared key-deprecated event topics tuple.
+pub fn key_deprecated_topics(creator: &Address) -> (Symbol, Address) {
+    (KEY_DEPRECATED_EVENT_NAME, creator.clone())
+}
+
+/// Stable keys-redeemed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEYS_REDEEMED_EVENT_NAME, creator, holder)`
+/// - data: `KeysRedeemedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysRedeemedEvent {
+    /// Creator whose deprecated key is being redeemed.
+    pub creator: Address,
+    /// Holder who redeemed their keys.
+    pub holder: Address,
+    /// Number of keys redeemed by the holder.
+    pub quantity: u32,
+    /// Total XLM payout transferred to the holder.
+    pub payout: i128,
+    /// Total key supply for the creator after this redemption.
+    pub new_supply: u32,
+    /// Ledger sequence number at the time of redemption.
+    pub ledger: u32,
+}
+
+/// Shared keys-redeemed event topics tuple.
+pub fn keys_redeemed_topics(creator: &Address, holder: &Address) -> (Symbol, Address, Address) {
+    (KEYS_REDEEMED_EVENT_NAME, creator.clone(), holder.clone())
+}
