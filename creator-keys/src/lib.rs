@@ -628,8 +628,6 @@ pub mod constants {
             DataKey::HolderCapBps(creator.clone())
         }
 
-        pub fn last_buy_timestamp(creator: &Address, buyer: &Address) -> DataKey {
-            DataKey::LastBuyTimestamp(creator.clone(), buyer.clone())
         pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
             DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
         }
