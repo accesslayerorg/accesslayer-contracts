@@ -17,7 +17,7 @@ mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, set_ledger_sequence, test_env_with_auths};
 use creator_keys::CreatorKeysContract;
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String};
 
 // ---------------------------------------------------------------------------
 // Acceptance criteria: all fields present and correct after registration
@@ -263,6 +263,9 @@ fn test_get_creator_registered_at_is_immutable_after_buy_and_sell() {
     client.set_key_price(&admin, &500_i128);
     let buyer = Address::generate(&env);
     client.buy_key(&creator, &buyer, &500_i128, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
 
     // registered_at must still reflect the original registration sequence.

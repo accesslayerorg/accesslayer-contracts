@@ -13,7 +13,7 @@ use contract_test_env::{
     compute_expected_creator_fee, compute_expected_protocol_fee, compute_expected_sell_price,
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
-use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::{Address as _, Ledger as _};
 
 const KEY_PRICE: i128 = 1000;
 const CREATOR_BPS: u32 = 9000;
@@ -119,6 +119,9 @@ fn test_buy_then_sell_round_trip_returns_correct_xlm_to_seller() {
     let creator_fee_before_sell = client.get_creator_fee_balance(&creator);
     let protocol_fee_before_sell = client.get_protocol_recipient_balance();
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply_after_sell = client.sell_key(&creator, &trader, &None);
 
     assert_eq!(
