@@ -1365,7 +1365,6 @@ pub struct LockupBlockedEvent {
 pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
     (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
 }
-
 /// Event name for a new staking position created via `stake_keys_locked`.
 pub const STAKE_EVENT_NAME: Symbol = symbol_short!("stake");
 
@@ -1572,42 +1571,48 @@ pub fn launch_penalty_set_topics(creator: &Address) -> (Symbol, Address) {
     (LAUNCH_PENALTY_SET_EVENT_NAME, creator.clone())
 }
 
-/// Event name for a pre-launch auction being configured.
-pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
+// ============================================================================
+// Per-wallet buy cooldown
+// ============================================================================
 
-/// Payload emitted when a creator configures a pre-launch auction (issue #787).
+/// Event name for a buy rejected by the per-wallet cooldown guard.
+pub const COOLDOWN_BLOCKED_EVENT_NAME: Symbol = symbol_short!("cd_blk");
+
+/// Stable cooldown-blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_BLOCKED_EVENT_NAME, creator_id, wallet)`
+/// - data: `CooldownBlockedEvent`
+///
+/// Emitted inside [`CreatorKeysContract::buy_key`] when the per-wallet
+/// cooldown period has not elapsed since the buyer's last purchase.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct AuctionConfiguredEvent {
+pub struct CooldownBlockedEvent {
+    /// Wallet whose buy was rejected.
+    pub wallet: Address,
+    /// Creator whose keys the buyer attempted to purchase.
     pub creator_id: Address,
-    pub auction_price: i128,
-    pub auction_supply: u32,
+    /// Number of ledgers remaining before the cooldown expires.
+    pub ledgers_remaining: u32,
 }
 
-/// Shared auction-configured event topics tuple.
-pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
-    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
+/// Shared cooldown blocked event topics tuple.
+pub fn cooldown_blocked_topics(creator: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (COOLDOWN_BLOCKED_EVENT_NAME, creator.clone(), wallet.clone())
 }
 
-/// Event name for a pre-launch auction being cancelled.
-pub const AUCTION_CANCELLED_EVENT_NAME: Symbol = symbol_short!("auc_cnl");
+// ============================================================================
+// Pre-launch auction (#FeatureError)
+// ============================================================================
 
-/// Payload emitted when a creator cancels a pre-launch auction (issue #790).
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct AuctionCancelledEvent {
-    pub creator_id: Address,
-}
-
-/// Shared auction-cancelled event topics tuple.
-pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
-    (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
-}
-
-/// Event name for an auction-phase key purchase.
+/// Event name for a key purchased during a pre-launch auction.
 pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
 
 /// Stable auction purchase event payload for downstream indexers.
+///
+/// Emitted inside `buy_key` when the purchase is fulfilled at the fixed
+/// auction price rather than the bonding curve price.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct AuctionPurchaseEvent {
@@ -1624,26 +1629,193 @@ pub struct AuctionPurchaseEvent {
 pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
     (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
 }
+// ============================================================================
+// Co-creator removal (#791)
+// ============================================================================
 
-/// Event name for a co-creator removal.
-pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("co_rm");
+/// Event name for a co-creator being removed.
+pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("cc_rm");
 
-/// Payload emitted when a creator removes their co-creator split (issue #791).
+/// Stable co-creator removed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(CO_CREATOR_REMOVED_EVENT_NAME, creator_id, co_creator)`
+/// - data: `CoCreatorRemovedEvent`
+///
+/// Emitted inside `remove_co_creator` when a creator removes their co-creator split.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct CoCreatorRemovedEvent {
+    /// Address of the creator whose co-creator was removed.
     pub creator_id: Address,
+    /// Address of the co-creator that was removed.
     pub co_creator: Address,
 }
 
-/// Shared co-creator removal event topics tuple.
+/// Shared co-creator removed event topics tuple.
 pub fn co_creator_removed_topics(
-    creator: &Address,
+    creator_id: &Address,
     co_creator: &Address,
 ) -> (Symbol, Address, Address) {
     (
         CO_CREATOR_REMOVED_EVENT_NAME,
-        creator.clone(),
+        creator_id.clone(),
         co_creator.clone(),
     )
+}
+
+/// Event name for dividend reinvestment.
+pub const DIVIDEND_REINVESTED_EVENT_NAME: Symbol = symbol_short!("div_reinv");
+
+/// Stable dividend reinvested event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DividendReinvestedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub keys_bought: u32,
+    pub remainder_returned: i128,
+}
+
+/// Shared dividend reinvested event topics tuple.
+pub fn dividend_reinvested_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        DIVIDEND_REINVESTED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
+// ============================================================================
+// Pre-launch auction configuration (#790)
+// ============================================================================
+
+/// Event name for an auction being configured.
+pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
+
+/// Stable auction configured event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(AUCTION_CONFIGURED_EVENT_NAME, creator_id)`
+/// - data: `AuctionConfiguredEvent`
+///
+/// Emitted inside `configure_auction` when a creator sets up a pre-launch auction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionConfiguredEvent {
+    /// Address of the creator configuring the auction.
+    pub creator_id: Address,
+    /// Fixed price per key during the auction.
+    pub auction_price: i128,
+    /// Number of keys available in the auction.
+    pub auction_supply: u32,
+}
+
+/// Shared auction configured event topics tuple.
+pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for an auction being cancelled.
+pub const AUCTION_CANCELLED_EVENT_NAME: Symbol = symbol_short!("auc_cxl");
+
+/// Stable auction cancelled event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(AUCTION_CANCELLED_EVENT_NAME, creator_id)`
+/// - data: `AuctionCancelledEvent`
+///
+/// Emitted inside `cancel_auction` when a creator cancels their pre-launch auction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionCancelledEvent {
+    /// Address of the creator whose auction was cancelled.
+    pub creator_id: Address,
+}
+
+/// Shared auction cancelled event topics tuple.
+pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
+}
+
+// --- Key deprecation and holder buyback events (#834) ---
+
+/// Event name emitted when a creator deprecates their key.
+pub const KEY_DEPRECATED_EVENT_NAME: Symbol = symbol_short!("key_dep");
+
+/// Event name emitted when a holder redeems keys on a deprecated key.
+pub const KEYS_REDEEMED_EVENT_NAME: Symbol = symbol_short!("key_rdm");
+
+/// Stable field order for the key_deprecated event payload.
+pub const KEY_DEPRECATED_DATA_FIELDS: [&str; 5] = [
+    "creator",
+    "buyback_price_per_key",
+    "circulating_supply",
+    "total_escrow",
+    "ledger",
+];
+
+/// Stable field order for the keys_redeemed event payload.
+pub const KEYS_REDEEMED_DATA_FIELDS: [&str; 6] = [
+    "creator",
+    "holder",
+    "quantity",
+    "payout",
+    "new_supply",
+    "ledger",
+];
+
+/// Stable key-deprecated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEY_DEPRECATED_EVENT_NAME, creator)`
+/// - data: `KeyDeprecatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyDeprecatedEvent {
+    /// Creator who deprecated their key.
+    pub creator: Address,
+    /// Fixed XLM payout per key for all redemptions.
+    pub buyback_price_per_key: i128,
+    /// Circulating supply at the time of deprecation.
+    pub circulating_supply: u32,
+    /// Total XLM escrowed (`circulating_supply * buyback_price_per_key`).
+    pub total_escrow: i128,
+    /// Ledger sequence number at the time of deprecation.
+    pub ledger: u32,
+}
+
+/// Shared key-deprecated event topics tuple.
+pub fn key_deprecated_topics(creator: &Address) -> (Symbol, Address) {
+    (KEY_DEPRECATED_EVENT_NAME, creator.clone())
+}
+
+/// Stable keys-redeemed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEYS_REDEEMED_EVENT_NAME, creator, holder)`
+/// - data: `KeysRedeemedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysRedeemedEvent {
+    /// Creator whose deprecated key is being redeemed.
+    pub creator: Address,
+    /// Holder who redeemed their keys.
+    pub holder: Address,
+    /// Number of keys redeemed by the holder.
+    pub quantity: u32,
+    /// Total XLM payout transferred to the holder.
+    pub payout: i128,
+    /// Total key supply for the creator after this redemption.
+    pub new_supply: u32,
+    /// Ledger sequence number at the time of redemption.
+    pub ledger: u32,
+}
+
+/// Shared keys-redeemed event topics tuple.
+pub fn keys_redeemed_topics(creator: &Address, holder: &Address) -> (Symbol, Address, Address) {
+    (KEYS_REDEEMED_EVENT_NAME, creator.clone(), holder.clone())
 }

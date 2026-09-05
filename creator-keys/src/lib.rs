@@ -64,6 +64,7 @@ pub enum ContractError {
     AirdropRecipientLimitExceeded = 33,
     InvalidReferrer = 34,
     WalletCapExceeded = 35,
+    CooldownActive = 36,
     WalletBlacklisted = 37,
     SchemaVersionTooOld = 38,
     SchemaVersionUnsupported = 39,
@@ -111,6 +112,11 @@ pub enum ContractError {
     NameTooLong = 60,
     BioTooLong = 61,
     KeyAlreadyInitialised = 62,
+    /// The key has been deprecated by its creator; new buys are no longer accepted.
+    KeyDeprecated = 63,
+    /// The creator did not provide enough XLM to cover the full buyback escrow
+    /// (`circulating_supply * buyback_price_per_key`).
+    InsufficientEscrow = 64,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
@@ -139,21 +145,6 @@ pub enum StakingError {
     NotRegistered = 7,
     /// The contract is paused.
     ProtocolPaused = 8,
-    GlobalTradingHalted = 51,
-    /// `set_co_creator`'s `split_bps` exceeded the 9000 (90%) cap (issue #782).
-    SplitTooHigh = 52,
-    /// `take_snapshot` called with a `snapshot_id` already used for the creator (issue #778).
-    SnapshotAlreadyExists = 53,
-    /// `take_snapshot`'s `holders` list exceeded [`MAX_SNAPSHOT_HOLDERS`] (issue #778).
-    SnapshotHolderLimitExceeded = 54,
-    /// `initialise_key` called for a `creator` that already has metadata (issue #779).
-    KeyAlreadyInitialised = 55,
-    /// `initialise_key`'s `name` exceeded 64 bytes (issue #779).
-    NameTooLong = 56,
-    /// `initialise_key`'s `bio` exceeded 256 bytes (issue #779).
-    BioTooLong = 57,
-    /// `sell_key` attempted in the same ledger as the holder's last buy (issue #781).
-    FlashLoanDetected = 58,
 }
 
 /// Errors raised by co-creator and auction lifecycle entrypoints.
@@ -178,6 +169,24 @@ pub enum FeatureError {
     InvalidAuctionConfig = 6,
     /// `cancel_auction` or `buy_key` (auction path) but no auction is configured.
     NoAuctionConfigured = 7,
+}
+
+/// Errors raised by the buy-cooldown entrypoints
+/// ([`CreatorKeysContract::set_buy_cooldown`], [`CreatorKeysContract::buy_key`]).
+///
+/// Kept separate from [`ContractError`] because Soroban caps `#[contracterror]`
+/// enums at 50 variants and `ContractError` is already at that limit.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum CooldownError {
+    /// The buyer's last purchase was too recent; the per-key cooldown period
+    /// has not yet elapsed.
+    CooldownActive = 1,
+    /// The requested cooldown exceeds the maximum of 720 ledgers (~1 hour).
+    CooldownTooLong = 2,
+    /// The creator address is not registered.
+    NotRegistered = 3,
 }
 
 pub mod fee {
@@ -500,12 +509,24 @@ pub mod constants {
             DataKey::StakingRewardsPool(creator.clone())
         }
 
+        pub fn total_staked(creator: &Address) -> DataKey {
+            DataKey::TotalStaked(creator.clone())
+        }
+
+        pub fn stake_unlock_ledger(creator: &Address, holder: &Address) -> DataKey {
+            DataKey::StakeUnlockLedger(creator.clone(), holder.clone())
+        }
+
         pub fn created_at_ledger(creator: &Address) -> DataKey {
             DataKey::CreatedAtLedger(creator.clone())
         }
 
         pub fn launch_penalty_bps(creator: &Address) -> DataKey {
             DataKey::LaunchPenaltyBps(creator.clone())
+        }
+
+        pub fn auction_config(creator: &Address) -> DataKey {
+            DataKey::AuctionConfig(creator.clone())
         }
 
         pub fn next_stake_id(creator: &Address, holder: &Address) -> StakingKey {
@@ -617,19 +638,20 @@ pub mod constants {
             DataKey::QuorumBps(creator.clone())
         }
 
-        pub fn auction_config(creator: &Address) -> DataKey {
-            DataKey::AuctionConfig(creator.clone())
+        pub fn buy_cooldown(creator: &Address) -> DataKey {
+            DataKey::BuyCooldown(creator.clone())
         }
 
-        pub fn stake_unlock_ledger(creator: &Address, holder: &Address) -> DataKey {
-            DataKey::StakeUnlockLedger(creator.clone(), holder.clone())
+        /// Storage key for a creator's deprecation marker; value is `buyback_price_per_key` (i128).
+        pub fn deprecated_key(creator: &Address) -> DataKey {
+            DataKey::DeprecatedKey(creator.clone())
         }
 
-        pub fn total_staked(creator: &Address) -> DataKey {
-            DataKey::TotalStaked(creator.clone())
+        /// Storage key for the escrow balance held for a deprecated key's buyback pool.
+        pub fn deprecation_escrow(creator: &Address) -> DataKey {
+            DataKey::DeprecationEscrow(creator.clone())
         }
     }
-
     fn creator_key(creator: &Address) -> DataKey {
         DataKey::Creator(creator.clone())
     }
@@ -788,6 +810,9 @@ pub const KEY_DECIMALS: u32 = 7;
 /// buy or sell operation to prevent active creator state from expiring.
 pub const CREATOR_TTL_LEDGERS: u32 = 6311520; // ~2 years at 5s per ledger
 
+/// Maximum staking lock extension from the current ledger (~180 days at 5 seconds per ledger).
+pub const MAX_STAKE_LOCK_LEDGERS: u32 = 3_110_400;
+
 /// Minimum remaining TTL (in ledgers) that triggers a TTL extension event.
 ///
 /// When the creator key's remaining TTL drops strictly below this threshold,
@@ -907,10 +932,6 @@ pub const MAX_BATCH_TRANSFER_SIZE: u32 = 10;
 /// Maximum royalty fee basis points (5%).
 pub const MAX_ROYALTY_BPS: u32 = 500;
 
-/// Maximum number of keys a pre-launch auction can allocate at the fixed
-/// auction price before the bonding curve takes over.
-pub const MAX_AUCTION_SUPPLY: u32 = 10_000;
-
 /// Lock duration for staked keys before a reward claim is permitted (30 days
 /// at 5s per ledger).
 pub const STAKE_LOCK_LEDGERS: u32 = 518_400;
@@ -927,6 +948,17 @@ pub const DEFAULT_LAUNCH_PENALTY_BPS: u32 = 500;
 
 /// Maximum launch penalty basis points (20%).
 pub const MAX_LAUNCH_PENALTY_BPS: u32 = 2_000;
+
+/// Maximum per-wallet buy cooldown in ledgers (~1 hour at 5 s/ledger).
+///
+/// Creators cannot configure a cooldown longer than this value via
+/// [`CreatorKeysContract::set_buy_cooldown`]. A cooldown of 0 means no
+/// restriction (the default when no cooldown has been configured).
+pub const MAX_BUY_COOLDOWN_LEDGERS: u32 = 720;
+
+/// Maximum number of keys a pre-launch auction can allocate at the fixed
+/// auction price before the bonding curve takes over.
+pub const MAX_AUCTION_SUPPLY: u32 = 10_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -1045,6 +1077,13 @@ pub enum DataKey {
     /// (creator, holder) -> timestamp of the holder's most recent buy, used by
     /// the anti-flash-trade sell lockup window (#784).
     LastBuyTimestamp(Address, Address),
+    /// Lockup duration in seconds for sell lockup enforcement.
+    LockupDurationSecs,
+    QuorumBps(Address),
+    /// Per-creator holder cap in basis points (max % of supply one wallet may hold).
+    HolderCapBps(Address),
+    /// Protocol fee basis points.
+    ProtocolFeeBps,
     /// Protocol-wide emergency trading halt flag (#784). When `true`, every
     /// buy and sell is rejected regardless of per-key pause state.
     GlobalTradingPaused,
@@ -1052,12 +1091,6 @@ pub enum DataKey {
     GlobalPauseVote(Address),
     GlobalResumeVote(Address),
     SelfFrozenBalance(Address, Address),
-    /// Protocol-wide trade fee in basis points (#774).
-    ProtocolFeeBps,
-    /// Anti-flash-trade sell lockup duration in seconds (#774).
-    LockupDurationSecs,
-    /// Per-creator percentage holding cap in basis points (#774).
-    HolderCapBps(Address),
     /// Per-creator staking position. Keyed `(creator, holder, stake_id)`.
     StakePosition(Address, Address, u32),
     /// Per-creator staking rewards pool and cross-holder staked-key total.
@@ -1066,14 +1099,47 @@ pub enum DataKey {
     CreatedAtLedger(Address),
     /// Custom launch penalty basis points for a creator (0 = use default).
     LaunchPenaltyBps(Address),
-    /// Per-creator governance quorum threshold in basis points.
-    QuorumBps(Address),
-    /// Pre-launch auction configuration for a creator.
-    AuctionConfig(Address),
     /// Per-(creator, holder) stake unlock ledger sequence.
     StakeUnlockLedger(Address, Address),
     /// Total keys currently staked for a creator across all holders.
     TotalStaked(Address),
+    /// Pre-launch auction configuration for a creator.
+    AuctionConfig(Address),
+    /// Per-creator buy cooldown in ledgers. A value of `0` (or absent) means
+    /// no cooldown is configured. Set via `set_buy_cooldown`.
+    BuyCooldown(Address),
+    /// Marks a creator key as deprecated. Value is the fixed `buyback_price_per_key` (i128).
+    DeprecatedKey(Address),
+    /// Escrow balance held on behalf of a deprecated key's creator.
+    /// Funds are paid out to redeeming holders and any remainder is returned on full redemption.
+    DeprecationEscrow(Address),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ReinvestResult {
+    pub keys_bought: u32,
+    pub remainder_returned: i128,
+}
+
+/// Internal staking account keys that are not part of the public data-key ABI.
+///
+/// Used to keep [`DataKey`] within Soroban's 50-variant `#[contracttype]` cap;
+/// `NextStakeId` is keyed per `(creator, holder)` pair.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum StakingKey {
+    /// Next sequential stake id for a `(creator, holder)` pair -> `u32`.
+    NextStakeId(Address, Address),
+}
+
+/// Configuration for a creator's fixed-price pre-launch auction phase.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct AuctionConfig {
+    pub auction_price: i128,
+    pub auction_supply: u32,
+    pub auction_sold: u32,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -1086,16 +1152,6 @@ pub struct LockedAllocation {
     pub amount: u32,
     pub unlock_ledger: u32,
     pub claimed: bool,
-}
-
-/// Internal staking account keys that are not part of the public data-key ABI.
-///
-/// Used to keep [`DataKey`] within the `#[contracttype]` export limit.
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub enum StakingKey {
-    /// Next sequential stake id for a `(creator, holder)` pair -> `u32`.
-    NextStakeId(Address, Address),
 }
 
 /// A single locked staking position held by a holder.
@@ -1144,15 +1200,6 @@ pub struct StakeRewardClaim {
     pub amount: u32,
     /// Reward paid out to the staker from the pool.
     pub reward: i128,
-}
-
-/// Pre-launch fixed-price auction configuration for a creator key.
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub struct AuctionConfig {
-    pub auction_price: i128,
-    pub auction_supply: u32,
-    pub auction_sold: u32,
 }
 
 /// Optional immutable collaborator split configured at creator registration.
@@ -1577,6 +1624,15 @@ fn credit_creator_fee_recipient_balance(
     env.storage().persistent().set(&key, &updated);
     extend_key_ttl_to_full_window(env, &key);
     Ok(())
+}
+
+/// Credits `amount` to the creator fee balance for `creator`.
+fn credit_creator_fee_balance(
+    env: &Env,
+    creator: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    credit_creator_fee_recipient_balance(env, creator, amount)
 }
 
 fn read_co_creator_config(env: &Env, creator: &Address) -> Option<CoCreatorConfig> {
@@ -2559,6 +2615,20 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
         }
     }
 
+    let created_at_key = constants::storage::created_at_ledger(creator);
+    if env.storage().persistent().has(&created_at_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&created_at_key, threshold, extend_to);
+    }
+
+    let launch_penalty_key = constants::storage::launch_penalty_bps(creator);
+    if env.storage().persistent().has(&launch_penalty_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&launch_penalty_key, threshold, extend_to);
+    }
+
     // Record the new live-until ledger so future trades can re-evaluate
     // whether the TTL-extension event should be emitted.
     env.storage().persistent().set(&live_until_key, &extend_to);
@@ -2781,6 +2851,15 @@ impl CreatorKeysContract {
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
 
+        // Reject buys on deprecated keys immediately — before any price or fee math.
+        if env
+            .storage()
+            .persistent()
+            .has(&constants::storage::deprecated_key(&creator))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
+
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
         }
@@ -2828,13 +2907,11 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
             let post_price = compute_bonding_curve_price(&env, &creator, base_price, post_supply)?;
-
             let threshold_pct: u32 = env
                 .storage()
                 .persistent()
                 .get(&constants::storage::CIRCUIT_BREAKER_THRESHOLD)
                 .unwrap_or(30);
-
             if pre_price > 0 && post_price > pre_price {
                 let price_change = (post_price - pre_price) as u128;
                 let pre_price_u128 = pre_price as u128;
@@ -2921,6 +2998,38 @@ impl CreatorKeysContract {
             }
         }
 
+        // Enforce the per-wallet buy cooldown: once a cooldown is configured
+        // by the creator via `set_buy_cooldown`, the same wallet cannot buy
+        // again until `cooldown_ledgers` have elapsed since their last buy.
+        let cooldown_ledgers: u32 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::buy_cooldown(&creator))
+            .unwrap_or(0);
+        if cooldown_ledgers > 0 {
+            let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &buyer);
+            if let Some(last_ledger) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, u32>(&last_buy_ledger_key)
+            {
+                let current_ledger = env.ledger().sequence();
+                let elapsed = current_ledger.saturating_sub(last_ledger);
+                if elapsed < cooldown_ledgers {
+                    let ledgers_remaining = cooldown_ledgers - elapsed;
+                    env.events().publish(
+                        events::cooldown_blocked_topics(&creator, &buyer),
+                        events::CooldownBlockedEvent {
+                            wallet: buyer.clone(),
+                            creator_id: creator.clone(),
+                            ledgers_remaining,
+                        },
+                    );
+                    return Err(ContractError::CooldownActive);
+                }
+            }
+        }
+
         // Settle dividends before balance changes so earnings are captured at old balance.
         settle_holder_dividends(&env, &creator, &buyer, current_balance)?;
 
@@ -2963,6 +3072,8 @@ impl CreatorKeysContract {
 
         // Flash-loan guard (issue #781): record this buy's ledger so sell_key can
         // reject a same-ledger sell of the position just bought.
+        // Also used by the per-wallet cooldown guard to track the most recent
+        // successful buy ledger for each (creator, holder) pair.
         let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &buyer);
         env.storage()
             .persistent()
@@ -3228,9 +3339,8 @@ impl CreatorKeysContract {
         // Launch penalty: if the sell occurs within the launch window
         // (7 days / 120,960 ledgers of the key's creation), deduct a
         // configurable penalty from the proceeds and credit it to the
-        // staking rewards pool.
+        // creator fee balance.
         let proceeds = compute_sell_proceeds(&env, price).unwrap_or(0);
-        let mut final_proceeds = proceeds;
 
         if let Some(created_at) = env
             .storage()
@@ -3251,10 +3361,7 @@ impl CreatorKeysContract {
                     let penalty_amount =
                         crate::fee::apply_percentage_fee(proceeds, capped_bps).unwrap_or(0);
                     if penalty_amount > 0 {
-                        final_proceeds = final_proceeds
-                            .checked_sub(penalty_amount)
-                            .ok_or(ContractError::Overflow)?;
-                        credit_staking_rewards_pool(&env, &creator, penalty_amount)?;
+                        credit_creator_fee_balance(&env, &creator, penalty_amount)?;
                         env.events().publish(
                             events::launch_penalty_applied_topics(&creator, &seller),
                             events::LaunchPenaltyAppliedEvent {
@@ -3274,7 +3381,7 @@ impl CreatorKeysContract {
             seller: seller.clone(),
             creator_id: creator.clone(),
             quantity: 1,
-            proceeds: final_proceeds,
+            proceeds,
             new_supply: profile.supply,
             ledger: env.ledger().sequence(),
         };
@@ -3376,6 +3483,185 @@ impl CreatorKeysContract {
         );
 
         Ok(profile.supply)
+    }
+
+    // =========================================================================
+    // #834 — Key deprecation and holder buybacks
+    // =========================================================================
+
+    /// Deprecates a creator key, disabling new buys and initiating an orderly
+    /// shutdown via a fixed-price holder buyback.
+    ///
+    /// The creator must escrow `circulating_supply * buyback_price_per_key` XLM
+    /// (`escrow_payment`) at the time of calling. Holders can then call
+    /// [`CreatorKeysContract::redeem`] to exchange their keys for the fixed
+    /// buyback price.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `caller != creator`.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::NotPositiveAmount`] if `buyback_price_per_key <= 0`.
+    /// - [`ContractError::KeyDeprecated`] if the key is already deprecated.
+    /// - [`ContractError::InsufficientEscrow`] if `escrow_payment` is less than
+    ///   `circulating_supply * buyback_price_per_key`.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn deprecate_key(
+        env: Env,
+        creator: Address,
+        caller: Address,
+        buyback_price_per_key: i128,
+        escrow_payment: i128,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        assert_not_paused(&env)?;
+
+        if caller != creator {
+            return Err(ContractError::Unauthorized);
+        }
+        if buyback_price_per_key <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        let profile = read_registered_creator_profile(&env, &creator)?;
+
+        // Reject if already deprecated.
+        if env
+            .storage()
+            .persistent()
+            .has(&constants::storage::deprecated_key(&creator))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
+
+        // Compute the required escrow: circulating_supply * buyback_price_per_key.
+        let circulating_supply = profile.supply;
+        let required_escrow = (circulating_supply as i128)
+            .checked_mul(buyback_price_per_key)
+            .ok_or(ContractError::Overflow)?;
+
+        if escrow_payment < required_escrow {
+            return Err(ContractError::InsufficientEscrow);
+        }
+
+        // Persist the deprecation marker (stores the fixed buyback price).
+        let dep_key = constants::storage::deprecated_key(&creator);
+        env.storage()
+            .persistent()
+            .set(&dep_key, &buyback_price_per_key);
+        extend_key_ttl_to_full_window(&env, &dep_key);
+
+        // Persist the escrow balance (capped at required_escrow; any overpayment
+        // is treated as excess and not credited to the escrow pool).
+        let escrow_key = constants::storage::deprecation_escrow(&creator);
+        env.storage()
+            .persistent()
+            .set(&escrow_key, &required_escrow);
+        extend_key_ttl_to_full_window(&env, &escrow_key);
+
+        env.events().publish(
+            events::key_deprecated_topics(&creator),
+            events::KeyDeprecatedEvent {
+                creator: creator.clone(),
+                buyback_price_per_key,
+                circulating_supply,
+                total_escrow: required_escrow,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Redeems all keys held by `holder` for a deprecated creator key.
+    ///
+    /// Transfers `holder_balance * buyback_price_per_key` XLM from the escrow
+    /// pool to the holder, burns the holder's keys, and decrements the supply.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::KeyDeprecated`] is **not** returned here — it is the
+    ///   *required* condition. The function returns [`ContractError::NotRegistered`]
+    ///   when the key has not been deprecated (reusing `NotRegistered` to mean
+    ///   "the deprecation record does not exist").
+    /// - [`ContractError::InsufficientBalance`] if the holder has no keys.
+    /// - [`ContractError::InsufficientEscrow`] if the escrow pool is unexpectedly
+    ///   short (should not happen under normal conditions).
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn redeem(env: Env, creator: Address, holder: Address) -> Result<i128, ContractError> {
+        holder.require_auth();
+        assert_not_paused(&env)?;
+
+        // The key must be deprecated before holders can redeem.
+        let dep_key = constants::storage::deprecated_key(&creator);
+        let buyback_price_per_key: i128 = env
+            .storage()
+            .persistent()
+            .get(&dep_key)
+            .ok_or(ContractError::NotRegistered)?;
+
+        let mut profile = read_registered_creator_profile(&env, &creator)?;
+
+        let balance_key = constants::storage::holder_balance_key(&creator, &holder);
+        let holder_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        if holder_balance == 0 {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        // Compute payout.
+        let payout = (holder_balance as i128)
+            .checked_mul(buyback_price_per_key)
+            .ok_or(ContractError::Overflow)?;
+
+        // Deduct from escrow.
+        let escrow_key = constants::storage::deprecation_escrow(&creator);
+        let current_escrow: i128 = env.storage().persistent().get(&escrow_key).unwrap_or(0);
+
+        if current_escrow < payout {
+            return Err(ContractError::InsufficientEscrow);
+        }
+
+        let new_escrow = current_escrow
+            .checked_sub(payout)
+            .ok_or(ContractError::Overflow)?;
+
+        // Burn holder's keys and update supply / holder count.
+        profile.supply = profile
+            .supply
+            .checked_sub(holder_balance)
+            .ok_or(ContractError::SellUnderflow)?;
+        profile.holder_count = profile
+            .holder_count
+            .checked_sub(1)
+            .ok_or(ContractError::SellUnderflow)?;
+
+        // Persist updated state.
+        let creator_key = constants::storage::creator(&creator);
+        env.storage().persistent().set(&creator_key, &profile);
+        env.storage().persistent().remove(&balance_key);
+
+        if new_escrow == 0 {
+            env.storage().persistent().remove(&escrow_key);
+        } else {
+            env.storage().persistent().set(&escrow_key, &new_escrow);
+            extend_key_ttl_to_full_window(&env, &escrow_key);
+        }
+
+        env.events().publish(
+            events::keys_redeemed_topics(&creator, &holder),
+            events::KeysRedeemedEvent {
+                creator: creator.clone(),
+                holder: holder.clone(),
+                quantity: holder_balance,
+                payout,
+                new_supply: profile.supply,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(payout)
     }
 
     /// Creator-only airdrop that mints keys to a list of recipient wallets.
@@ -5248,6 +5534,43 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::holder_cap_bps(&creator))
+    }
+
+    /// Sets the per-wallet buy cooldown for a creator's keys.
+    ///
+    /// Only the key creator may call this. `cooldown_ledgers` must be in
+    /// the range `0..=720` (≈ 1 hour at 5 s/ledger); values above 720 return
+    /// [`CooldownError::CooldownTooLong`]. A value of `0` disables the
+    /// cooldown (the default when no cooldown has been configured).
+    ///
+    /// Once configured, `buy_key` rejects consecutive purchases by the same
+    /// wallet within the cooldown window with [`ContractError::CooldownActive`]
+    /// and emits a [`events::COOLDOWN_BLOCKED_EVENT_NAME`] event.
+    pub fn set_buy_cooldown(
+        env: Env,
+        creator: Address,
+        cooldown_ledgers: u32,
+    ) -> Result<(), CooldownError> {
+        creator.require_auth();
+        read_registered_creator_profile(&env, &creator)
+            .map_err(|_| CooldownError::NotRegistered)?;
+        if cooldown_ledgers > MAX_BUY_COOLDOWN_LEDGERS {
+            return Err(CooldownError::CooldownTooLong);
+        }
+        let key = constants::storage::buy_cooldown(&creator);
+        env.storage().persistent().set(&key, &cooldown_ledgers);
+        extend_key_ttl_to_full_window(&env, &key);
+        Ok(())
+    }
+
+    /// Read-only view: returns the configured buy cooldown in ledgers for a creator.
+    ///
+    /// Returns `0` (no cooldown) when none has been configured.
+    pub fn get_buy_cooldown(env: Env, creator: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::buy_cooldown(&creator))
+            .unwrap_or(0)
     }
 
     /// Sets the launch penalty basis points for a creator's keys.
@@ -7537,6 +7860,204 @@ impl CreatorKeysContract {
         read_curve_exponent(&env, &creator)
     }
 
+    pub fn get_stake_unlock_ledger(env: Env, creator: Address, holder: Address) -> Option<u32> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::stake_unlock_ledger(&creator, &holder))
+    }
+
+    pub fn reinvest_dividend(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+    ) -> Result<ReinvestResult, ContractError> {
+        caller.require_auth();
+        assert_not_paused(&env)?;
+        assert_not_blacklisted(&env, &caller)?;
+        assert_before_global_deadline(&env)?;
+
+        let claimable = compute_claimable_dividend(&env, &key_id, &caller);
+        if claimable <= 0 {
+            return Err(ContractError::NoDividendClaimable);
+        }
+
+        // Clear the unclaimed dividend balance, matching claim_dividend settlement
+        let accumulator = read_dividend_accumulator(&env, &key_id);
+        let pending_key = constants::storage::holder_dividend_pending(&key_id, &caller);
+        let checkpoint_key = constants::storage::holder_dividend_checkpoint(&key_id, &caller);
+        env.storage().persistent().set(&pending_key, &0i128);
+        env.storage()
+            .persistent()
+            .set(&checkpoint_key, &accumulator);
+        extend_key_ttl_to_full_window(&env, &pending_key);
+        extend_key_ttl_to_full_window(&env, &checkpoint_key);
+
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &key_id)?;
+        assert_whitelist_allows_buy(&env, &profile, &caller)?;
+
+        let balance_key = constants::storage::holder_balance_key(&key_id, &caller);
+        let mut current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        let mut remaining = claimable;
+        let mut keys_bought = 0u32;
+
+        loop {
+            let next_price =
+                compute_bonding_curve_price(&env, &key_id, base_price, profile.supply)?;
+            if next_price <= 0 || remaining < next_price {
+                break;
+            }
+
+            // Check max supply cap if configured
+            if let Some(max_supply) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, u32>(&constants::storage::max_supply(&key_id))
+            {
+                if profile.supply >= max_supply {
+                    break;
+                }
+            }
+
+            // Check max keys per wallet cap if configured
+            if let Some(cap) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, u32>(&constants::storage::max_keys_per_wallet(&key_id))
+            {
+                let post_buy_balance = match current_balance.checked_add(1) {
+                    Some(b) => b,
+                    None => break,
+                };
+                if post_buy_balance > cap {
+                    break;
+                }
+            }
+
+            // Check percentage holding cap if configured
+            if caller != key_id {
+                if let Some(cap_bps) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, u32>(&constants::storage::holder_cap_bps(&key_id))
+                {
+                    let post_buy_supply = match profile.supply.checked_add(1) {
+                        Some(s) => s,
+                        None => break,
+                    };
+                    let post_buy_balance = match current_balance.checked_add(1) {
+                        Some(b) => b,
+                        None => break,
+                    };
+                    let max_allowed = ((i128::from(post_buy_supply) * i128::from(cap_bps))
+                        / i128::from(fee::BPS_MAX)) as u32;
+                    if post_buy_balance > max_allowed {
+                        break;
+                    }
+                }
+            }
+
+            remaining = remaining
+                .checked_sub(next_price)
+                .ok_or(ContractError::Overflow)?;
+
+            if current_balance == 0 {
+                profile.holder_count = profile
+                    .holder_count
+                    .checked_add(1)
+                    .ok_or(ContractError::Overflow)?;
+            }
+
+            profile.supply = profile
+                .supply
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+
+            current_balance = current_balance
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+
+            keys_bought = keys_bought.checked_add(1).ok_or(ContractError::Overflow)?;
+
+            // Collect protocol trade fee & fee splits
+            let net_amount = collect_protocol_trade_fee(&env, &key_id, next_price)?;
+            if let Some(config) = read_protocol_fee_config(&env) {
+                let (creator_fee, protocol_fee) = fee::checked_compute_fee_split(
+                    net_amount,
+                    config.creator_bps,
+                    config.protocol_bps,
+                )
+                .ok_or(ContractError::Overflow)?;
+
+                credit_creator_fee(&env, &key_id, creator_fee)?;
+                credit_treasury_balance(&env, protocol_fee)?;
+                credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+            }
+
+            if let Some(royalty) = read_royalty_config(&env, &key_id) {
+                let royalty_amount = fee::apply_percentage_fee(next_price, royalty.buy_fee_bps)
+                    .ok_or(ContractError::Overflow)?;
+                if royalty_amount > 0 {
+                    credit_creator_fee_recipient_balance(&env, &key_id, royalty_amount)?;
+                }
+            }
+
+            env.events().publish(
+                events::buy_event_topics(&key_id, &caller),
+                events::KeysBoughtEvent {
+                    buyer: caller.clone(),
+                    creator_id: key_id.clone(),
+                    quantity: 1,
+                    price_paid: next_price,
+                    new_supply: profile.supply,
+                    ledger: env.ledger().sequence(),
+                },
+            );
+        }
+
+        if keys_bought > 0 {
+            let key = constants::storage::creator(&key_id);
+            env.storage().persistent().set(&key, &profile);
+            write_creator_supply(&env, &key_id, profile.supply);
+            env.storage()
+                .persistent()
+                .set(&balance_key, &current_balance);
+            extend_key_ttl_to_full_window(&env, &balance_key);
+
+            let last_buy_key = constants::storage::last_buy_timestamp(&key_id, &caller);
+            env.storage()
+                .persistent()
+                .set(&last_buy_key, &env.ledger().timestamp());
+            extend_key_ttl_to_full_window(&env, &last_buy_key);
+
+            extend_creator_ttl(&env, &key_id);
+        }
+
+        let remainder_returned = remaining;
+
+        env.events().publish(
+            events::dividend_reinvested_topics(&key_id, &caller),
+            events::DividendReinvestedEvent {
+                wallet: caller,
+                key_id,
+                keys_bought,
+                remainder_returned,
+            },
+        );
+
+        Ok(ReinvestResult {
+            keys_bought,
+            remainder_returned,
+        })
+    }
+
     /// Read-only view: simulates a buy quote for a given creator and quantity.
     ///
     /// Returns a [`SimulateResponse`] containing the total cost, per-unit price,
@@ -8813,3 +9334,6 @@ mod test_issues;
 
 #[cfg(test)]
 mod test_issues_778_779_781_782;
+
+#[cfg(test)]
+mod test_staking_lifecycle;

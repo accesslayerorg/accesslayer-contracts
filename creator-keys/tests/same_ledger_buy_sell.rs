@@ -35,8 +35,7 @@ use contract_test_env::{
 };
 use creator_keys::events;
 use soroban_sdk::{
-    testutils::Ledger as _,
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     Address, IntoVal, Symbol,
 };
 
@@ -65,6 +64,7 @@ fn sell_n_keys(
     seller: &soroban_sdk::Address,
     count: u32,
 ) {
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for _ in 0..count {
         let mut l = env.ledger().get();
         l.sequence_number += 1;
@@ -89,7 +89,7 @@ fn test_final_supply_equals_pre_buy_supply_after_net_zero_buy_sell() {
     let supply_before = client.get_total_key_supply(&creator);
     assert_eq!(supply_before, 0, "precondition: creator starts at supply 0");
 
-    // Buy 5 keys then sell 5 keys — same ledger, no sequence bump between them.
+    // Buy 5 keys then sell 5 keys.
     buy_n_keys(&client, &creator, &trader, 5);
     sell_n_keys(&env, &client, &creator, &trader, 5);
 
@@ -128,7 +128,8 @@ fn test_supply_transitions_correctly_through_buy_and_sell() {
         "supply must be 5 after 5 buys"
     );
 
-    // Track supply after each sell (same ledger — no sequence bump)
+    // Track supply after each sell
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     for expected in (0u32..5).rev() {
         let mut l = env.ledger().get();
         l.sequence_number += 1;
@@ -345,6 +346,7 @@ fn test_buy_and_sell_return_values_form_consistent_supply_sequence() {
     }
 
     // Sell 5 keys; collect each return value
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     let mut sell_returns = Vec::new();
     for _ in 0..5 {
         let mut l = env.ledger().get();
@@ -421,6 +423,7 @@ fn test_buy_and_sell_events_both_emitted_and_correctly_tagged() {
     }
 
     // Count sell events — one per invocation
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     let mut sell_count = 0usize;
     for _ in 0..5 {
         let mut l = env.ledger().get();
@@ -505,6 +508,7 @@ fn test_sell_events_carry_correct_addresses() {
     let trader = Address::generate(&env);
 
     buy_n_keys(&client, &creator, &trader, 5);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
 
     for _ in 0..5 {
         let mut l = env.ledger().get();
@@ -567,7 +571,7 @@ fn test_bystander_unaffected_by_same_ledger_buy_sell() {
     let bystander_balance_before = client.get_key_balance(&creator, &bystander);
     let supply_after_bystander = client.get_total_key_supply(&creator);
 
-    // Trader's same-ledger buy+sell
+    // Trader's buy+sell
     buy_n_keys(&client, &creator, &trader, 5);
     sell_n_keys(&env, &client, &creator, &trader, 5);
 

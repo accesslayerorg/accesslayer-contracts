@@ -19,6 +19,7 @@ fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     client.set_treasury_address(&admin, &treasury);
     client.set_key_price(&admin, &100i128);
     client.set_fee_config(&admin, &9000u32, &1000u32);
+    client.set_protocol_fee_recipient(&admin, &treasury);
 
     (env, client, admin, treasury)
 }

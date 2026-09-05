@@ -36,7 +36,13 @@ mod staking_lifecycle_tests {
     /// reward-pool accumulation start from an empty pool; tests that need fee
     /// accrual call `set_protocol_fee` explicitly.
     /// Returns `(env, client, admin, creator, treasury)`.
-    fn setup() -> (Env, CreatorKeysContractClient<'static>, Address, Address, Address) {
+    fn setup() -> (
+        Env,
+        CreatorKeysContractClient<'static>,
+        Address,
+        Address,
+        Address,
+    ) {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -71,11 +77,7 @@ mod staking_lifecycle_tests {
 
     /// Enables the 10% protocol trade fee so every buy accrues the staking
     /// rewards pool (`REWARD_SHARE_PER_BUY` per buy).
-    fn enable_fee_accrual(
-        client: &CreatorKeysContractClient,
-        admin: &Address,
-        treasury: &Address,
-    ) {
+    fn enable_fee_accrual(client: &CreatorKeysContractClient, admin: &Address, treasury: &Address) {
         client.set_protocol_fee(admin, &Some(PROTOCOL_FEE_BPS), treasury);
     }
 
@@ -121,7 +123,9 @@ mod staking_lifecycle_tests {
         assert_eq!(client.get_staked_balance(&creator, &holder), 10);
 
         // Verify the stored staking position.
-        let position = client.get_staking_position(&creator, &holder, &stake_id).unwrap();
+        let position = client
+            .get_staking_position(&creator, &holder, &stake_id)
+            .unwrap();
         assert_eq!(position.stake_id, 0);
         assert_eq!(position.amount, 10);
         assert_eq!(position.unlock_ledger, start_seq + lock_ledgers);
@@ -187,8 +191,12 @@ mod staking_lifecycle_tests {
         assert_eq!(client.get_staking_rewards_pool(&creator), 12);
 
         // Sanity: both positions share the same maturity (same start ledger).
-        let p0 = client.get_staking_position(&creator, &holder, &pos0).unwrap();
-        let p1 = client.get_staking_position(&creator, &holder, &pos1).unwrap();
+        let p0 = client
+            .get_staking_position(&creator, &holder, &pos0)
+            .unwrap();
+        let p1 = client
+            .get_staking_position(&creator, &holder, &pos1)
+            .unwrap();
         let base_unlock = start_seq + lock_ledgers;
         assert_eq!(p0.unlock_ledger, base_unlock);
         assert_eq!(p1.unlock_ledger, base_unlock);
@@ -211,11 +219,15 @@ mod staking_lifecycle_tests {
         let additional = 50u32;
         let extended_unlock = client.stake_extend(&creator, &holder, &pos1, &additional);
         assert_eq!(extended_unlock, base_unlock + additional);
-        let p1_ext = client.get_staking_position(&creator, &holder, &pos1).unwrap();
+        let p1_ext = client
+            .get_staking_position(&creator, &holder, &pos1)
+            .unwrap();
         assert_eq!(p1_ext.unlock_ledger, base_unlock + additional);
 
         // Position 0 still matures at the original ledger.
-        let p0_after = client.get_staking_position(&creator, &holder, &pos0).unwrap();
+        let p0_after = client
+            .get_staking_position(&creator, &holder, &pos0)
+            .unwrap();
         assert_eq!(p0_after.unlock_ledger, base_unlock);
 
         // -----------------------------------------------------------------
@@ -238,7 +250,9 @@ mod staking_lifecycle_tests {
         assert_eq!(client.get_staking_rewards_pool(&creator), 62);
         assert_eq!(client.get_total_staked(&creator), 10);
         // Position is closed and keys return to the liquid balance.
-        assert!(client.get_staking_position(&creator, &holder, &pos0).is_none());
+        assert!(client
+            .get_staking_position(&creator, &holder, &pos0)
+            .is_none());
         assert_eq!(client.get_staked_balance(&creator, &holder), 10);
         assert_eq!(client.get_liquid_balance(&creator, &holder), 2);
 
@@ -271,7 +285,9 @@ mod staking_lifecycle_tests {
         // Pool is fully drained and no positions remain.
         assert_eq!(client.get_staking_rewards_pool(&creator), 0);
         assert_eq!(client.get_total_staked(&creator), 0);
-        assert!(client.get_staking_position(&creator, &holder, &pos1).is_none());
+        assert!(client
+            .get_staking_position(&creator, &holder, &pos1)
+            .is_none());
         // All 12 of the holder's keys are back in liquid balance.
         assert_eq!(client.get_staked_balance(&creator, &holder), 0);
         assert_eq!(client.get_liquid_balance(&creator, &holder), 12);
@@ -298,7 +314,9 @@ mod staking_lifecycle_tests {
         );
         // A positive extension succeeds.
         let new_unlock = client.stake_extend(&creator, &holder, &pos, &25u32);
-        let stored = client.get_staking_position(&creator, &holder, &pos).unwrap();
+        let stored = client
+            .get_staking_position(&creator, &holder, &pos)
+            .unwrap();
         assert_eq!(stored.unlock_ledger, new_unlock);
     }
 
@@ -310,7 +328,10 @@ mod staking_lifecycle_tests {
         let lock_ledgers = 100u32;
 
         let pos = client.stake_keys_locked(&creator, &holder, &1u32, &lock_ledgers);
-        let unlock = client.get_staking_position(&creator, &holder, &pos).unwrap().unlock_ledger;
+        let unlock = client
+            .get_staking_position(&creator, &holder, &pos)
+            .unwrap()
+            .unlock_ledger;
 
         // Claim while still locked reverts.
         assert!(env.ledger().sequence() < unlock);
@@ -328,7 +349,10 @@ mod staking_lifecycle_tests {
 
         let lock_ledgers = 100u32;
         let pos = client.stake_keys_locked(&creator, &holder, &4u32, &lock_ledgers);
-        let unlock = client.get_staking_position(&creator, &holder, &pos).unwrap().unlock_ledger;
+        let unlock = client
+            .get_staking_position(&creator, &holder, &pos)
+            .unwrap()
+            .unlock_ledger;
 
         // Advance past maturity without any fees accruing: reward is 0 since the
         // pool never accrued, but keys are still returned.
