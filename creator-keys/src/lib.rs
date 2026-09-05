@@ -118,20 +118,8 @@ pub enum StakingError {
     /// The contract is paused.
     ProtocolPaused = 8,
     GlobalTradingHalted = 51,
-    /// `set_co_creator`'s `split_bps` exceeded the 9000 (90%) cap (issue #782).
-    SplitTooHigh = 52,
-    /// `take_snapshot` called with a `snapshot_id` already used for the creator (issue #778).
-    SnapshotAlreadyExists = 53,
-    /// `take_snapshot`'s `holders` list exceeded [`MAX_SNAPSHOT_HOLDERS`] (issue #778).
-    SnapshotHolderLimitExceeded = 54,
-    /// `initialise_key` called for a `creator` that already has metadata (issue #779).
-    KeyAlreadyInitialised = 55,
-    /// `initialise_key`'s `name` exceeded 64 bytes (issue #779).
-    NameTooLong = 56,
-    /// `initialise_key`'s `bio` exceeded 256 bytes (issue #779).
-    BioTooLong = 57,
-    /// `sell_key` attempted in the same ledger as the holder's last buy (issue #781).
-    FlashLoanDetected = 58,
+    FrozenBalanceExceeded = 52,
+    FreezeQuantityExceedsBalance = 53,
 }
 
 /// Errors raised by co-creator and auction lifecycle entrypoints.
@@ -593,7 +581,6 @@ pub mod constants {
         pub fn holder_cap_bps(creator: &Address) -> DataKey {
             DataKey::HolderCapBps(creator.clone())
         }
-
         pub fn quorum_bps(creator: &Address) -> DataKey {
             DataKey::QuorumBps(creator.clone())
         }
@@ -1047,6 +1034,13 @@ pub enum DataKey {
     /// Per-creator buy cooldown in ledgers. A value of `0` (or absent) means
     /// no cooldown is configured. Set via `set_buy_cooldown`.
     BuyCooldown(Address),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ReinvestResult {
+    pub keys_bought: u32,
+    pub remainder_returned: i128,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -2517,6 +2511,20 @@ fn extend_creator_ttl(env: &Env, creator: &Address) {
         }
     }
 
+    let created_at_key = constants::storage::created_at_ledger(creator);
+    if env.storage().persistent().has(&created_at_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&created_at_key, threshold, extend_to);
+    }
+
+    let launch_penalty_key = constants::storage::launch_penalty_bps(creator);
+    if env.storage().persistent().has(&launch_penalty_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&launch_penalty_key, threshold, extend_to);
+    }
+
     // Record the new live-until ledger so future trades can re-evaluate
     // whether the TTL-extension event should be emitted.
     env.storage().persistent().set(&live_until_key, &extend_to);
@@ -2786,7 +2794,6 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
             let post_price = compute_bonding_curve_price(&env, &creator, base_price, post_supply)?;
-
             let threshold_pct: u32 = env
                 .storage()
                 .persistent()
@@ -7295,6 +7302,204 @@ impl CreatorKeysContract {
     /// Read-only view: returns the curve exponent for a creator, if set.
     pub fn get_curve_exponent(env: Env, creator: Address) -> Option<u32> {
         read_curve_exponent(&env, &creator)
+    }
+
+    pub fn get_stake_unlock_ledger(env: Env, creator: Address, holder: Address) -> Option<u32> {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::stake_unlock_ledger(&creator, &holder))
+    }
+
+    pub fn reinvest_dividend(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+    ) -> Result<ReinvestResult, ContractError> {
+        caller.require_auth();
+        assert_not_paused(&env)?;
+        assert_not_blacklisted(&env, &caller)?;
+        assert_before_global_deadline(&env)?;
+
+        let claimable = compute_claimable_dividend(&env, &key_id, &caller);
+        if claimable <= 0 {
+            return Err(ContractError::NoDividendClaimable);
+        }
+
+        // Clear the unclaimed dividend balance, matching claim_dividend settlement
+        let accumulator = read_dividend_accumulator(&env, &key_id);
+        let pending_key = constants::storage::holder_dividend_pending(&key_id, &caller);
+        let checkpoint_key = constants::storage::holder_dividend_checkpoint(&key_id, &caller);
+        env.storage().persistent().set(&pending_key, &0i128);
+        env.storage()
+            .persistent()
+            .set(&checkpoint_key, &accumulator);
+        extend_key_ttl_to_full_window(&env, &pending_key);
+        extend_key_ttl_to_full_window(&env, &checkpoint_key);
+
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &key_id)?;
+        assert_whitelist_allows_buy(&env, &profile, &caller)?;
+
+        let balance_key = constants::storage::holder_balance_key(&key_id, &caller);
+        let mut current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+
+        let mut remaining = claimable;
+        let mut keys_bought = 0u32;
+
+        loop {
+            let next_price =
+                compute_bonding_curve_price(&env, &key_id, base_price, profile.supply)?;
+            if next_price <= 0 || remaining < next_price {
+                break;
+            }
+
+            // Check max supply cap if configured
+            if let Some(max_supply) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, u32>(&constants::storage::max_supply(&key_id))
+            {
+                if profile.supply >= max_supply {
+                    break;
+                }
+            }
+
+            // Check max keys per wallet cap if configured
+            if let Some(cap) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, u32>(&constants::storage::max_keys_per_wallet(&key_id))
+            {
+                let post_buy_balance = match current_balance.checked_add(1) {
+                    Some(b) => b,
+                    None => break,
+                };
+                if post_buy_balance > cap {
+                    break;
+                }
+            }
+
+            // Check percentage holding cap if configured
+            if caller != key_id {
+                if let Some(cap_bps) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, u32>(&constants::storage::holder_cap_bps(&key_id))
+                {
+                    let post_buy_supply = match profile.supply.checked_add(1) {
+                        Some(s) => s,
+                        None => break,
+                    };
+                    let post_buy_balance = match current_balance.checked_add(1) {
+                        Some(b) => b,
+                        None => break,
+                    };
+                    let max_allowed = ((i128::from(post_buy_supply) * i128::from(cap_bps))
+                        / i128::from(fee::BPS_MAX)) as u32;
+                    if post_buy_balance > max_allowed {
+                        break;
+                    }
+                }
+            }
+
+            remaining = remaining
+                .checked_sub(next_price)
+                .ok_or(ContractError::Overflow)?;
+
+            if current_balance == 0 {
+                profile.holder_count = profile
+                    .holder_count
+                    .checked_add(1)
+                    .ok_or(ContractError::Overflow)?;
+            }
+
+            profile.supply = profile
+                .supply
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+
+            current_balance = current_balance
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+
+            keys_bought = keys_bought.checked_add(1).ok_or(ContractError::Overflow)?;
+
+            // Collect protocol trade fee & fee splits
+            let net_amount = collect_protocol_trade_fee(&env, &key_id, next_price)?;
+            if let Some(config) = read_protocol_fee_config(&env) {
+                let (creator_fee, protocol_fee) = fee::checked_compute_fee_split(
+                    net_amount,
+                    config.creator_bps,
+                    config.protocol_bps,
+                )
+                .ok_or(ContractError::Overflow)?;
+
+                credit_creator_fee(&env, &key_id, creator_fee)?;
+                credit_treasury_balance(&env, protocol_fee)?;
+                credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
+            }
+
+            if let Some(royalty) = read_royalty_config(&env, &key_id) {
+                let royalty_amount = fee::apply_percentage_fee(next_price, royalty.buy_fee_bps)
+                    .ok_or(ContractError::Overflow)?;
+                if royalty_amount > 0 {
+                    credit_creator_fee_recipient_balance(&env, &key_id, royalty_amount)?;
+                }
+            }
+
+            env.events().publish(
+                events::buy_event_topics(&key_id, &caller),
+                events::KeysBoughtEvent {
+                    buyer: caller.clone(),
+                    creator_id: key_id.clone(),
+                    quantity: 1,
+                    price_paid: next_price,
+                    new_supply: profile.supply,
+                    ledger: env.ledger().sequence(),
+                },
+            );
+        }
+
+        if keys_bought > 0 {
+            let key = constants::storage::creator(&key_id);
+            env.storage().persistent().set(&key, &profile);
+            write_creator_supply(&env, &key_id, profile.supply);
+            env.storage()
+                .persistent()
+                .set(&balance_key, &current_balance);
+            extend_key_ttl_to_full_window(&env, &balance_key);
+
+            let last_buy_key = constants::storage::last_buy_timestamp(&key_id, &caller);
+            env.storage()
+                .persistent()
+                .set(&last_buy_key, &env.ledger().timestamp());
+            extend_key_ttl_to_full_window(&env, &last_buy_key);
+
+            extend_creator_ttl(&env, &key_id);
+        }
+
+        let remainder_returned = remaining;
+
+        env.events().publish(
+            events::dividend_reinvested_topics(&key_id, &caller),
+            events::DividendReinvestedEvent {
+                wallet: caller,
+                key_id,
+                keys_bought,
+                remainder_returned,
+            },
+        );
+
+        Ok(ReinvestResult {
+            keys_bought,
+            remainder_returned,
+        })
     }
 
     /// Read-only view: simulates a buy quote for a given creator and quantity.

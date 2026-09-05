@@ -1590,6 +1590,31 @@ pub fn co_creator_removed_topics(
     )
 }
 
+/// Event name for dividend reinvestment.
+pub const DIVIDEND_REINVESTED_EVENT_NAME: Symbol = symbol_short!("div_reinv");
+
+/// Stable dividend reinvested event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DividendReinvestedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub keys_bought: u32,
+    pub remainder_returned: i128,
+}
+
+/// Shared dividend reinvested event topics tuple.
+pub fn dividend_reinvested_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        DIVIDEND_REINVESTED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
 // ============================================================================
 // Pre-launch auction configuration (#790)
 // ============================================================================
