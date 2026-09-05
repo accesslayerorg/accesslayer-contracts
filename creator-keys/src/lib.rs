@@ -78,7 +78,7 @@ pub enum ContractError {
     NotWhitelisted = 49,
     CircuitBreakerTriggered = 50,
 
-  /// Emitted when a `batch_transfer_keys` call contains more than the allowed
+    /// Emitted when a `batch_transfer_keys` call contains more than the allowed
     /// number of `(recipient, quantity)` pairs.
     BatchTransferSizeExceeded = 51,
     /// Emitted when a `batch_transfer_keys` call contains a recipient address
