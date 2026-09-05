@@ -552,11 +552,6 @@ pub mod constants {
         pub fn last_buy_ledger(creator: &Address, holder: &Address) -> DataKey {
             DataKey::LastBuyLedger(creator.clone(), holder.clone())
         }
-
-        pub fn last_buy_timestamp(creator: &Address, holder: &Address) -> DataKey {
-            DataKey::LastBuyTimestamp(creator.clone(), holder.clone())
-        }
-
         pub fn max_keys_per_wallet(creator: &Address) -> DataKey {
             DataKey::MaxKeysPerWallet(creator.clone())
         }
@@ -564,15 +559,6 @@ pub mod constants {
         pub fn referral_fee_bps() -> DataKey {
             DataKey::ReferralFeeBps
         }
-
-        pub fn royalty_config(creator: &Address) -> DataKey {
-            DataKey::RoyaltyConfig(creator.clone())
-        }
-
-        pub fn curve_exponent(creator: &Address) -> DataKey {
-            DataKey::CurveExponent(creator.clone())
-        }
-
         /// Absolute live-until ledger the contract last set for `creator`'s
         /// profile key, used to decide whether to emit the TTL-extension event.
         pub fn creator_ttl_live_until(creator: &Address) -> DataKey {
