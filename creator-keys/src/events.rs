@@ -1280,24 +1280,8 @@ pub fn batch_transfer_completed_topics(
     )
 }
 
-/// Event name for protocol trade fee collected.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
-
-/// Stable fee collected event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
-/// - data:   `FeeCollectedEvent`
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct FeeCollectedEvent {
-    pub treasury: Address,
-    pub amount: i128,
 /// Event name for the protocol trade fee collected on a buy or sell.
 pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
-
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
 
 /// Stable fee collection event payload for downstream indexers.
 ///
@@ -1326,18 +1310,6 @@ pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
 /// Event name for sell blocked by lockup period.
 pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lk_blk");
 
-/// Stable lockup blocked event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
-/// - data:   `LockupBlockedEvent`
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    pub creator_id: Address,
-    pub seller: Address,
-    pub last_buy_timestamp: u64,
-    pub unlock_at: u64,
 /// Stable lockup-blocked event payload for downstream indexers.
 ///
 /// Event shape:
