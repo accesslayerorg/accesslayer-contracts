@@ -1280,9 +1280,6 @@ pub fn batch_transfer_completed_topics(
     )
 }
 
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
-
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:
