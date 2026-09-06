@@ -1308,7 +1308,6 @@ pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
 }
 
 /// Event name for sell blocked by lockup period.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lk_blk");
 
 /// Stable lockup-blocked event payload for downstream indexers.
 ///
