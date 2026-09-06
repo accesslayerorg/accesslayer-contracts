@@ -249,7 +249,7 @@ pub mod fee {
         }
         let protocol_amount = (total * protocol_bps as i128) / BPS_MAX as i128;
         let creator_amount = if creator_bps.saturating_add(protocol_bps) == BPS_MAX {
-            total - protocol_amount
+            total.saturating_sub(protocol_amount)
         } else {
             (total * creator_bps as i128) / BPS_MAX as i128
         };
@@ -7055,7 +7055,6 @@ impl CreatorKeysContract {
             .ok_or(ContractError::Overflow)?;
 
         if current_balance > 0 && new_balance == 0 {
-            profile.holder_count = profile.holder_count.checked_sub(1).unwrap_or(0);
             profile.holder_count = profile.holder_count.saturating_sub(1);
         }
 
