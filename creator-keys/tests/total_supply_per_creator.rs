@@ -26,6 +26,7 @@ use contract_test_env::{
 };
 use creator_keys::ContractError;
 use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::Ledger as _;
 
 /// Buy `count` keys for `buyer` from `creator`, fetching a live quote before each purchase.
 fn buy_n_keys(
@@ -166,6 +167,9 @@ fn test_sell_three_keys_decrements_creator_a_supply_from_ten_to_seven() {
     assert_eq!(client.get_total_key_supply(&creator_a), 10);
 
     for _ in 0..3 {
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator_a, &buyer_a, &None);
     }
 
@@ -193,6 +197,9 @@ fn test_selling_from_creator_a_does_not_affect_creator_b_supply() {
     buy_n_keys(&client, &creator_b, &buyer_b, 5);
 
     for _ in 0..3 {
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator_a, &buyer_a, &None);
     }
 
@@ -221,6 +228,9 @@ fn test_selling_from_creator_b_does_not_affect_creator_a_supply() {
     buy_n_keys(&client, &creator_b, &buyer_b, 5);
 
     for _ in 0..3 {
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator_b, &buyer_b, &None);
     }
 
@@ -269,6 +279,9 @@ fn test_supply_decrements_by_one_per_sell() {
     assert_eq!(client.get_total_key_supply(&creator), 5);
 
     for expected in (0u32..5).rev() {
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator, &buyer, &None);
         assert_eq!(
             client.get_total_key_supply(&creator),
@@ -340,6 +353,9 @@ fn test_supply_reaches_zero_after_selling_all_keys() {
     assert_eq!(client.get_total_key_supply(&creator), 3);
 
     for _ in 0..3 {
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator, &buyer, &None);
     }
 
@@ -424,6 +440,9 @@ fn test_total_supply_equals_sum_of_all_holder_balances() {
     buy_n_keys(&client, &creator, &buyer_2, 2);
 
     // Sell 1 from buyer_1 so we have an asymmetric balance
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer_1, &None);
 
     let total_supply = client.get_total_key_supply(&creator);

@@ -14,7 +14,7 @@ use contract_test_env::{
 };
 use creator_keys::events::{self, FEE_COLLECTED_EVENT_NAME};
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     Address, Env, IntoVal, Symbol, Vec,
 };
 
@@ -101,6 +101,9 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
     s.client.buy_key(&s.creator, &trader, &KEY_PRICE, &None);
     assert_eq!(s.client.get_treasury_balance(), 1);
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     s.client.sell_key(&s.creator, &trader, &None);
 
     // Capture events immediately after the sell — any subsequent contract

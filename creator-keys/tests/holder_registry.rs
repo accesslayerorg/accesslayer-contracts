@@ -23,7 +23,7 @@ fn setup(env: &Env) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
     (client, creator)
 }
 
-fn registry_contains(registry: &[Address], wallet: &Address) -> bool {
+fn registry_contains(registry: &Vec<Address>, wallet: &Address) -> bool {
     registry.contains(wallet.clone())
 }
 
@@ -36,7 +36,7 @@ fn registry_starts_empty() {
 
     let wallet = Address::generate(&env);
     assert!(
-        client.get_holder_registry(&creator).len() == 0,
+        client.get_holder_registry(&creator).is_empty(),
         "empty registry before any buys"
     );
     assert!(!client.has_ever_held(&creator, &wallet));
@@ -44,7 +44,7 @@ fn registry_starts_empty() {
 
     let unknown_key = Address::generate(&env);
     assert!(
-        client.get_holder_registry(&unknown_key).len() == 0,
+        client.get_holder_registry(&unknown_key).is_empty(),
         "unregistered key returns an empty registry"
     );
 }

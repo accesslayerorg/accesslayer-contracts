@@ -169,6 +169,9 @@ fn test_sell_event_new_supply_matches_post_transaction_state() {
     assert_eq!(client.get_total_key_supply(&creator), 2);
 
     // --- First sell: 2 -> 1 ---
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply_after_first = client.sell_key(&creator, &holder, &None);
     assert_eq!(supply_after_first, 1, "return value must be new supply (1)");
     assert_eq!(
@@ -183,6 +186,9 @@ fn test_sell_event_new_supply_matches_post_transaction_state() {
     );
 
     // --- Second sell: 1 -> 0 ---
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply_after_second = client.sell_key(&creator, &holder, &None);
     assert_eq!(
         supply_after_second, 0,
@@ -304,6 +310,9 @@ fn test_sell_event_proceeds_matches_sell_quote() {
     env.events().all();
 
     // Sell and extract the event
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
 
     let event_log = env.events().all();

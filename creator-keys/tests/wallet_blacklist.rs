@@ -10,7 +10,7 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, test_env_with_auths,
 };
 use creator_keys::{ContractError, RegisterCreatorParams};
-use soroban_sdk::{testutils::Address as _, Address, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, String};
 
 /// Register a protocol admin into contract storage and return the admin address.
 fn set_protocol_admin(
@@ -200,6 +200,9 @@ fn test_sell_key_succeeds_after_removal_from_blacklist() {
     client.blacklist_wallet(&admin, &seller);
     client.remove_from_blacklist(&admin, &seller);
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply = client.sell_key(&creator, &seller, &None);
     assert_eq!(supply, 0);
     assert_eq!(client.get_key_balance(&creator, &seller), 0);
