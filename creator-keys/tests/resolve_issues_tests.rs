@@ -275,7 +275,13 @@ fn test_sell_updates_creator_supply_and_seller_balance_atomically() {
     assert_eq!(client.get_total_key_supply(&creator), 3);
     assert_eq!(client.get_key_balance(&creator, &seller), 3);
 
+    // Advance the ledger so the sells are not blocked by the flash-loan guard.
+    env.ledger().with_mut(|l| l.sequence_number += 1);
+
     // Execute a sell of 2 keys
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &seller, &None);
     client.sell_key(&creator, &seller, &None);
 

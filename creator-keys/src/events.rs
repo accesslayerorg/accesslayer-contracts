@@ -32,8 +32,60 @@ use soroban_sdk::{
 /// Event name for protocol trade fee collected on a buy or sell.
 pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
 
+/// Stable fee collection event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
+/// - data: `FeeCollectedEvent`
+///
+/// Emitted on every buy and sell once the protocol trade fee is configured,
+/// carrying the deducted amount and the treasury address that received it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeCollectedEvent {
+    /// Treasury address that received the fee.
+    pub treasury: Address,
+    /// Fee amount deducted from the trade.
+    pub amount: i128,
+    /// Ledger sequence number at the time of the trade.
+    pub ledger: u32,
+}
+
+/// Shared fee collected event topics tuple.
+pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+}
+
 /// Event name for a sell rejected by the anti-flash-trade lockup window.
 pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+
+/// Stable lockup-blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
+/// - data: `LockupBlockedEvent`
+///
+/// Emitted when a sell is rejected because the seller's most recent buy for
+/// this creator falls inside the configured lockup window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupBlockedEvent {
+    /// Creator whose keys the seller attempted to sell.
+    pub creator_id: Address,
+    /// Seller whose sale was rejected.
+    pub seller: Address,
+    /// Ledger timestamp of the seller's most recent buy.
+    pub last_buy_timestamp: u64,
+    /// Timestamp at which the lockup expires (exclusive).
+    pub unlock_at: u64,
+    /// Ledger timestamp at rejection.
+    pub current_timestamp: u64,
+}
+
+/// Shared lockup blocked event topics tuple.
+pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+}
 
 /// Event name for quorum threshold update.
 pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
@@ -197,6 +249,8 @@ pub struct KeysSoldEvent {
     pub quantity: u32,
     /// Net proceeds received by the seller after fees.
     pub proceeds: i128,
+    /// Total supply of keys for this creator after the sale.
+    pub new_supply: u32,
     /// Ledger sequence number at the time of the sale.
     pub ledger: u32,
 }
@@ -832,42 +886,6 @@ pub fn keys_burned_topics(key_id: &Address) -> (Symbol, Address) {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
-    pub ledger: u32,
-}
-
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
-    pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
-}
-
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
 pub struct QuorumUpdatedEvent {
     pub creator: Address,
     pub quorum_bps: u32,
@@ -1272,62 +1290,45 @@ pub fn royalty_updated_topics(creator: &Address) -> (Symbol, Address) {
     (ROYALTY_UPDATED_EVENT_NAME, creator.clone())
 }
 
-/// Event name for the protocol trade fee collected on a buy or sell.
-pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
+// --- Auction events ---
 
-/// Event name for a sell rejected by the anti-flash-trade lockup window.
-pub const LOCKUP_BLOCKED_EVENT_NAME: Symbol = symbol_short!("lck_blk");
+/// Event name for auction purchase.
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_buy");
 
-/// Stable fee collection event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
-/// - data: `FeeCollectedEvent`
-///
-/// Emitted on every buy and sell once the protocol trade fee is configured,
-/// carrying the deducted amount and the treasury address that received it.
+/// Stable auction purchase event payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct FeeCollectedEvent {
-    /// Treasury address that received the fee.
-    pub treasury: Address,
-    /// Fee amount deducted from the trade.
-    pub amount: i128,
-    /// Ledger sequence number at the time of the trade.
+pub struct AuctionPurchaseEvent {
+    pub buyer: Address,
+    pub creator_id: Address,
+    pub quantity: u32,
+    pub price_paid: i128,
+    pub new_supply: u32,
+    pub auction_sold: u32,
     pub ledger: u32,
 }
 
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+/// Shared auction purchase event topics tuple.
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
 }
 
-/// Stable lockup-blocked event payload for downstream indexers.
-///
-/// Event shape:
-/// - topics: `(LOCKUP_BLOCKED_EVENT_NAME, creator_id, seller)`
-/// - data: `LockupBlockedEvent`
-///
-/// Emitted when a sell is rejected because the seller's most recent buy for
-/// this creator falls inside the configured lockup window.
+/// Event name for auction configured.
+pub const AUCTION_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("auc_cfg");
+
+/// Stable auction configured event payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct LockupBlockedEvent {
-    /// Creator whose keys the seller attempted to sell.
+pub struct AuctionConfiguredEvent {
     pub creator_id: Address,
-    /// Seller whose sale was rejected.
-    pub seller: Address,
-    /// Ledger timestamp of the seller's most recent buy.
-    pub last_buy_timestamp: u64,
-    /// Timestamp at which the lockup expires (exclusive).
-    pub unlock_at: u64,
-    /// Ledger timestamp at rejection.
-    pub current_timestamp: u64,
+    pub auction_supply: u32,
+    pub auction_price: i128,
+    pub ledger: u32,
 }
 
-/// Shared lockup blocked event topics tuple.
-pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Address, Address) {
-    (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
+/// Shared auction configured event topics tuple.
+pub fn auction_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CONFIGURED_EVENT_NAME, creator.clone())
 }
 
 /// Event name for a new staking position created via `stake_keys_locked`.
@@ -1534,4 +1535,275 @@ pub struct LaunchPenaltySetEvent {
 /// Shared set launch penalty event topics tuple.
 pub fn launch_penalty_set_topics(creator: &Address) -> (Symbol, Address) {
     (LAUNCH_PENALTY_SET_EVENT_NAME, creator.clone())
+}
+
+// ============================================================================
+// Per-wallet buy cooldown
+// ============================================================================
+
+/// Event name for a buy rejected by the per-wallet cooldown guard.
+pub const COOLDOWN_BLOCKED_EVENT_NAME: Symbol = symbol_short!("cd_blk");
+
+/// Stable cooldown-blocked event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_BLOCKED_EVENT_NAME, creator_id, wallet)`
+/// - data: `CooldownBlockedEvent`
+///
+/// Emitted inside [`CreatorKeysContract::buy_key`] when the per-wallet
+/// cooldown period has not elapsed since the buyer's last purchase.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownBlockedEvent {
+    /// Wallet whose buy was rejected.
+    pub wallet: Address,
+    /// Creator whose keys the buyer attempted to purchase.
+    pub creator_id: Address,
+    /// Number of ledgers remaining before the cooldown expires.
+    pub ledgers_remaining: u32,
+}
+
+/// Shared cooldown blocked event topics tuple.
+pub fn cooldown_blocked_topics(creator: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (COOLDOWN_BLOCKED_EVENT_NAME, creator.clone(), wallet.clone())
+}
+
+// ============================================================================
+// Co-creator removal (#791)
+// ============================================================================
+
+/// Event name for a co-creator being removed.
+pub const CO_CREATOR_REMOVED_EVENT_NAME: Symbol = symbol_short!("cc_rm");
+
+/// Stable co-creator removed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(CO_CREATOR_REMOVED_EVENT_NAME, creator_id, co_creator)`
+/// - data: `CoCreatorRemovedEvent`
+///
+/// Emitted inside `remove_co_creator` when a creator removes their co-creator split.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorRemovedEvent {
+    /// Address of the creator whose co-creator was removed.
+    pub creator_id: Address,
+    /// Address of the co-creator that was removed.
+    pub co_creator: Address,
+}
+
+/// Shared co-creator removed event topics tuple.
+pub fn co_creator_removed_topics(
+    creator_id: &Address,
+    co_creator: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_REMOVED_EVENT_NAME,
+        creator_id.clone(),
+        co_creator.clone(),
+    )
+}
+
+/// Event name for dividend reinvestment.
+pub const DIVIDEND_REINVESTED_EVENT_NAME: Symbol = symbol_short!("div_reinv");
+
+/// Stable dividend reinvested event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DividendReinvestedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub keys_bought: u32,
+    pub remainder_returned: i128,
+}
+
+/// Shared dividend reinvested event topics tuple.
+pub fn dividend_reinvested_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        DIVIDEND_REINVESTED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
+// ============================================================================
+// Pre-launch auction configuration (#790)
+// ============================================================================
+
+/// Event name for an auction being cancelled.
+pub const AUCTION_CANCELLED_EVENT_NAME: Symbol = symbol_short!("auc_cxl");
+
+/// Stable auction cancelled event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(AUCTION_CANCELLED_EVENT_NAME, creator_id)`
+/// - data: `AuctionCancelledEvent`
+///
+/// Emitted inside `cancel_auction` when a creator cancels their pre-launch auction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionCancelledEvent {
+    /// Address of the creator whose auction was cancelled.
+    pub creator_id: Address,
+}
+
+/// Shared auction cancelled event topics tuple.
+pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
+    (AUCTION_CANCELLED_EVENT_NAME, creator.clone())
+}
+
+// --- Key deprecation and holder buyback events (#834) ---
+
+/// Event name emitted when a creator deprecates their key.
+pub const KEY_DEPRECATED_EVENT_NAME: Symbol = symbol_short!("key_dep");
+
+/// Event name emitted when a holder redeems keys on a deprecated key.
+pub const KEYS_REDEEMED_EVENT_NAME: Symbol = symbol_short!("key_rdm");
+
+/// Stable field order for the key_deprecated event payload.
+pub const KEY_DEPRECATED_DATA_FIELDS: [&str; 5] = [
+    "creator",
+    "buyback_price_per_key",
+    "circulating_supply",
+    "total_escrow",
+    "ledger",
+];
+
+/// Stable field order for the keys_redeemed event payload.
+pub const KEYS_REDEEMED_DATA_FIELDS: [&str; 6] = [
+    "creator",
+    "holder",
+    "quantity",
+    "payout",
+    "new_supply",
+    "ledger",
+];
+
+/// Stable key-deprecated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEY_DEPRECATED_EVENT_NAME, creator)`
+/// - data: `KeyDeprecatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyDeprecatedEvent {
+    /// Creator who deprecated their key.
+    pub creator: Address,
+    /// Fixed XLM payout per key for all redemptions.
+    pub buyback_price_per_key: i128,
+    /// Circulating supply at the time of deprecation.
+    pub circulating_supply: u32,
+    /// Total XLM escrowed (`circulating_supply * buyback_price_per_key`).
+    pub total_escrow: i128,
+    /// Ledger sequence number at the time of deprecation.
+    pub ledger: u32,
+}
+
+/// Shared key-deprecated event topics tuple.
+pub fn key_deprecated_topics(creator: &Address) -> (Symbol, Address) {
+    (KEY_DEPRECATED_EVENT_NAME, creator.clone())
+}
+
+/// Stable keys-redeemed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(KEYS_REDEEMED_EVENT_NAME, creator, holder)`
+/// - data: `KeysRedeemedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeysRedeemedEvent {
+    /// Creator whose deprecated key is being redeemed.
+    pub creator: Address,
+    /// Holder who redeemed their keys.
+    pub holder: Address,
+    /// Number of keys redeemed by the holder.
+    pub quantity: u32,
+    /// Total XLM payout transferred to the holder.
+    pub payout: i128,
+    /// Total key supply for the creator after this redemption.
+    pub new_supply: u32,
+    /// Ledger sequence number at the time of redemption.
+    pub ledger: u32,
+}
+
+/// Shared keys-redeemed event topics tuple.
+pub fn keys_redeemed_topics(creator: &Address, holder: &Address) -> (Symbol, Address, Address) {
+    (KEYS_REDEEMED_EVENT_NAME, creator.clone(), holder.clone())
+}
+
+// ============================================================================
+// Early Unstake Penalty
+// ============================================================================
+
+/// Event name for early unstake with forfeited penalty.
+pub const EARLY_UNSTAKE_PENALTY_EVENT_NAME: Symbol = symbol_short!("erl_unst");
+
+/// Stable early unstake event payload.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EarlyUnstakePenaltyEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub returned_quantity: u32,
+    pub penalty_quantity: u32,
+}
+
+/// Shared early unstake event topics tuple.
+pub fn early_unstake_penalty_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        EARLY_UNSTAKE_PENALTY_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
+/// Event name for a satisfied slippage check on buy or sell.
+pub const SLIPPAGE_CHECK_PASSED_EVENT_NAME: Symbol = symbol_short!("slp_ok");
+
+/// Emitted when a buy or sell with a non-None slippage bound passes the
+/// price/proceeds check, giving downstream indexers visibility into slippage
+/// guard behavior.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SlippageCheckPassedEvent {
+    pub creator_id: Address,
+    pub actual_amount: i128,
+    pub bound: i128,
+    pub ledger: u32,
+}
+
+/// Shared slippage-check-passed event topics tuple.
+pub fn slippage_check_passed_topics(creator: &Address) -> (Symbol, Address) {
+    (SLIPPAGE_CHECK_PASSED_EVENT_NAME, creator.clone())
+}
+
+// --- Max buy quantity per transaction (#828) ---
+
+/// Event name emitted when the creator updates the max buy quantity per transaction.
+pub const MAX_BUY_QUANTITY_UPDATED_EVENT_NAME: Symbol = symbol_short!("mbq_upd");
+
+/// Stable max-buy-quantity-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator_id)`
+/// - data: `MaxBuyQuantityUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MaxBuyQuantityUpdatedEvent {
+    /// Address of the creator whose limit was changed.
+    pub creator_id: Address,
+    /// New per-transaction buy quantity limit.
+    pub max_qty: u32,
+    /// Ledger sequence at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared max-buy-quantity-updated event topics tuple.
+pub fn max_buy_quantity_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator.clone())
 }

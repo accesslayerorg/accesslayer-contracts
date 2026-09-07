@@ -16,7 +16,7 @@ mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, register_test_creator, test_env_with_auths};
 use creator_keys::{constants, ContractError, CreatorKeysContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String};
 
 const KEY_PRICE: i128 = 1_000;
 const CREATOR_BPS: u32 = 9_000;
@@ -125,6 +125,9 @@ fn fees_accrued_after_the_update_are_attributed_to_the_new_recipient() {
 
     // Accrue some protocol fees against the original recipient.
     client.buy_key(&creator, &holder, &KEY_PRICE, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     let balance_before_rotation = client.get_protocol_recipient_balance();
     assert!(
@@ -138,6 +141,9 @@ fn fees_accrued_after_the_update_are_attributed_to_the_new_recipient() {
     // A second round trip after the rotation must keep accruing, and the
     // recipient of record for that accrual is now the new address.
     client.buy_key(&creator, &holder, &KEY_PRICE, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
 
     assert!(
