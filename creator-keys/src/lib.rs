@@ -1090,8 +1090,6 @@ pub enum DataKey {
     StakeUnlockLedger(Address, Address),
     /// Total keys currently staked for a creator across all holders.
     TotalStaked(Address),
-    /// Pre-launch auction configuration for a creator.
-    AuctionConfig(Address),
     /// Per-creator buy cooldown in ledgers. A value of `0` (or absent) means
     /// no cooldown is configured. Set via `set_buy_cooldown`.
     BuyCooldown(Address),
@@ -1125,19 +1123,6 @@ pub enum StakingKey {
 }
 
 /// Configuration for a creator's fixed-price pre-launch auction phase.
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub struct AuctionConfig {
-    pub auction_price: i128,
-    pub auction_supply: u32,
-    pub auction_sold: u32,
-}
-
-/// Fixed-price pre-launch auction configuration for a creator's keys.
-///
-/// While `auction_sold < auction_supply`, buys settle at `auction_price`
-/// instead of the bonding curve price. The contract transitions to the
-/// bonding curve automatically once the auction supply is exhausted.
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct AuctionConfig {
