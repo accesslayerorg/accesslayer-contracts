@@ -2525,6 +2525,11 @@ fn record_holder_in_registry(env: &Env, creator: &Address, holder: &Address) {
 /// Returns an empty `Vec` when no wallet has ever held a key for this creator.
 fn read_holder_registry(env: &Env, creator: &Address) -> Vec<Address> {
     let reg_key = constants::storage::holder_registry(creator);
+    if !env.storage().persistent().has(&reg_key) {
+        // No wallet has ever held a key for this creator; there is no entry to
+        // bump the TTL of (extend_ttl on a missing key would panic).
+        return Vec::new(env);
+    }
     let registry: Vec<Address> = env.storage().persistent().get(&reg_key).unwrap_or_else(|| {
         // Constructing an empty Vec requires the env; use a closure fallback.
         Vec::new(env)

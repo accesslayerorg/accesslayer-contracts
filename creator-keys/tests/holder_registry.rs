@@ -12,7 +12,7 @@
 mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, register_test_creator, set_key_price_for_tests};
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, Vec};
 
 const KEY_PRICE: i128 = 100;
 
@@ -94,6 +94,11 @@ fn repeat_buys_do_not_duplicate_and_sell_does_not_remove() {
     );
     assert_eq!(client.get_historical_holder_count(&creator), 1);
 
+    // Advance past the flash-loan guard so the same-ledger sell is not blocked.
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number += 1;
+    env.ledger().set(ledger);
+
     // Full exit: the wallet's balance reaches zero but the registry entry stays.
     client.sell_key(&creator, &wallet, &None);
     client.sell_key(&creator, &wallet, &None);
@@ -168,6 +173,12 @@ fn re_entry_after_full_exit_does_not_duplicate() {
     let wallet = Address::generate(&env);
 
     client.buy_key(&creator, &wallet, &KEY_PRICE, &None);
+
+    // Advance past the flash-loan guard so the same-ledger sell is not blocked.
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number += 1;
+    env.ledger().set(ledger);
+
     client.sell_key(&creator, &wallet, &None);
     client.buy_key(&creator, &wallet, &KEY_PRICE, &None);
 
