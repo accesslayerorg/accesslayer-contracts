@@ -1,10 +1,11 @@
 //! Tests for issues #778 (holder snapshots), #779 (key metadata), #781
 //! (flash-loan guard), and #782 (settable co-creator revenue split).
 
-use crate::{ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams};
-use soroban_sdk::{
-    testutils::Address as _, testutils::Ledger as _, Address, Bytes, Env, String, Vec,
+use crate::{
+    ContractError, CreatorKeysContract, CreatorKeysContractClient, KeyMetadata,
+    RegisterCreatorParams,
 };
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String, Vec};
 
 fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let env = Env::default();
@@ -119,16 +120,16 @@ fn test_initialise_key_stores_metadata() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"Alice");
-    let bio = Bytes::from_slice(&env, b"Digital artist");
-    let avatar = Bytes::from_slice(&env, b"ipfs://avatar");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Digital artist"),
+        avatar_uri: String::from_str(&env, "ipfs://avatar"),
+    };
 
-    client.initialise_key(&creator, &name, &bio, &avatar);
+    client.initialise_key(&creator, &metadata);
 
     let meta = client.get_key_metadata(&creator).unwrap();
-    assert_eq!(meta.name, name);
-    assert_eq!(meta.bio, bio);
-    assert_eq!(meta.avatar_uri, avatar);
+    assert_eq!(meta, metadata);
 }
 
 #[test]
@@ -137,11 +138,13 @@ fn test_initialise_key_name_too_long_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let long_name = Bytes::from_slice(&env, &[b'a'; 65]);
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, &"a".repeat(65)),
+        bio: String::from_str(&env, "bio"),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
 
-    let result = client.try_initialise_key(&creator, &long_name, &bio, &avatar);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::NameTooLong)));
 }
 
@@ -151,11 +154,13 @@ fn test_initialise_key_bio_too_long_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"name");
-    let long_bio = Bytes::from_slice(&env, &[b'a'; 257]);
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        bio: String::from_str(&env, &"a".repeat(257)),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
 
-    let result = client.try_initialise_key(&creator, &name, &long_bio, &avatar);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::BioTooLong)));
 }
 
@@ -165,12 +170,14 @@ fn test_initialise_key_twice_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"name");
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        bio: String::from_str(&env, "bio"),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
 
-    client.initialise_key(&creator, &name, &bio, &avatar);
-    let result = client.try_initialise_key(&creator, &name, &bio, &avatar);
+    client.initialise_key(&creator, &metadata);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::KeyAlreadyInitialised)));
 }
 
@@ -186,10 +193,12 @@ fn test_initialise_key_non_creator_fails_auth() {
     // checking that the entrypoint requires creator's auth at all — the
     // NotRegistered/registration path already proves the address parameter
     // is `creator`, not an implicit caller.
-    let name = Bytes::from_slice(&env, b"name");
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
-    client.initialise_key(&creator, &name, &bio, &avatar);
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        bio: String::from_str(&env, "bio"),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
+    client.initialise_key(&creator, &metadata);
     assert!(client.get_key_metadata(&creator).is_some());
 }
 

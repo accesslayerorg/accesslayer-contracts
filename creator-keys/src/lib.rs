@@ -2,9 +2,7 @@
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
 pub mod quote_view_errors;
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Bytes, Env, String, Vec,
-};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
 
 pub mod events;
 pub mod test_new_features;
@@ -568,8 +566,8 @@ pub mod constants {
             DataKey::RoyaltyConfig(creator.clone())
         }
 
-        pub fn curve_exponent(creator: &Address) -> DataKey {
-            DataKey::CurveExponent(creator.clone())
+        pub fn curve_exponent(_creator: &Address) -> soroban_sdk::Symbol {
+            soroban_sdk::symbol_short!("crv_exp")
         }
 
         /// Absolute live-until ledger the contract last set for `creator`'s
@@ -894,6 +892,15 @@ pub fn assert_schema_version(client_version: u32) -> Result<(), ContractError> {
 
 pub const HANDLE_LEN_MIN: u32 = 3;
 pub const HANDLE_LEN_MAX: u32 = 32;
+
+/// Maximum byte-length of the `name` field in [`KeyMetadata`].
+pub const METADATA_NAME_MAX_LEN: u32 = 64;
+
+/// Maximum byte-length of the `bio` field in [`KeyMetadata`].
+pub const METADATA_BIO_MAX_LEN: u32 = 256;
+
+/// Maximum byte-length of the `avatar_uri` field in [`KeyMetadata`].
+pub const METADATA_AVATAR_URI_MAX_LEN: u32 = 256;
 pub const MAX_WHITELIST_SIZE: u32 = 500;
 
 /// Maximum number of recipient entries accepted by a single
@@ -1203,15 +1210,6 @@ pub struct HolderSnapshotMeta {
     pub total_holders: u32,
 }
 
-/// On-chain creator key identity, set once via `initialise_key` (issue #779).
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub struct KeyMetadata {
-    pub name: Bytes,
-    pub bio: Bytes,
-    pub avatar_uri: Bytes,
-}
-
 /// Maximum number of holder addresses accepted per `take_snapshot` call.
 ///
 /// Soroban contract storage cannot be enumerated on-chain (there is no
@@ -1364,6 +1362,21 @@ pub struct CreatorProfile {
 pub struct ClaimResult {
     pub creator: Address,
     pub amount_claimed: i128,
+}
+
+/// Metadata associated with a creator key that can be set at initialisation
+/// and updated later via [`update_metadata`].
+///
+/// Only fields wrapped in `Some` are updated; `None` fields are left unchanged.
+/// Byte-length limits mirror the handle validation enforced by
+/// [`validate_creator_handle`] for `name` and use dedicated caps for `bio`
+/// and `avatar_uri`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyMetadata {
+    pub name: String,
+    pub bio: String,
+    pub avatar_uri: String,
 }
 
 /// One recipient of a creator key airdrop: the wallet to credit and how many
@@ -1683,6 +1696,63 @@ fn credit_creator_fee(env: &Env, creator: &Address, amount: i128) -> Result<(), 
 
 fn is_valid_handle_byte(byte: u8) -> bool {
     byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+}
+
+/// Reads creator key metadata from persistent storage.
+///
+/// Returns `None` when no metadata has been initialised for the creator.
+pub fn read_creator_metadata(env: &Env, creator: &Address) -> Option<KeyMetadata> {
+    use soroban_sdk::symbol_short;
+    let key = (symbol_short!("md"), creator.clone());
+    env.storage().persistent().get(&key)
+}
+
+/// Validates the byte-length of a metadata string field.
+///
+/// Returns [`ContractError::HandleTooLong`] when `value.len()` exceeds `max_len`.
+fn assert_metadata_field_length(
+    value: &String,
+    max_len: u32,
+    error: ContractError,
+) -> Result<(), ContractError> {
+    if value.len() > max_len {
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Validates a complete [`KeyMetadata`] payload.
+///
+/// Rejects an empty `name` (blank or whitespace-only) with
+/// [`ContractError::DisplayNameEmpty`] and enforces per-field byte-length
+/// limits consistent with the handle rules used at registration.
+fn validate_key_metadata(metadata: &KeyMetadata) -> Result<(), ContractError> {
+    if metadata.name.is_empty() {
+        return Err(ContractError::DisplayNameEmpty);
+    }
+    assert_metadata_field_length(
+        &metadata.name,
+        METADATA_NAME_MAX_LEN,
+        ContractError::NameTooLong,
+    )?;
+    assert_metadata_field_length(
+        &metadata.bio,
+        METADATA_BIO_MAX_LEN,
+        ContractError::BioTooLong,
+    )?;
+    assert_metadata_field_length(
+        &metadata.avatar_uri,
+        METADATA_AVATAR_URI_MAX_LEN,
+        ContractError::NameTooLong,
+    )?;
+    Ok(())
+}
+
+/// Writes creator key metadata to persistent storage.
+fn write_creator_metadata(env: &Env, creator: &Address, metadata: &KeyMetadata) {
+    use soroban_sdk::symbol_short;
+    let key = (symbol_short!("md"), creator.clone());
+    env.storage().persistent().set(&key, metadata);
 }
 
 /// Validates a creator's display handle.
@@ -2505,7 +2575,10 @@ fn compute_claimable_dividend(env: &Env, creator: &Address, holder: &Address) ->
 /// `CREATOR_TTL_LEDGERS` on fresh networks; forcing the full window at write
 /// time keeps the entry's real TTL aligned with the live-until the contract
 /// tracks for the TTL-extension event.
-fn extend_key_ttl_to_full_window(env: &Env, key: &DataKey) {
+fn extend_key_ttl_to_full_window<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(
+    env: &Env,
+    key: &K,
+) {
     env.storage()
         .persistent()
         .extend_ttl(key, CREATOR_TTL_LEDGERS, CREATOR_TTL_LEDGERS);
@@ -5112,43 +5185,26 @@ impl CreatorKeysContract {
     pub fn initialise_key(
         env: Env,
         creator: Address,
-        name: Bytes,
-        bio: Bytes,
-        avatar_uri: Bytes,
+        metadata: KeyMetadata,
     ) -> Result<(), ContractError> {
         creator.require_auth();
         read_registered_creator_profile(&env, &creator)?;
 
-        if name.is_empty() || bio.is_empty() {
-            return Err(ContractError::DisplayNameEmpty);
-        }
-        if name.len() > 64 {
-            return Err(ContractError::NameTooLong);
-        }
-        if bio.len() > 256 {
-            return Err(ContractError::BioTooLong);
-        }
+        validate_key_metadata(&metadata)?;
 
-        let key = constants::storage::key_metadata(&creator);
-        if env.storage().persistent().has(&key) {
+        if read_creator_metadata(&env, &creator).is_some() {
             return Err(ContractError::KeyAlreadyInitialised);
         }
 
-        let metadata = KeyMetadata {
-            name: name.clone(),
-            bio: bio.clone(),
-            avatar_uri: avatar_uri.clone(),
-        };
-        env.storage().persistent().set(&key, &metadata);
-        extend_key_ttl_to_full_window(&env, &key);
+        write_creator_metadata(&env, &creator, &metadata);
 
         env.events().publish(
             events::key_initialised_topics(&creator),
             events::KeyInitialisedEvent {
                 creator_id: creator,
-                name,
-                bio,
-                avatar_uri,
+                name: metadata.name,
+                bio: metadata.bio,
+                avatar_uri: metadata.avatar_uri,
             },
         );
 
@@ -5158,9 +5214,51 @@ impl CreatorKeysContract {
     /// Read-only view: returns a creator's on-chain key metadata, or `None`
     /// if `initialise_key` has not been called for them.
     pub fn get_key_metadata(env: Env, creator: Address) -> Option<KeyMetadata> {
-        env.storage()
-            .persistent()
-            .get(&constants::storage::key_metadata(&creator))
+        read_creator_metadata(&env, &creator)
+    }
+
+    /// Updates a creator's key metadata. Only fields wrapped in `Some` are
+    /// changed; `None` fields remain untouched.
+    pub fn update_metadata(
+        env: Env,
+        creator: Address,
+        name: Option<String>,
+        bio: Option<String>,
+        avatar_uri: Option<String>,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        let mut metadata =
+            read_creator_metadata(&env, &creator).ok_or(ContractError::NotRegistered)?;
+
+        let mut changed = false;
+        if let Some(n) = name {
+            if n.len() > METADATA_NAME_MAX_LEN {
+                return Err(ContractError::HandleTooLong);
+            }
+            metadata.name = n;
+            changed = true;
+        }
+        if let Some(b) = bio {
+            if b.len() > METADATA_BIO_MAX_LEN {
+                return Err(ContractError::HandleTooLong);
+            }
+            metadata.bio = b;
+            changed = true;
+        }
+        if let Some(u) = avatar_uri {
+            if u.len() > METADATA_AVATAR_URI_MAX_LEN {
+                return Err(ContractError::HandleTooLong);
+            }
+            metadata.avatar_uri = u;
+            changed = true;
+        }
+
+        if !changed {
+            return Ok(());
+        }
+
+        write_creator_metadata(&env, &creator, &metadata);
+        Ok(())
     }
 
     /// Read-only view: returns accrued co-creator fee balance for a creator.
@@ -6075,10 +6173,10 @@ impl CreatorKeysContract {
     /// Only callable by the creator. `cap_bps` may be omitted to select
     /// [`DEFAULT_HOLDER_CAP_BPS`] (10%); an explicit value must lie between
     /// [`HOLDER_CAP_MIN_BPS`] (1%) and [`HOLDER_CAP_MAX_BPS`] (25%), otherwise
-    /// [`ContractError::InvalidHolderCap`] is returned. Once configured,
+    /// [`ContractError::InvalidFeeConfig`] is returned. Once configured,
     /// `buy_key` rejects purchases that would push a non-creator wallet above
     /// `cap_bps` of the total supply with
-    /// [`ContractError::MaxHoldingExceeded`]. The creator's own wallet is
+    /// [`ContractError::WalletCapExceeded`]. The creator's own wallet is
     /// exempt from the cap.
     pub fn set_holder_cap(
         env: Env,
@@ -6225,7 +6323,7 @@ impl CreatorKeysContract {
     /// (24 hours) as the canonical starting value. Once configured, `sell_key`
     /// rejects sales made less than `duration_secs` after the seller's most
     /// recent buy of that creator's keys with
-    /// [`ContractError::LockupPeriodActive`] and emits a
+    /// [`ContractError::AllocationLocked`] and emits a
     /// [`events::LOCKUP_BLOCKED_EVENT_NAME`] event.
     pub fn set_lockup_duration(
         env: Env,
