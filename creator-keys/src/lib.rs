@@ -1051,6 +1051,8 @@ pub enum DataKey {
     ReferralEarnings(Address),
     WhitelistMap(Address, Address),
     WhitelistMode(Address),
+    /// Pre-launch auction configuration for a creator's keys.
+    AuctionConfig(Address),
     /// (creator, snapshot_id) -> `HolderSnapshotMeta` (issue #778).
     HolderSnapshotMeta(Address, u32),
     /// (creator, snapshot_id, holder) -> balance at snapshot time (issue #778).
@@ -1088,8 +1090,6 @@ pub enum DataKey {
     StakeUnlockLedger(Address, Address),
     /// Total keys currently staked for a creator across all holders.
     TotalStaked(Address),
-    /// Pre-launch auction configuration for a creator.
-    AuctionConfig(Address),
     /// Per-creator buy cooldown in ledgers. A value of `0` (or absent) means
     /// no cooldown is configured. Set via `set_buy_cooldown`.
     BuyCooldown(Address),
