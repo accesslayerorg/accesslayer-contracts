@@ -234,10 +234,7 @@ fn test_buy_key_transitions_to_bonding_curve_once_auction_supply_is_exhausted() 
     client.buy_key(&creator, &buyer_a, &500i128, &None);
     client.buy_key(&creator, &buyer_b, &500i128, &None);
 
-    assert_eq!(
-        client.get_auction_config(&creator).unwrap().auction_sold,
-        2
-    );
+    assert_eq!(client.get_auction_config(&creator).unwrap().auction_sold, 2);
 
     // Auction supply (2) is now exhausted; the next buy settles at the base
     // (bonding-curve) price, not the fixed auction price.

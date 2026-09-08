@@ -21,7 +21,7 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_curve_slope, set_pricing_and_fees,
     test_env_with_auths,
 };
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address};
 
 const BASE_PRICE: i128 = 10_000;
 const CURVE_SLOPE: i128 = 50;
@@ -53,6 +53,9 @@ fn test_sell_proceeds_strictly_decrease_across_five_sequential_sells() {
         // see module docs. price is the field that carries curve impact.
         assert_eq!(quote.total_amount, 0);
         proceeds.push(quote.price);
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator, &holder, &None);
     }
 
@@ -104,6 +107,9 @@ fn test_flat_curve_sell_proceeds_do_not_strictly_decrease() {
     for _ in 0..STARTING_SUPPLY {
         let quote = client.get_sell_quote(&creator, &holder);
         proceeds.push(quote.price);
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator, &holder, &None);
     }
 

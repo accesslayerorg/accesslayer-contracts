@@ -1,10 +1,11 @@
-#![cfg(test)]
-
 //! Tests for issues #778 (holder snapshots), #779 (key metadata), #781
 //! (flash-loan guard), and #782 (settable co-creator revenue split).
 
-use crate::{ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams};
-use soroban_sdk::{testutils::Address as _, Address, Bytes, Env, String, Vec};
+use crate::{
+    ContractError, CreatorKeysContract, CreatorKeysContractClient, KeyMetadata,
+    RegisterCreatorParams,
+};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String, Vec};
 
 fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let env = Env::default();
@@ -15,8 +16,11 @@ fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
 
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury, &100i128);
+    client.set_protocol_admin(&admin, &admin);
+    client.set_treasury_address(&admin, &treasury);
+    client.set_key_price(&admin, &100i128);
     client.set_fee_config(&admin, &9000u32, &1000u32);
+    client.set_protocol_fee_recipient(&admin, &treasury);
 
     (env, client, admin, treasury)
 }
@@ -116,16 +120,16 @@ fn test_initialise_key_stores_metadata() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"Alice");
-    let bio = Bytes::from_slice(&env, b"Digital artist");
-    let avatar = Bytes::from_slice(&env, b"ipfs://avatar");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Digital artist"),
+        avatar_uri: String::from_str(&env, "ipfs://avatar"),
+    };
 
-    client.initialise_key(&creator, &name, &bio, &avatar);
+    client.initialise_key(&creator, &metadata);
 
     let meta = client.get_key_metadata(&creator).unwrap();
-    assert_eq!(meta.name, name);
-    assert_eq!(meta.bio, bio);
-    assert_eq!(meta.avatar_uri, avatar);
+    assert_eq!(meta, metadata);
 }
 
 #[test]
@@ -134,11 +138,13 @@ fn test_initialise_key_name_too_long_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let long_name = Bytes::from_slice(&env, &[b'a'; 65]);
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, &"a".repeat(65)),
+        bio: String::from_str(&env, "bio"),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
 
-    let result = client.try_initialise_key(&creator, &long_name, &bio, &avatar);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::NameTooLong)));
 }
 
@@ -148,11 +154,13 @@ fn test_initialise_key_bio_too_long_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"name");
-    let long_bio = Bytes::from_slice(&env, &[b'a'; 257]);
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        bio: String::from_str(&env, &"a".repeat(257)),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
 
-    let result = client.try_initialise_key(&creator, &name, &long_bio, &avatar);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::BioTooLong)));
 }
 
@@ -162,12 +170,14 @@ fn test_initialise_key_twice_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"name");
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        bio: String::from_str(&env, "bio"),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
 
-    client.initialise_key(&creator, &name, &bio, &avatar);
-    let result = client.try_initialise_key(&creator, &name, &bio, &avatar);
+    client.initialise_key(&creator, &metadata);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::KeyAlreadyInitialised)));
 }
 
@@ -183,10 +193,12 @@ fn test_initialise_key_non_creator_fails_auth() {
     // checking that the entrypoint requires creator's auth at all — the
     // NotRegistered/registration path already proves the address parameter
     // is `creator`, not an implicit caller.
-    let name = Bytes::from_slice(&env, b"name");
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
-    client.initialise_key(&creator, &name, &bio, &avatar);
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        bio: String::from_str(&env, "bio"),
+        avatar_uri: String::from_str(&env, "uri"),
+    };
+    client.initialise_key(&creator, &metadata);
     assert!(client.get_key_metadata(&creator).is_some());
 }
 
@@ -213,7 +225,9 @@ fn test_sell_later_ledger_succeeds() {
 
     client.buy_key(&creator, &trader, &1000i128, &None);
 
-    env.ledger().with_mut(|l| l.sequence_number += 1);
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number += 1;
+    env.ledger().set(ledger);
 
     let new_supply = client.sell_key(&creator, &trader, &None);
     assert_eq!(new_supply, 0);
@@ -229,7 +243,9 @@ fn test_flash_loan_guard_does_not_block_a_different_wallets_sell() {
 
     // other_holder bought in an earlier ledger; buyer buys now (same ledger).
     client.buy_key(&creator, &other_holder, &1000i128, &None);
-    env.ledger().with_mut(|l| l.sequence_number += 1);
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number += 1;
+    env.ledger().set(ledger);
     client.buy_key(&creator, &buyer, &1000i128, &None);
 
     // other_holder's last buy was a prior ledger, so their sell (in the
@@ -253,11 +269,8 @@ fn test_set_co_creator_splits_fee_on_buy() {
     client.buy_key(&creator, &buyer, &1000i128, &None);
 
     // price=100, creator_bps=9000 -> creator_fee=90. 20% of 90 = 18 to co-creator.
-    assert_eq!(
-        client.get_co_creator_fee_balance(&creator, &co_creator).unwrap(),
-        18
-    );
-    assert_eq!(client.get_creator_fee_balance(&creator).unwrap(), 72);
+    assert_eq!(client.get_co_creator_fee_balance(&creator, &co_creator), 18);
+    assert_eq!(client.get_creator_fee_balance(&creator), 72);
 }
 
 #[test]
@@ -270,11 +283,13 @@ fn test_set_co_creator_splits_fee_on_sell() {
 
     client.buy_key(&creator, &trader, &1000i128, &None);
     client.set_co_creator(&creator, &co_creator, &2000u32); // 20%
-    env.ledger().with_mut(|l| l.sequence_number += 1);
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number += 1;
+    env.ledger().set(ledger);
 
-    let balance_before = client.get_co_creator_fee_balance(&creator, &co_creator).unwrap();
+    let balance_before = client.get_co_creator_fee_balance(&creator, &co_creator);
     client.sell_key(&creator, &trader, &None);
-    let balance_after = client.get_co_creator_fee_balance(&creator, &co_creator).unwrap();
+    let balance_after = client.get_co_creator_fee_balance(&creator, &co_creator);
 
     assert!(balance_after > balance_before);
 }

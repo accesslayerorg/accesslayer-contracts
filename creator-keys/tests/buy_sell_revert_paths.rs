@@ -22,7 +22,7 @@ use contract_test_env::{
     set_key_price_for_tests, test_env_with_auths,
 };
 use creator_keys::{ContractError, CreatorKeysContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 /// Base key price shared by both revert-path tests (flat bonding curve => price is
 /// constant across supply, so this is also the current price for every buy).
@@ -86,6 +86,9 @@ fn test_sell_reverts_on_oversell_without_state_change() {
 
     // Attempt to sell three keys. `sell_key` settles one key per call, so the first
     // two sells succeed and drain the holder's two keys...
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     client.sell_key(&creator, &holder, &None);
     assert_eq!(client.get_key_balance(&creator, &holder), 0);
