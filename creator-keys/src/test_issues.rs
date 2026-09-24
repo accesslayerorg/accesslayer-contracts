@@ -1082,6 +1082,164 @@ mod issue_tests {
     }
 
     // =========================================================================
+    // Tests for batch sell (#863)
+    // =========================================================================
+
+    #[test]
+    fn test_batch_sell_single_order() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &500, &500);
+        client.set_key_price(&admin, &100);
+
+        let creator = register_creator(&env, &client, None);
+        let seller = Address::generate(&env);
+
+        let buy_orders = soroban_sdk::Vec::from_array(&env, [(creator.clone(), 3u32)]);
+        client.batch_buy(&seller, &buy_orders);
+        assert_eq!(client.get_key_balance(&creator, &seller), 3);
+
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
+
+        let sell_orders = soroban_sdk::Vec::from_array(&env, [(creator.clone(), 2u32)]);
+        let results = client.batch_sell(&seller, &sell_orders);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results.get(0).unwrap().quantity, 2);
+        assert!(results.get(0).unwrap().proceeds > 0);
+        assert_eq!(client.get_key_balance(&creator, &seller), 1);
+    }
+
+    #[test]
+    fn test_batch_sell_multiple_orders() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let c1 = register_creator(&env, &client, None);
+        let c2 = register_creator(&env, &client, None);
+        let c3 = register_creator(&env, &client, None);
+        let seller = Address::generate(&env);
+
+        let buy_orders = soroban_sdk::Vec::from_array(
+            &env,
+            [(c1.clone(), 3u32), (c2.clone(), 2u32), (c3.clone(), 4u32)],
+        );
+        client.batch_buy(&seller, &buy_orders);
+
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
+
+        let sell_orders = soroban_sdk::Vec::from_array(
+            &env,
+            [(c1.clone(), 2u32), (c2.clone(), 1u32), (c3.clone(), 3u32)],
+        );
+        let results = client.batch_sell(&seller, &sell_orders);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(client.get_key_balance(&c1, &seller), 1);
+        assert_eq!(client.get_key_balance(&c2, &seller), 1);
+        assert_eq!(client.get_key_balance(&c3, &seller), 1);
+    }
+
+    #[test]
+    fn test_batch_sell_reverts_on_empty() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let seller = Address::generate(&env);
+        let orders: soroban_sdk::Vec<(Address, u32)> = soroban_sdk::Vec::new(&env);
+
+        let result = client.try_batch_sell(&seller, &orders);
+        assert_eq!(result, Err(Ok(ContractError::BatchSizeExceeded)));
+    }
+
+    #[test]
+    fn test_batch_sell_reverts_on_exceeding_limit() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let seller = Address::generate(&env);
+        let c1 = register_creator(&env, &client, None);
+        let c2 = register_creator(&env, &client, None);
+        let c3 = register_creator(&env, &client, None);
+        let c4 = register_creator(&env, &client, None);
+        let c5 = register_creator(&env, &client, None);
+        let c6 = register_creator(&env, &client, None);
+        let orders = soroban_sdk::Vec::from_array(
+            &env,
+            [
+                (c1, 1u32),
+                (c2, 1u32),
+                (c3, 1u32),
+                (c4, 1u32),
+                (c5, 1u32),
+                (c6, 1u32),
+            ],
+        );
+
+        let result = client.try_batch_sell(&seller, &orders);
+        assert_eq!(result, Err(Ok(ContractError::BatchSizeExceeded)));
+    }
+
+    #[test]
+    fn test_batch_sell_reverts_and_rolls_back_on_insufficient_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.set_protocol_admin(&admin, &admin);
+        client.set_fee_config(&admin, &9_000, &1_000);
+        client.set_key_price(&admin, &100);
+
+        let c1 = register_creator(&env, &client, None);
+        let c2 = register_creator(&env, &client, None);
+        let seller = Address::generate(&env);
+
+        let buy_orders = soroban_sdk::Vec::from_array(&env, [(c1.clone(), 3u32)]);
+        client.batch_buy(&seller, &buy_orders);
+
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
+
+        // c1 has 3 keys, c2 has 0 keys
+        let sell_orders =
+            soroban_sdk::Vec::from_array(&env, [(c1.clone(), 2u32), (c2.clone(), 1u32)]);
+        let result = client.try_batch_sell(&seller, &sell_orders);
+        assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
+
+        // Verify rollback: c1 balance must still be 3
+        assert_eq!(client.get_key_balance(&c1, &seller), 3);
+        assert_eq!(client.get_total_key_supply(&c1), 3);
+    }
+
+    // =========================================================================
     // Tests for set_royalty (#755)
     // =========================================================================
 

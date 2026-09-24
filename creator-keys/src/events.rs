@@ -1253,6 +1253,24 @@ pub fn batch_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
     (BATCH_BUY_COMPLETED_EVENT_NAME, buyer.clone())
 }
 
+/// Event name for batch sell completion.
+pub const BATCH_SELL_COMPLETED_EVENT_NAME: Symbol = symbol_short!("bat_sell");
+
+/// Stable batch sell completed event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BatchSellCompletedEvent {
+    pub seller: Address,
+    pub orders: Vec<(Address, u32, i128)>,
+    pub total_proceeds: i128,
+    pub ledger: u32,
+}
+
+/// Shared batch sell completed event topics tuple.
+pub fn batch_sell_completed_topics(seller: &Address) -> (Symbol, Address) {
+    (BATCH_SELL_COMPLETED_EVENT_NAME, seller.clone())
+}
+
 /// Event name for bonding curve migration.
 pub const CURVE_MIGRATED_EVENT_NAME: Symbol = symbol_short!("curve_mig");
 
