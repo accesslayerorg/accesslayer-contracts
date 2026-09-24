@@ -2330,6 +2330,19 @@ fn increment_forwarder_nonce(env: &Env, wallet: &Address) -> Result<u64, Contrac
     Ok(next)
 }
 
+/// Returns the XDR encoding of the Stellar account address (`G...`) controlled
+/// by the ed25519 `public_key`:
+/// `ScVal::Address(ScAddress::Account(PublicKey::Ed25519(public_key)))`.
+///
+/// Comparing this with `buyer.to_xdr()` proves the signing key belongs to the
+/// buyer without a key registry: an account address *is* its ed25519 key.
+fn account_address_xdr(env: &Env, public_key: &BytesN<32>) -> Bytes {
+    // ScValType::Address, ScAddressType::Account, PublicKeyType::Ed25519
+    let mut xdr = Bytes::from_array(env, &[0, 0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 0]);
+    xdr.append(&Bytes::from(public_key.clone()));
+    xdr
+}
+
 /// Builds the exact bytes a buyer signs to authorise a
 /// [`CreatorKeysContract::forward_buy`]; see that function for the layout.
 fn forward_buy_message(
@@ -7147,8 +7160,11 @@ impl CreatorKeysContract {
     /// # Order of checks
     ///
     /// 1. The caller must be the trusted forwarder (`require_auth`).
-    /// 2. The signed message is rebuilt from the call arguments and the
-    ///    signature is verified; a mismatch traps with a host crypto error.
+    /// 2. `public_key` must be the key of the `buyer` account, otherwise
+    ///    [`ContractError::InvalidSignature`]. `buyer` must therefore be an
+    ///    account (`G...`) address. The signed message is then rebuilt from
+    ///    the call arguments and the signature is verified; a mismatch traps
+    ///    with a host crypto error.
     /// 3. `nonce` must equal [`Self::get_nonce`] for `buyer`, otherwise
     ///    [`ContractError::NonceAlreadyUsed`] (both replayed and future nonces).
     /// 4. The buyer's nonce is incremented and its TTL extended.
@@ -7194,6 +7210,12 @@ impl CreatorKeysContract {
             .get(&forwarder_key)
             .ok_or(ContractError::Unauthorized)?;
         forwarder.require_auth();
+
+        // Only the buyer's own key can authorize a purchase for the buyer;
+        // otherwise anyone could sign with their own key and act as any buyer.
+        if buyer.clone().to_xdr(&env) != account_address_xdr(&env, &public_key) {
+            return Err(ContractError::InvalidSignature);
+        }
 
         // The signature binds the buyer's consent to this deployment, creator,
         // buyer, quantity and nonce.

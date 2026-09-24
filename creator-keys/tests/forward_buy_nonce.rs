@@ -427,6 +427,57 @@ fn signature_over_different_nonce_is_rejected() {
     assert_rejected_when_signed_over(&s, &buyer, &msg);
 }
 
+// ── signing key bound to buyer ───────────────────────────────────────────────
+
+#[test]
+fn signature_from_key_other_than_buyers_is_rejected_with_invalid_signature() {
+    let env = Env::default();
+    let s = setup(&env);
+    let victim = wallet(&env, 1);
+    let impostor = wallet(&env, 9);
+
+    // The impostor signs a well-formed message naming the victim as buyer and
+    // supplies their own public key, so the ed25519 check alone would pass.
+    let msg = signed_message(&env, &s.contract_id, &s.creator, &victim.address, 1, 0);
+    let signature = sign(&env, &impostor, &msg);
+    let result = s.client.try_forward_buy(
+        &s.creator,
+        &victim.address,
+        &impostor.public_key,
+        &1,
+        &0,
+        &signature,
+    );
+
+    assert_eq!(result, Err(Ok(ContractError::InvalidSignature)));
+    assert_eq!(s.client.get_nonce(&victim.address), 0);
+    assert_eq!(s.client.get_key_balance(&s.creator, &victim.address), 0);
+}
+
+#[test]
+fn contract_address_buyer_is_rejected_with_invalid_signature() {
+    let env = Env::default();
+    let s = setup(&env);
+    let signer = wallet(&env, 1);
+    // `Address::generate` yields a contract (`C...`) address, which has no
+    // ed25519 key of its own to sign with.
+    let contract_buyer = Address::generate(&env);
+
+    let msg = signed_message(&env, &s.contract_id, &s.creator, &contract_buyer, 1, 0);
+    let signature = sign(&env, &signer, &msg);
+    let result = s.client.try_forward_buy(
+        &s.creator,
+        &contract_buyer,
+        &signer.public_key,
+        &1,
+        &0,
+        &signature,
+    );
+
+    assert_eq!(result, Err(Ok(ContractError::InvalidSignature)));
+    assert_eq!(s.client.get_nonce(&contract_buyer), 0);
+}
+
 // ── authorization ────────────────────────────────────────────────────────────
 
 #[test]
