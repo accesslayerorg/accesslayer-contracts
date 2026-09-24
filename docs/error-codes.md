@@ -46,6 +46,9 @@ Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs#L50-L83) as `p
 | `32` | `WhitelistTooLarge` | Whitelist configuration address count exceeds maximum limit | Triggered in [`validate_whitelist_config`](../creator-keys/src/lib.rs#L637) when address count `> MAX_WHITELIST_SIZE`. |
 | `33` | `AirdropRecipientLimitExceeded` | Airdrop recipient list length exceeds max limit per transaction | Triggered in [`airdrop_keys`](../creator-keys/src/lib.rs#L1730) when `recipients.len() > MAX_AIRDROP_RECIPIENT_LIMIT`. |
 | `40` | `DisplayNameEmpty` | Creator display handle is blank (empty string or ASCII whitespace only) | Triggered in [`validate_creator_handle`](../creator-keys/src/lib.rs) before the length and character checks when the handle contains no non-whitespace bytes. |
+| `70` | `CapCannotIncrease` | Creator attempted to raise the holder cap in `update_holder_cap`; the cap can only ever be tightened below its currently stored value | Triggered in [`update_holder_cap`](../creator-keys/src/lib.rs) when `new_cap_bps > current_cap_bps`. |
+| `71` | `CapTooLow` | `update_holder_cap` requested a cap below the minimum of 100 bps (1%) | Triggered in [`update_holder_cap`](../creator-keys/src/lib.rs) when `new_cap_bps < HOLDER_CAP_MIN_BPS` (100 bps). |
+| `72` | `HolderCapNotSet` | `update_holder_cap` called before any cap was configured via `set_holder_cap` | Triggered in [`update_holder_cap`](../creator-keys/src/lib.rs) when no `HolderCapBps` value is stored for the creator. |
 
 ---
 

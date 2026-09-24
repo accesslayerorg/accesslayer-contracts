@@ -104,6 +104,15 @@ pub enum ContractError {
     /// Emitted when a `batch_transfer_keys` call contains a recipient address
     /// that is the same as the sender (self-transfer inside a batch).
     InvalidRecipient = 69,
+    /// The creator attempted to raise the holder cap in `update_holder_cap`;
+    /// the cap can only ever be tightened below its currently stored value.
+    CapCannotIncrease = 70,
+    /// `update_holder_cap` was called with a cap below the minimum of
+    /// `HOLDER_CAP_MIN_BPS` (100 bps / 1%).
+    CapTooLow = 71,
+    /// `update_holder_cap` was called before a holder cap was configured via
+    /// `set_holder_cap`, so there is no cap to tighten.
+    HolderCapNotSet = 72,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
@@ -6302,6 +6311,64 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::holder_cap_bps(&creator))
+    }
+
+    /// Tightens the max share of supply a single wallet may hold for this
+    /// creator's keys (issue #862).
+    ///
+    /// Only the key creator may call this. The cap can only ever be reduced
+    /// from its currently stored value (`holder_cap_bps`) down to
+    /// [`HOLDER_CAP_MIN_BPS`] (1%); once configured it can never be raised
+    /// again.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `caller != creator`.
+    /// - [`ContractError::HolderCapNotSet`] if no cap is currently configured
+    ///   (configure an initial cap with [`CreatorKeysContract::set_holder_cap`]
+    ///   first).
+    /// - [`ContractError::CapCannotIncrease`] if `new_cap_bps` is greater than
+    ///   the currently stored cap.
+    /// - [`ContractError::CapTooLow`] if `new_cap_bps` is below
+    ///   [`HOLDER_CAP_MIN_BPS`].
+    pub fn update_holder_cap(
+        env: Env,
+        creator: Address,
+        caller: Address,
+        new_cap_bps: u32,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        if caller != creator {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let key = constants::storage::holder_cap_bps(&creator);
+        let current_cap_bps = env
+            .storage()
+            .persistent()
+            .get::<DataKey, u32>(&key)
+            .ok_or(ContractError::HolderCapNotSet)?;
+
+        if new_cap_bps > current_cap_bps {
+            return Err(ContractError::CapCannotIncrease);
+        }
+        if new_cap_bps < HOLDER_CAP_MIN_BPS {
+            return Err(ContractError::CapTooLow);
+        }
+
+        env.storage().persistent().set(&key, &new_cap_bps);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        env.events().publish(
+            events::holder_cap_updated_topics(&creator),
+            events::HolderCapUpdatedEvent {
+                key_id: creator,
+                old_cap_bps: current_cap_bps,
+                new_cap_bps,
+            },
+        );
+
+        Ok(())
     }
 
     /// Sets the per-wallet buy cooldown for a creator's keys.
