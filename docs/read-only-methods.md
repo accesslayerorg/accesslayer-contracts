@@ -335,6 +335,23 @@ Returns the configured protocol fee recipient address, or `None` if not yet set.
 
 ---
 
+## Trusted forwarder read methods
+
+### `get_nonce(wallet: Address) → u64`
+
+Returns the trusted-forwarder nonce for `wallet`, which is the `nonce` the wallet's next `forward_buy` must carry and sign.
+
+- Starts at `0` for wallets with no forwarded history.
+- Increases by exactly one after each successful `forward_buy`. A failed `forward_buy` reverts, so the nonce is unchanged.
+- Nonces are per wallet: one wallet's forwarded buys never change another's.
+- Stored in persistent storage under `DataKey::ForwarderNonce(wallet)`.
+
+**Edge cases:**
+- Never panics and requires no authorization. A wallet with no entry returns `0`.
+- When the entry exists, the read extends its TTL to the full `CREATOR_TTL_LEDGERS` window. When it does not exist, nothing is written and no TTL is touched, since there is no entry to extend (`extend_ttl` on a missing key traps).
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.
