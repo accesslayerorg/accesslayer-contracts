@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -26,8 +28,7 @@ impl ReferralContract {
         }
 
         env.storage().instance().set(&DataKey::Initialised, &true);
-        env.events()
-            .publish((symbol_short!("init"),), ());
+        env.events().publish((symbol_short!("init"),), ());
 
         Ok(())
     }
