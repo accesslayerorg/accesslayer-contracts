@@ -62,12 +62,12 @@ mod test {
         let contract_id = env.register(ReferralContract, ());
         let client = ReferralContractClient::new(&env, &contract_id);
 
-        assert_eq!(client.get_initialised(), false);
+        assert!(!client.get_initialised());
 
         // First init
         client.init();
 
-        assert_eq!(client.get_initialised(), true);
+        assert!(client.get_initialised());
 
         // Check event
         let events = env.events().all();
