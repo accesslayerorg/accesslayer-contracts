@@ -114,7 +114,7 @@ pub enum ContractError {
     /// `set_holder_cap`, so there is no cap to tighten.
     HolderCapNotSet = 72,
     /// Emitted when a `batch_sell` call contains fewer than 1 or more than 5 orders.
-    BatchSizeExceeded = 70,
+    BatchSizeExceeded = 73,
 }
 
 /// Errors raised by the staking lifecycle entrypoints
