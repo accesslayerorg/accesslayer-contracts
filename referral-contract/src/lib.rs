@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -27,7 +27,7 @@ impl ReferralContract {
 
         env.storage().instance().set(&DataKey::Initialised, &true);
         env.events()
-            .publish((Symbol::new(&env, "ContractInitialised"),), ());
+            .publish((symbol_short!("init"),), ());
 
         Ok(())
     }
@@ -77,7 +77,7 @@ mod test {
         assert_eq!(event.0, contract_id);
         let topics = event.1;
         assert_eq!(topics.len(), 1);
-        let expected_topic = Symbol::new(&env, "ContractInitialised");
+        let expected_topic = symbol_short!("init");
         let topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
         assert_eq!(topic, expected_topic);
     }
