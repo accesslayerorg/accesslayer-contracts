@@ -59,7 +59,7 @@ mod test {
     #[test]
     fn test_initialisation() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, ReferralContract);
+        let contract_id = env.register(ReferralContract, ());
         let client = ReferralContractClient::new(&env, &contract_id);
 
         assert_eq!(client.get_initialised(), false);
@@ -77,13 +77,14 @@ mod test {
         let topics = event.1;
         assert_eq!(topics.len(), 1);
         let expected_topic = Symbol::new(&env, "ContractInitialised");
-        assert_eq!(topics.get(0).unwrap(), expected_topic.into_val(&env));
+        let topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(topic, expected_topic);
     }
 
     #[test]
     fn test_double_initialisation() {
         let env = Env::default();
-        let contract_id = env.register_contract(None, ReferralContract);
+        let contract_id = env.register(ReferralContract, ());
         let client = ReferralContractClient::new(&env, &contract_id);
 
         client.init();
