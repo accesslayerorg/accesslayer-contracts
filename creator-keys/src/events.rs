@@ -911,6 +911,7 @@ pub const ADDRESS_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_add");
 pub const ADDRESS_REMOVED_EVENT_NAME: Symbol = symbol_short!("wl_rem");
 pub const HOLDING_CAP_UPDATED_EVENT_NAME: Symbol = symbol_short!("hold_cap");
 pub const WHITELIST_UPDATED_EVENT_NAME: Symbol = symbol_short!("wl_upd");
+pub const EARLY_ACCESS_MODE_CHANGED_EVENT_NAME: Symbol = symbol_short!("ea_mode");
 pub const REFERRAL_REGISTERED_EVENT_NAME: Symbol = symbol_short!("ref_reg");
 pub const REFERRAL_REWARD_ALLOCATED_EVENT_NAME: Symbol = symbol_short!("ref_rwd");
 pub const REFERRAL_REWARDS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("ref_clm");
@@ -1036,6 +1037,18 @@ pub struct WhitelistUpdatedEvent {
 
 pub fn whitelist_updated_topics(creator: &Address) -> (Symbol, Address) {
     (WHITELIST_UPDATED_EVENT_NAME, creator.clone())
+}
+
+/// Emitted when a creator toggles early-access mode.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EarlyAccessModeChangedEvent {
+    pub creator: Address,
+    pub enabled: bool,
+}
+
+pub fn early_access_mode_changed_topics(creator: &Address) -> (Symbol, Address) {
+    (EARLY_ACCESS_MODE_CHANGED_EVENT_NAME, creator.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
