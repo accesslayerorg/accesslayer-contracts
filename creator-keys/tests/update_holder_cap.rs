@@ -50,6 +50,24 @@ fn test_holder_cap_same_value_is_not_an_increase() {
 }
 
 #[test]
+fn test_set_holder_cap_rejects_reconfiguration_after_initial_set() {
+    let env = contract_test_env::test_env_with_auths();
+    let (client, creator) = setup(&env);
+
+    let result = client.try_set_holder_cap(&creator, &Some(2000));
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::CapAlreadySet)),
+        "a creator must not reconfigure the holder cap after the initial set"
+    );
+    assert_eq!(
+        client.get_holder_cap(&creator),
+        Some(INITIAL_CAP_BPS),
+        "the original cap must remain unchanged after a rejected reconfiguration"
+    );
+}
+
+#[test]
 fn test_holder_cap_can_reduce_to_minimum() {
     let env = contract_test_env::test_env_with_auths();
     let (client, creator) = setup(&env);

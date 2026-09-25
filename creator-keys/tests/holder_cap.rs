@@ -108,8 +108,21 @@ fn test_creator_can_configure_custom_cap_within_allowed_range() {
     client.set_holder_cap(&creator, &Some(100)); // 1%, minimum allowed.
     assert_eq!(client.get_holder_cap(&creator), Some(100));
 
-    client.set_holder_cap(&creator, &Some(2500)); // 25%, maximum allowed.
-    assert_eq!(client.get_holder_cap(&creator), Some(2500));
+    let retry = client.try_set_holder_cap(&creator, &Some(2500));
+    assert_eq!(
+        retry,
+        Err(Ok(ContractError::CapAlreadySet)),
+        "the initial holder cap may only be configured once"
+    );
+    assert_eq!(
+        client.get_holder_cap(&creator),
+        Some(100),
+        "a rejected reconfiguration must leave the cap untouched"
+    );
+
+    let tightened = client.try_update_holder_cap(&creator, &creator, &100);
+    assert_eq!(tightened, Ok(Ok(())));
+    assert_eq!(client.get_holder_cap(&creator), Some(100));
 }
 
 #[test]

@@ -6293,10 +6293,12 @@ impl CreatorKeysContract {
     /// Sets the maximum share of the supply a single wallet may hold for this
     /// creator's keys.
     ///
-    /// Only callable by the creator. `cap_bps` may be omitted to select
+    /// Only callable by the creator. The holder cap is configured exactly once;
+    /// a second call must go through [`CreatorKeysContract::update_holder_cap`]
+    /// to tighten the current value. `cap_bps` may be omitted to select
     /// [`DEFAULT_HOLDER_CAP_BPS`] (10%); an explicit value must lie between
     /// [`HOLDER_CAP_MIN_BPS`] (1%) and [`HOLDER_CAP_MAX_BPS`] (25%), otherwise
-    /// [`ContractError::InvalidFeeConfig`] is returned. Once configured,
+    /// [`ContractError::InvalidHolderCap`] is returned. Once configured,
     /// `buy_key` rejects purchases that would push a non-creator wallet above
     /// `cap_bps` of the total supply with
     /// [`ContractError::WalletCapExceeded`]. The creator's own wallet is
@@ -6307,11 +6309,16 @@ impl CreatorKeysContract {
         cap_bps: Option<u32>,
     ) -> Result<(), ContractError> {
         creator.require_auth();
+        let key = constants::storage::holder_cap_bps(&creator);
+        if env.storage().persistent().has(&key) {
+            return Err(ContractError::CapAlreadySet);
+        }
+
         let resolved_bps = cap_bps.unwrap_or(DEFAULT_HOLDER_CAP_BPS);
         if !(HOLDER_CAP_MIN_BPS..=HOLDER_CAP_MAX_BPS).contains(&resolved_bps) {
             return Err(ContractError::InvalidHolderCap);
         }
-        let key = constants::storage::holder_cap_bps(&creator);
+
         env.storage().persistent().set(&key, &resolved_bps);
         extend_key_ttl_to_full_window(&env, &key);
         Ok(())
