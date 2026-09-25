@@ -59,6 +59,7 @@ mod test {
     #[test]
     fn test_initialisation() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register(ReferralContract, ());
         let client = ReferralContractClient::new(&env, &contract_id);
 
@@ -84,6 +85,7 @@ mod test {
     #[test]
     fn test_double_initialisation() {
         let env = Env::default();
+        env.mock_all_auths();
         let contract_id = env.register(ReferralContract, ());
         let client = ReferralContractClient::new(&env, &contract_id);
 
