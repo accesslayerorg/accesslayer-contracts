@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
 
 #[contracterror]
@@ -79,7 +79,7 @@ mod test {
         let topics = event.1;
         assert_eq!(topics.len(), 1);
         let expected_topic = symbol_short!("init");
-        let topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        let topic: soroban_sdk::Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
         assert_eq!(topic, expected_topic);
     }
 
