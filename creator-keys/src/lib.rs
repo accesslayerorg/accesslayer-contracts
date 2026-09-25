@@ -8819,7 +8819,7 @@ impl CreatorKeysContract {
             .get(&constants::storage::max_keys_per_wallet(&creator))
     }
 
-    /// Creator or admin toggles early-access mode. While on, only whitelisted
+    /// Creator toggles early-access mode. While on, only whitelisted
     /// wallets may buy; turning it off opens trading to everyone. Shares the
     /// flag used by `enable_whitelist` / `disable_whitelist`.
     pub fn set_early_access_mode(
@@ -8829,10 +8829,17 @@ impl CreatorKeysContract {
         enabled: bool,
     ) -> Result<(), ContractError> {
         caller.require_auth();
-        assert_creator_or_admin(&env, &caller, &creator)?;
+        read_registered_creator_profile(&env, &creator)?;
+        if caller != creator {
+            return Err(ContractError::Unauthorized);
+        }
         let mode_key = constants::storage::whitelist_mode(&creator);
         env.storage().persistent().set(&mode_key, &enabled);
         extend_key_ttl_to_full_window(&env, &mode_key);
+        env.events().publish(
+            events::early_access_mode_changed_topics(&creator),
+            events::EarlyAccessModeChangedEvent { creator, enabled },
+        );
         Ok(())
     }
 

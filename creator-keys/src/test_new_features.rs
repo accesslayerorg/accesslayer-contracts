@@ -5,7 +5,10 @@ use crate::{
     RegisterCreatorParams, METADATA_AVATAR_URI_MAX_LEN, METADATA_BIO_MAX_LEN,
     METADATA_NAME_MAX_LEN,
 };
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Events as _},
+    Address, Env, String,
+};
 
 fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let env = Env::default();
@@ -540,8 +543,22 @@ fn test_early_access_mode_whitelist_and_permissions() {
         client.try_buy_key(&creator, &wallet, &1000i128, &None),
         Err(Ok(ContractError::NotWhitelisted))
     );
-    client.set_early_access_mode(&admin, &creator, &false);
+    assert_eq!(
+        client.try_set_early_access_mode(&admin, &creator, &false),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    client.set_early_access_mode(&creator, &creator, &false);
     assert_eq!(client.buy_key(&creator, &wallet, &1000i128, &None), 2);
+}
+
+#[test]
+fn test_early_access_mode_toggle_emits_event() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    client.set_early_access_mode(&creator, &creator, &true);
+    assert_eq!(env.events().all().len(), 1);
 }
 
 #[test]
