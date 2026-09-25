@@ -95,6 +95,43 @@ The following invariants are guaranteed for successful quote responses:
 
 ---
 
+## Aggregated key stats
+
+### `get_key_stats(key_id: Address) → Result<KeyStatsView, ContractError>`
+
+Returns a single-call snapshot of all key-level fields for a registered creator. Server sync and admin snapshot endpoints can use this instead of multiple individual reads to reduce RPC round trips.
+
+Bumps the TTL on every storage entry it reads so that a cold read keeps all state alive without a separate `refresh_ttl` call.
+
+| Field | Type | Semantics |
+|---|---|---|
+| `current_price` | `i128` | Next-purchase price in stroops: the fixed auction price when an auction is active (`supply < auction_supply`), otherwise the bonding-curve price at the current supply. `0` if no key price has been set. |
+| `circulating_supply` | `u32` | Keys currently in circulation (does not include locked/unclaimed allocations). |
+| `holder_count` | `u32` | Number of distinct wallets holding at least one key. |
+| `trading_paused` | `bool` | `true` if either the per-key pause or the global emergency pause is active. |
+| `supply_cap` | `u32` | Hard supply ceiling set by the creator. `0` means uncapped. |
+| `holder_cap_bps` | `u32` | Per-wallet holding cap in basis points (e.g. `1000` = 10% of supply). `0` means uncapped. |
+| `circuit_breaker_threshold_bps` | `u32` | Price-jump threshold that triggers the circuit breaker. Defaults to `30` when never explicitly configured. |
+| `lockup_duration_seconds` | `u64` | Sell lockup window in seconds; `0` means no lockup is configured. |
+| `launch_penalty_bps` | `u32` | Basis points applied as an early-sell penalty inside the launch window; `0` means no penalty. |
+| `buy_cooldown_ledgers` | `u32` | Per-wallet buy cooldown in ledgers; `0` means no cooldown. |
+| `max_buy_quantity` | `u32` | Per-transaction buy quantity cap; `0` means no limit. |
+| `has_auction` | `bool` | `true` when a pre-launch auction is currently configured. |
+| `auction_price` | `i128` | Fixed auction price per key in stroops. `0` when `has_auction` is `false`. |
+| `auction_supply` | `u32` | Total keys available at the fixed auction price. `0` when `has_auction` is `false`. |
+| `auction_sold` | `u32` | Keys already sold through the auction. `0` when `has_auction` is `false`. |
+
+**TTL behaviour:** Every storage entry read by this function has its TTL extended to at least `TTL_MIN_EXTENSION_LEDGERS` (~30 days). Optional entries that have never been written to storage are skipped (guarded with `.has()`) to avoid a `MissingValue` panic.
+
+**Edge cases:**
+- Returns `Err(ContractError::NotRegistered)` for any `key_id` that has never been registered — the 404-equivalent for callers.
+- All optional numeric fields (`supply_cap`, `holder_cap_bps`, `launch_penalty_bps`, `buy_cooldown_ledgers`, `max_buy_quantity`) return `0` when not configured.
+- `circuit_breaker_threshold_bps` returns the default value `30` when the threshold has never been explicitly set.
+- `current_price` is `0` when `KEY_PRICE` has not been written to storage (contract not fully initialised).
+- Never panics regardless of which optional per-key settings are absent.
+
+---
+
 ## Supply and balance methods
 
 ### `get_total_key_supply(creator: Address) → u32`

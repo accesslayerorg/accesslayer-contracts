@@ -453,3 +453,132 @@ fn test_get_key_metadata_returns_none_for_uninitialised() {
     let result = client.get_key_metadata(&creator);
     assert_eq!(result, None);
 }
+
+#[test]
+fn test_holding_cap_buy_transfer_and_update() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    // Only a registered creator may set the cap, within the admin bound.
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_set_holding_cap(&attacker, &1),
+        Err(Ok(ContractError::NotRegistered))
+    );
+    client.set_holding_cap_bound(&admin, &5);
+    assert_eq!(
+        client.try_set_holding_cap(&creator, &6),
+        Err(Ok(ContractError::InvalidHolderCap))
+    );
+    assert_eq!(
+        client.try_set_holding_cap(&creator, &0),
+        Err(Ok(ContractError::InvalidHolderCap))
+    );
+    assert_eq!(client.get_holding_cap(&creator), None);
+    client.set_holding_cap(&creator, &1);
+    assert_eq!(client.get_holding_cap(&creator), Some(1));
+
+    // At-cap buy is rejected.
+    let buyer = Address::generate(&env);
+    client.buy_key(&creator, &buyer, &1000i128, &None);
+    assert_eq!(
+        client.try_buy_key(&creator, &buyer, &1000i128, &None),
+        Err(Ok(ContractError::WalletCapExceeded))
+    );
+
+    // Over-cap transfer is rejected.
+    let other = Address::generate(&env);
+    client.buy_key(&creator, &other, &1000i128, &None);
+    assert_eq!(
+        client.try_transfer_keys(&creator, &buyer, &other, &1),
+        Err(Ok(ContractError::WalletCapExceeded))
+    );
+
+    // Raising the cap allows the transfer.
+    client.set_holding_cap(&creator, &2);
+    client.transfer_keys(&creator, &buyer, &other, &1);
+    assert_eq!(client.get_key_balance(&creator, &other), 2);
+}
+
+#[test]
+fn test_early_access_mode_whitelist_and_permissions() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let wallet = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_set_early_access_mode(&attacker, &creator, &true),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    assert_eq!(
+        client.try_update_whitelist(&attacker, &creator, &wallet, &true),
+        Err(Ok(ContractError::Unauthorized))
+    );
+
+    // Non-whitelisted wallet is rejected during early access.
+    client.set_early_access_mode(&creator, &creator, &true);
+    assert_eq!(
+        client.try_buy_key(&creator, &wallet, &1000i128, &None),
+        Err(Ok(ContractError::NotWhitelisted))
+    );
+
+    // Admin can whitelist; the wallet can then buy.
+    assert!(!client.get_wallet_whitelist_status(&creator, &wallet));
+    client.update_whitelist(&admin, &creator, &wallet, &true);
+    assert!(client.get_wallet_whitelist_status(&creator, &wallet));
+    assert_eq!(client.buy_key(&creator, &wallet, &1000i128, &None), 1);
+
+    // Removal blocks again; disabling the mode opens trading to everyone.
+    client.update_whitelist(&creator, &creator, &wallet, &false);
+    assert!(!client.get_wallet_whitelist_status(&creator, &wallet));
+    assert_eq!(
+        client.try_buy_key(&creator, &wallet, &1000i128, &None),
+        Err(Ok(ContractError::NotWhitelisted))
+    );
+    client.set_early_access_mode(&admin, &creator, &false);
+    assert_eq!(client.buy_key(&creator, &wallet, &1000i128, &None), 2);
+}
+
+#[test]
+fn test_registered_referral_first_trade_fee_and_claim() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let referee = Address::generate(&env);
+    let referrer = Address::generate(&env);
+
+    assert_eq!(
+        client.try_register_referral(&referee, &referee),
+        Err(Ok(ContractError::InvalidReferrer))
+    );
+    client.set_referral_fee_bps(&admin, &2000);
+    client.register_referral(&referee, &referrer);
+    assert_eq!(client.get_referrer(&referee), Some(referrer.clone()));
+    assert_eq!(
+        client.try_register_referral(&referee, &referrer),
+        Err(Ok(ContractError::AlreadyRegistered))
+    );
+
+    // First trade: price 100, protocol fee 10, referrer gets 20% = 2.
+    client.buy_key(&creator, &referee, &1000i128, &None);
+    assert_eq!(client.get_referral_earnings(&referrer), 2);
+
+    // Subsequent trades pay no referral fee.
+    client.buy_key(&creator, &referee, &1000i128, &None);
+    assert_eq!(client.get_referral_earnings(&referrer), 2);
+
+    // Claim returns the accumulated amount and resets the balance.
+    assert_eq!(client.claim_referral_rewards(&referrer), 2);
+    assert_eq!(client.get_referral_earnings(&referrer), 0);
+    assert_eq!(
+        client.try_claim_referral_rewards(&referrer),
+        Err(Ok(ContractError::NotPositiveAmount))
+    );
+}

@@ -112,6 +112,58 @@ fn test_take_snapshot_unregistered_creator_fails() {
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
+#[test]
+fn test_distribute_protocol_revenue_uses_staked_snapshot_weights_and_retains_dust() {
+    let (env, client, admin, treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_protocol_fee(&admin, &Some(1000u32), &treasury);
+
+    let staker_a = Address::generate(&env);
+    let staker_b = Address::generate(&env);
+    client.buy_keys(&creator, &staker_a, &1u32, &10000i128, &None);
+    client.buy_keys(&creator, &staker_b, &2u32, &10000i128, &None);
+    client.stake_keys(&creator, &staker_a, &1u32);
+    client.stake_keys(&creator, &staker_b, &2u32);
+
+    let mut holders = Vec::new(&env);
+    holders.push_back(staker_a.clone());
+    holders.push_back(staker_b.clone());
+    client.take_snapshot(&admin, &creator, &7u32, &holders);
+
+    let treasury_before = client.get_treasury_balance();
+    client.distribute_protocol_revenue(&admin, &creator, &7u32);
+
+    let first_share = treasury_before / 3;
+    let second_share = (treasury_before * 2) / 3;
+    assert_eq!(
+        client.get_claimable_dividend(&creator, &staker_a),
+        first_share
+    );
+    assert_eq!(
+        client.get_claimable_dividend(&creator, &staker_b),
+        second_share
+    );
+    assert_eq!(
+        client.get_treasury_balance(),
+        treasury_before - first_share - second_share
+    );
+}
+
+#[test]
+fn test_distribute_protocol_revenue_rejects_unknown_snapshot_and_non_admin() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let unknown = client.try_distribute_protocol_revenue(&admin, &creator, &999u32);
+    assert_eq!(unknown, Err(Ok(ContractError::SnapshotNotFound)));
+
+    let not_admin = Address::generate(&env);
+    let unauthorized = client.try_distribute_protocol_revenue(&not_admin, &creator, &999u32);
+    assert_eq!(unauthorized, Err(Ok(ContractError::Unauthorized)));
+}
+
 // ─── #779: key metadata initialisation ──────────────────────────────────
 
 #[test]

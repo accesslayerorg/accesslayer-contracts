@@ -466,6 +466,31 @@ pub fn snapshot_taken_topics(creator_id: &Address, snapshot_id: u32) -> (Symbol,
     (SNAPSHOT_TAKEN_EVENT_NAME, creator_id.clone(), snapshot_id)
 }
 
+/// Event name for protocol treasury revenue distributed to stakers.
+pub const PROTOCOL_REVENUE_DISTRIBUTED_EVENT_NAME: Symbol = symbol_short!("prot_rev");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProtocolRevenueDistributedEvent {
+    pub total_distributed: i128,
+    pub staker_count: u32,
+    pub snapshot_id: u32,
+}
+
+pub const PROTOCOL_REVENUE_DISTRIBUTED_DATA_FIELDS: [&str; 3] =
+    ["total_distributed", "staker_count", "snapshot_id"];
+
+pub fn protocol_revenue_distributed_topics(
+    creator_id: &Address,
+    snapshot_id: u32,
+) -> (Symbol, Address, u32) {
+    (
+        PROTOCOL_REVENUE_DISTRIBUTED_EVENT_NAME,
+        creator_id.clone(),
+        snapshot_id,
+    )
+}
+
 /// Event name for creator key identity initialization (issue #779).
 pub const KEY_INITIALISED_EVENT_NAME: Symbol = symbol_short!("key_init");
 
@@ -794,6 +819,11 @@ pub const WHITELIST_ENABLED_EVENT_NAME: Symbol = symbol_short!("wl_en");
 pub const WHITELIST_DISABLED_EVENT_NAME: Symbol = symbol_short!("wl_dis");
 pub const ADDRESS_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_add");
 pub const ADDRESS_REMOVED_EVENT_NAME: Symbol = symbol_short!("wl_rem");
+pub const HOLDING_CAP_UPDATED_EVENT_NAME: Symbol = symbol_short!("hold_cap");
+pub const WHITELIST_UPDATED_EVENT_NAME: Symbol = symbol_short!("wl_upd");
+pub const REFERRAL_REGISTERED_EVENT_NAME: Symbol = symbol_short!("ref_reg");
+pub const REFERRAL_REWARD_ALLOCATED_EVENT_NAME: Symbol = symbol_short!("ref_rwd");
+pub const REFERRAL_REWARDS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("ref_clm");
 pub const KEYS_BURNED_EVENT_NAME: Symbol = symbol_short!("burned");
 pub const SELF_FREEZE_APPLIED_EVENT_NAME: Symbol = symbol_short!("sf_add");
 pub const SELF_FREEZE_LIFTED_EVENT_NAME: Symbol = symbol_short!("sf_del");
@@ -868,6 +898,66 @@ pub struct AddressRemovedEvent {
 
 pub fn address_removed_topics(creator: &Address) -> (Symbol, Address) {
     (ADDRESS_REMOVED_EVENT_NAME, creator.clone())
+}
+
+/// Emitted when a creator changes their per-wallet holding cap.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct HoldingCapUpdatedEvent {
+    pub creator: Address,
+    pub old_cap: Option<u32>,
+    pub new_cap: u32,
+}
+
+pub fn holding_cap_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (HOLDING_CAP_UPDATED_EVENT_NAME, creator.clone())
+}
+
+/// Emitted on every early-access whitelist add (`allowed = true`) and remove.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WhitelistUpdatedEvent {
+    pub creator: Address,
+    pub wallet: Address,
+    pub allowed: bool,
+}
+
+pub fn whitelist_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (WHITELIST_UPDATED_EVENT_NAME, creator.clone())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralRegisteredEvent {
+    pub referee: Address,
+    pub referrer: Address,
+}
+
+pub fn referral_registered_topics() -> Symbol {
+    REFERRAL_REGISTERED_EVENT_NAME
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralRewardAllocatedEvent {
+    pub referee: Address,
+    pub referrer: Address,
+    pub amount: i128,
+}
+
+pub fn referral_reward_allocated_topics() -> Symbol {
+    REFERRAL_REWARD_ALLOCATED_EVENT_NAME
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralRewardsClaimedEvent {
+    pub referrer: Address,
+    pub amount: i128,
+}
+
+pub fn referral_rewards_claimed_topics() -> Symbol {
+    REFERRAL_REWARDS_CLAIMED_EVENT_NAME
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1927,4 +2017,76 @@ pub struct PriceQueriedEvent {
 /// Shared price-queried event topics tuple.
 pub fn price_queried_topics(caller: &Address) -> (Symbol, Address) {
     (PRICE_QUERIED_EVENT_NAME, caller.clone())
+}
+
+// --- Pause state change (#889) ---
+
+pub const PAUSE_STATE_CHANGED_EVENT_NAME: Symbol = symbol_short!("pause_chg");
+
+/// Emitted by `pause` and `unpause` with the new state and the calling admin.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PauseStateChangedEvent {
+    pub paused: bool,
+    pub caller: Address,
+}
+
+pub fn pause_state_changed_topics() -> (Symbol,) {
+    (PAUSE_STATE_CHANGED_EVENT_NAME,)
+}
+
+// --- Supply milestone crossings (#887) ---
+
+pub const MILESTONE_CROSSED_EVENT_NAME: Symbol = symbol_short!("mile_x");
+pub const MILESTONE_DIRECTION_UP: Symbol = symbol_short!("up");
+pub const MILESTONE_DIRECTION_DOWN: Symbol = symbol_short!("down");
+
+/// Emitted once per configured supply milestone crossed by a trade.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MilestoneCrossedEvent {
+    pub key_id: Address,
+    /// 1-based position of the crossed milestone in the configured list.
+    pub tier: u32,
+    pub direction: Symbol,
+    /// Supply after the trade.
+    pub supply: u32,
+}
+
+pub fn milestone_crossed_topics(key_id: &Address) -> (Symbol, Address) {
+    (MILESTONE_CROSSED_EVENT_NAME, key_id.clone())
+}
+
+// --- Contract upgrade (#884) ---
+
+pub const UPGRADE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("upgraded");
+
+/// Emitted by `upgrade` with the version before and after the upgrade.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct UpgradeExecutedEvent {
+    pub old_version: u32,
+    pub new_version: u32,
+}
+
+pub fn upgrade_executed_topics(admin: &Address) -> (Symbol, Address) {
+    (UPGRADE_EXECUTED_EVENT_NAME, admin.clone())
+}
+
+/// Event name for admin-authorised key registration.
+pub const KEY_REGISTERED_EVENT_NAME: Symbol = symbol_short!("key_reg");
+
+/// Emitted by `register_key`. Keys are identified by their creator address, so
+/// `key_id` and `creator` carry the same address.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyRegisteredEvent {
+    pub key_id: Address,
+    pub creator: Address,
+    pub auction_pending: bool,
+    pub registered_at_ledger: u32,
+}
+
+pub fn key_registered_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_REGISTERED_EVENT_NAME, key_id.clone())
 }
