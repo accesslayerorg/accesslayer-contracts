@@ -1915,6 +1915,32 @@ pub fn max_buy_quantity_updated_topics(creator: &Address) -> (Symbol, Address) {
     (MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator.clone())
 }
 
+// --- Holder cap update (#862) ---
+
+/// Event name emitted when the creator tightens the max holder holding cap.
+pub const HOLDER_CAP_UPDATED_EVENT_NAME: Symbol = symbol_short!("hcap_upd");
+
+/// Stable holder-cap-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(HOLDER_CAP_UPDATED_EVENT_NAME, key_id)`
+/// - data: `HolderCapUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct HolderCapUpdatedEvent {
+    /// Address of the creator whose key's cap was tightened.
+    pub key_id: Address,
+    /// Cap in basis points before the update.
+    pub old_cap_bps: u32,
+    /// Cap in basis points after the update.
+    pub new_cap_bps: u32,
+}
+
+/// Shared holder-cap-updated event topics tuple.
+pub fn holder_cap_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (HOLDER_CAP_UPDATED_EVENT_NAME, creator.clone())
+}
+
 // --- Batch transfer keys (#799) ---
 
 /// Event name emitted when a holder transfers keys to multiple recipients in a
