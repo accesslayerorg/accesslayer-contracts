@@ -24,15 +24,19 @@ impl ReferralContract {
         if env.storage().instance().has(&DataKey::Initialised) {
             return Err(ContractError::AlreadyInitialised);
         }
-        
+
         env.storage().instance().set(&DataKey::Initialised, &true);
-        env.events().publish((Symbol::new(&env, "ContractInitialised"),), ());
-        
+        env.events()
+            .publish((Symbol::new(&env, "ContractInitialised"),), ());
+
         Ok(())
     }
 
     pub fn get_initialised(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Initialised).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Initialised)
+            .unwrap_or(false)
     }
 
     /// Returns true if it was indeed the first trade (and records it as true now).
@@ -83,10 +87,10 @@ mod test {
         let client = ReferralContractClient::new(&env, &contract_id);
 
         client.init();
-        
+
         let result = client.try_init();
         assert_eq!(result, Err(Ok(ContractError::AlreadyInitialised)));
-        
+
         // Ensure state wasn't overwritten by checking event count (should still be 1)
         assert_eq!(env.events().all().len(), 1);
     }
