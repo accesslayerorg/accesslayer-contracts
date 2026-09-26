@@ -31,6 +31,8 @@ enum DataKey {
     Admin,
     WasmHash,
     Registry,
+    RegistryCount,
+    CreatorKeys(Address),
     Allowed(Address),
 }
 
@@ -42,6 +44,19 @@ fn read_admin(env: &Env) -> Result<Address, FactoryError> {
         .instance()
         .get(&DataKey::Admin)
         .ok_or(FactoryError::NotInitialised)
+}
+
+fn read_registry_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::RegistryCount)
+        .unwrap_or(0)
+}
+
+fn write_registry_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RegistryCount, &count);
 }
 
 #[contractimpl]
@@ -106,6 +121,15 @@ impl CreatorKeysFactory {
         registry.push_back(key.clone());
         env.storage().instance().set(&DataKey::Registry, &registry);
 
+        let mut creator_keys = Self::get_keys_by_creator(env.clone(), creator.clone());
+        creator_keys.push_back(key.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::CreatorKeys(creator.clone()), &creator_keys);
+
+        let registry_count = registry.len();
+        write_registry_count(&env, registry_count);
+
         env.events().publish(
             (KEY_DEPLOYED_EVENT_NAME, creator.clone()),
             KeyDeployedEvent {
@@ -116,12 +140,89 @@ impl CreatorKeysFactory {
         Ok(key)
     }
 
+    /// Removes a key from the factory registry when the deployed contract is deprecated.
+    /// Only the creator of that key or the admin may do so.
+    pub fn remove_key(
+        env: Env,
+        caller: Address,
+        creator: Address,
+        key: Address,
+    ) -> Result<(), FactoryError> {
+        caller.require_auth();
+        let admin = read_admin(&env)?;
+        if caller != admin && caller != creator {
+            return Err(FactoryError::Unauthorized);
+        }
+
+        let mut registry = Self::get_registry(env.clone());
+        let mut creator_keys = Self::get_keys_by_creator(env.clone(), creator.clone());
+
+        let mut filtered_registry = Vec::new(&env);
+        for current in registry.iter() {
+            if current != key {
+                filtered_registry.push_back(current);
+            }
+        }
+
+        let mut filtered_creator_keys = Vec::new(&env);
+        for current in creator_keys.iter() {
+            if current != key {
+                filtered_creator_keys.push_back(current);
+            }
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Registry, &filtered_registry);
+        env.storage().instance().set(
+            &DataKey::CreatorKeys(creator.clone()),
+            &filtered_creator_keys,
+        );
+        write_registry_count(&env, filtered_registry.len());
+        Ok(())
+    }
+
     /// Read-only view: every key contract address deployed by this factory.
     pub fn get_registry(env: Env) -> Vec<Address> {
         env.storage()
             .instance()
             .get(&DataKey::Registry)
             .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Read-only view: all deployed keys for a particular creator wallet.
+    pub fn get_keys_by_creator(env: Env, creator: Address) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::CreatorKeys(creator))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Read-only view: a paginated slice of the registry ordered by deployment time.
+    pub fn get_all_keys(env: Env, offset: u32, limit: u32) -> Vec<Address> {
+        let registry = Self::get_registry(env.clone());
+        let total = registry.len();
+        if offset >= total || limit == 0 {
+            return Vec::new(&env);
+        }
+
+        let start = offset;
+        let end = if start.saturating_add(limit) > total {
+            total
+        } else {
+            start.saturating_add(limit)
+        };
+
+        let mut page = Vec::new(&env);
+        for index in start..end {
+            page.push_back(registry.get_unchecked(index));
+        }
+        page
+    }
+
+    /// Read-only view: total number of active deployed key addresses in the registry.
+    pub fn get_registry_count(env: Env) -> u32 {
+        read_registry_count(&env)
     }
 }
 
@@ -165,5 +266,69 @@ mod test {
             client.try_initialise(&admin, &BytesN::from_array(&env, &[7; 32])),
             Err(Ok(FactoryError::AlreadyInitialised))
         );
+    }
+
+    #[test]
+    fn registry_tracks_creator_filtered_keys_and_count() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let creator_a = Address::generate(&env);
+        let creator_b = Address::generate(&env);
+        client.set_creator_allowed(&admin, &creator_a, &true);
+        client.set_creator_allowed(&admin, &creator_b, &true);
+
+        let key_a_1 =
+            client.deploy_key(&creator_a, &creator_a, &BytesN::from_array(&env, &[1; 32]));
+        let key_a_2 =
+            client.deploy_key(&creator_a, &creator_a, &BytesN::from_array(&env, &[2; 32]));
+        let key_b_1 =
+            client.deploy_key(&creator_b, &creator_b, &BytesN::from_array(&env, &[3; 32]));
+
+        let a_keys = client.get_keys_by_creator(&creator_a);
+        let b_keys = client.get_keys_by_creator(&creator_b);
+        assert_eq!(a_keys.len(), 2);
+        assert_eq!(b_keys.len(), 1);
+        assert_eq!(a_keys.get_unchecked(0), key_a_1);
+        assert_eq!(a_keys.get_unchecked(1), key_a_2);
+        assert_eq!(b_keys.get_unchecked(0), key_b_1);
+        assert_eq!(client.get_registry_count(), 3);
+    }
+
+    #[test]
+    fn registry_paginates_all_keys_by_offset() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let creator = Address::generate(&env);
+        client.set_creator_allowed(&admin, &creator, &true);
+
+        let key_1 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[11; 32]));
+        let key_2 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[12; 32]));
+        let key_3 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[13; 32]));
+        let key_4 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[14; 32]));
+
+        let page = client.get_all_keys(&1u32, &2u32);
+        assert_eq!(page.len(), 2);
+        assert_eq!(page.get_unchecked(0), key_2);
+        assert_eq!(page.get_unchecked(1), key_3);
+        assert_eq!(client.get_registry_count(), 4);
+    }
+
+    #[test]
+    fn deprecated_key_is_removed_from_registry() {
+        let env = Env::default();
+        let (client, admin) = setup(&env);
+        let creator = Address::generate(&env);
+        client.set_creator_allowed(&admin, &creator, &true);
+
+        let key_1 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[21; 32]));
+        let key_2 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[22; 32]));
+
+        client.remove_key(&creator, &creator, &key_1);
+
+        let creator_keys = client.get_keys_by_creator(&creator);
+        assert_eq!(creator_keys.len(), 1);
+        assert_eq!(creator_keys.get_unchecked(0), key_2);
+        assert_eq!(client.get_registry_count(), 1);
+        assert_eq!(client.get_all_keys(&0u32, &10u32).len(), 1);
     }
 }
