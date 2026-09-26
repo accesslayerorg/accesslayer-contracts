@@ -87,7 +87,10 @@ fn next_ledger_sell_succeeds_with_default_window() {
     advance_ledgers(&env, 1);
 
     assert_eq!(client.sell_key(&creator, &buyer, &None), 0);
-    assert_eq!(client.get_flash_loan_guard_ledgers(), DEFAULT_FLASH_LOAN_GUARD_LEDGERS);
+    assert_eq!(
+        client.get_flash_loan_guard_ledgers(),
+        DEFAULT_FLASH_LOAN_GUARD_LEDGERS
+    );
 }
 
 #[test]
@@ -110,7 +113,10 @@ fn admin_window_applies_to_single_and_batch_buys() {
     assert_eq!(client.sell_key(&creator, &buyer, &None), 0);
 
     let batch_buyer = Address::generate(&env);
-    client.batch_buy(&batch_buyer, &soroban_sdk::vec![&env, (creator.clone(), 1u32)]);
+    client.batch_buy(
+        &batch_buyer,
+        &soroban_sdk::vec![&env, (creator.clone(), 1u32)],
+    );
     assert_eq!(
         client.try_sell_key(&creator, &batch_buyer, &None),
         Err(Ok(ContractError::FlashLoanDetected))
