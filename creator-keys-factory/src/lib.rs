@@ -154,8 +154,8 @@ impl CreatorKeysFactory {
             return Err(FactoryError::Unauthorized);
         }
 
-        let mut registry = Self::get_registry(env.clone());
-        let mut creator_keys = Self::get_keys_by_creator(env.clone(), creator.clone());
+        let registry = Self::get_registry(env.clone());
+        let creator_keys = Self::get_keys_by_creator(env.clone(), creator.clone());
 
         let mut filtered_registry = Vec::new(&env);
         for current in registry.iter() {
@@ -301,10 +301,10 @@ mod test {
         let creator = Address::generate(&env);
         client.set_creator_allowed(&admin, &creator, &true);
 
-        let key_1 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[11; 32]));
+        let _key_1 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[11; 32]));
         let key_2 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[12; 32]));
         let key_3 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[13; 32]));
-        let key_4 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[14; 32]));
+        let _key_4 = client.deploy_key(&creator, &creator, &BytesN::from_array(&env, &[14; 32]));
 
         let page = client.get_all_keys(&1u32, &2u32);
         assert_eq!(page.len(), 2);
