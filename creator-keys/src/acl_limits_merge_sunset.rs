@@ -1,5 +1,5 @@
 use crate::ContractError;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
