@@ -6,8 +6,8 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Vec,
 };
 
-pub mod events;
 pub mod acl_limits_merge_sunset;
+pub mod events;
 
 #[contracterror]
 pub mod test_feature_impl;

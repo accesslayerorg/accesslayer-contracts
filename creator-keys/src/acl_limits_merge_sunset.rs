@@ -1,8 +1,6 @@
 #![no_std]
-use soroban_sdk::{
-    contracttype, symbol_short, Address, Env, Symbol, Vec,
-};
 use crate::ContractError;
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -90,10 +88,8 @@ pub fn remove_from_acl(
         .instance()
         .set(&EmwulrdDataKey::Acl(contract_addr.clone()), &entry);
 
-    env.events().publish(
-        (ACL_UPDATED_EVENT, contract_addr.clone()),
-        (0u32, false),
-    );
+    env.events()
+        .publish((ACL_UPDATED_EVENT, contract_addr.clone()), (0u32, false));
 
     Ok(())
 }
@@ -104,7 +100,10 @@ pub fn assert_acl_permission(
     caller: &Address,
     required_perm: u32,
 ) -> Result<(), ContractError> {
-    let entry: Option<AclEntry> = env.storage().instance().get(&EmwulrdDataKey::Acl(caller.clone()));
+    let entry: Option<AclEntry> = env
+        .storage()
+        .instance()
+        .get(&EmwulrdDataKey::Acl(caller.clone()));
     match entry {
         Some(e) if e.is_active && (e.permissions & required_perm) == required_perm => Ok(()),
         _ => Err(ContractError::Unauthorized),
@@ -126,10 +125,8 @@ pub fn set_max_buy_limit(
         .instance()
         .set(&EmwulrdDataKey::MaxBuyPerTx(creator.clone()), &max_buy_qty);
 
-    env.events().publish(
-        (BUY_LIMIT_CONFIGURED_EVENT, creator.clone()),
-        max_buy_qty,
-    );
+    env.events()
+        .publish((BUY_LIMIT_CONFIGURED_EVENT, creator.clone()), max_buy_qty);
 
     Ok(())
 }
@@ -176,9 +173,10 @@ pub fn propose_key_merge(
         is_executed: false,
     };
 
-    env.storage()
-        .instance()
-        .set(&EmwulrdDataKey::MergeProposal(source_key.clone()), &proposal);
+    env.storage().instance().set(
+        &EmwulrdDataKey::MergeProposal(source_key.clone()),
+        &proposal,
+    );
 
     Ok(())
 }
@@ -236,11 +234,15 @@ pub fn flag_inactive_key_sunset(
     inactivity_threshold_ledgers: u32,
 ) -> Result<bool, ContractError> {
     let key = EmwulrdDataKey::SunsetStatus(creator.clone());
-    let mut status: KeySunsetStatus = env.storage().instance().get(&key).unwrap_or(KeySunsetStatus {
-        last_trade_ledger: env.ledger().sequence(),
-        is_sunset_pending: false,
-        is_deprecated: false,
-    });
+    let mut status: KeySunsetStatus =
+        env.storage()
+            .instance()
+            .get(&key)
+            .unwrap_or(KeySunsetStatus {
+                last_trade_ledger: env.ledger().sequence(),
+                is_sunset_pending: false,
+                is_deprecated: false,
+            });
 
     let current = env.ledger().sequence();
     if current.saturating_sub(status.last_trade_ledger) >= inactivity_threshold_ledgers {
