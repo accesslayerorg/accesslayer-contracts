@@ -253,6 +253,8 @@ pub enum AllowanceError {
     HoldingCapExceeded = 9,
     /// The spender address was the zero address.
     ZeroAddress = 10,
+    /// The source wallet is inside the flash-loan guard window.
+    FlashLoanDetected = 11,
     /// The sender is still inside the creator's post-buy cooldown window.
     CooldownActive = 11,
 }
@@ -552,6 +554,7 @@ pub mod constants {
         pub const GLOBAL_DEADLINE_LEDGER: DataKey = DataKey::GlobalDeadlineLedger;
         pub const PROTOCOL_FEE_BPS: DataKey = DataKey::ProtocolFeeBps;
         pub const LOCKUP_DURATION_SECS: DataKey = DataKey::LockupDurationSecs;
+        pub const FLASH_LOAN_GUARD_LEDGERS: DataKey = DataKey::FlashLoanGuardLedgers;
 
         /// Protocol-wide emergency trading halt flag (#784).
         pub const GLOBAL_TRADING_PAUSED: DataKey = DataKey::GlobalTradingPaused;
@@ -1182,6 +1185,12 @@ pub const HOLDER_CAP_MAX_BPS: u32 = 2500;
 /// keys until at least this much time has elapsed since their most recent buy.
 pub const DEFAULT_LOCKUP_DURATION_SECS: u64 = 86_400;
 
+/// Default flash-loan guard duration in ledgers.
+pub const DEFAULT_FLASH_LOAN_GUARD_LEDGERS: u32 = 1;
+
+/// Maximum flash-loan guard duration in ledgers (~1 hour at 5 s/ledger).
+pub const MAX_FLASH_LOAN_GUARD_LEDGERS: u32 = 720;
+
 /// Current client-facing schema version of this contract.
 ///
 /// Increment this constant whenever the contract's ABI or on-chain data layout
@@ -1480,6 +1489,8 @@ pub enum DataKey {
     LastBuyTimestamp(Address, Address),
     /// Lockup duration in seconds for sell lockup enforcement.
     LockupDurationSecs,
+    /// Protocol-wide flash-loan guard window in ledgers.
+    FlashLoanGuardLedgers,
     QuorumBps(Address),
     /// Per-creator holder cap in basis points (max % of supply one wallet may hold).
     HolderCapBps(Address),
@@ -2828,6 +2839,60 @@ fn read_lockup_duration_secs(env: &Env) -> Option<u64> {
     env.storage()
         .persistent()
         .get(&constants::storage::LOCKUP_DURATION_SECS)
+}
+
+fn read_flash_loan_guard_ledgers(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::FLASH_LOAN_GUARD_LEDGERS)
+        .unwrap_or(DEFAULT_FLASH_LOAN_GUARD_LEDGERS)
+}
+
+fn assert_flash_loan_guard(
+    env: &Env,
+    creator: &Address,
+    wallet: &Address,
+) -> Result<(), ContractError> {
+    let Some(last_buy_ledger): Option<u32> = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::last_buy_ledger(creator, wallet))
+    else {
+        return Ok(());
+    };
+
+    let current_ledger = env.ledger().sequence();
+    if current_ledger.saturating_sub(last_buy_ledger) >= read_flash_loan_guard_ledgers(env) {
+        return Ok(());
+    }
+
+    env.events().publish(
+        events::flash_loan_blocked_topics(wallet, creator),
+        events::FlashLoanBlockedEvent {
+            wallet: wallet.clone(),
+            key_id: creator.clone(),
+            ledger: current_ledger,
+        },
+    );
+    Err(ContractError::FlashLoanDetected)
+}
+
+fn propagate_flash_loan_guard_ledger(env: &Env, creator: &Address, from: &Address, to: &Address) {
+    let Some(from_ledger): Option<u32> = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::last_buy_ledger(creator, from))
+    else {
+        return;
+    };
+
+    let to_key = constants::storage::last_buy_ledger(creator, to);
+    let to_ledger: Option<u32> = env.storage().persistent().get(&to_key);
+    let inherited = to_ledger.map_or(from_ledger, |existing| existing.max(from_ledger));
+    if to_ledger != Some(inherited) {
+        env.storage().persistent().set(&to_key, &inherited);
+        extend_key_ttl_to_full_window(env, &to_key);
+    }
 }
 
 /// Reads the total keys currently staked across all holders for a creator.
@@ -5326,23 +5391,7 @@ impl CreatorKeysContract {
             return Err(ContractError::InsufficientBalance);
         }
 
-        // Flash-loan guard (issue #781): reject a sell in the same ledger as the
-        // seller's most recent buy, closing the risk-free buy-then-sell vector
-        // within a single transaction/ledger.
-        let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &seller);
-        let last_buy_ledger: Option<u32> = env.storage().persistent().get(&last_buy_ledger_key);
-        let current_ledger = env.ledger().sequence();
-        if last_buy_ledger == Some(current_ledger) {
-            env.events().publish(
-                events::flash_loan_blocked_topics(&seller, &creator),
-                events::FlashLoanBlockedEvent {
-                    wallet: seller.clone(),
-                    key_id: creator.clone(),
-                    ledger: current_ledger,
-                },
-            );
-            return Err(ContractError::FlashLoanDetected);
-        }
+        assert_flash_loan_guard(&env, &creator, &seller)?;
 
         // Check liquid balance (total balance - staked balance)
         let staked_balance_key = constants::storage::staked_balance(&creator, &seller);
@@ -9021,6 +9070,30 @@ impl CreatorKeysContract {
         read_lockup_duration_secs(&env).unwrap_or(DEFAULT_LOCKUP_DURATION_SECS)
     }
 
+    pub fn set_flash_loan_guard_ledgers(
+        env: Env,
+        admin: Address,
+        guard_ledgers: u32,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if guard_ledgers == 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        if guard_ledgers > MAX_FLASH_LOAN_GUARD_LEDGERS {
+            return Err(ContractError::LimitTooHigh);
+        }
+
+        let key = constants::storage::FLASH_LOAN_GUARD_LEDGERS;
+        env.storage().persistent().set(&key, &guard_ledgers);
+        extend_key_ttl_to_full_window(&env, &key);
+        Ok(())
+    }
+
+    pub fn get_flash_loan_guard_ledgers(env: Env) -> u32 {
+        read_flash_loan_guard_ledgers(&env)
+    }
+
     /// Read-only view: returns the curve preset for a creator.
     ///
     /// # Errors
@@ -9145,6 +9218,7 @@ impl CreatorKeysContract {
             .persistent()
             .set(&to_balance_key, &new_to_balance);
         extend_key_ttl_to_full_window(&env, &to_balance_key);
+        propagate_flash_loan_guard_ledger(&env, &creator, &from, &to);
 
         // Increment holder count if recipient had zero balance before.
         if to_balance == 0 {
@@ -9271,6 +9345,7 @@ impl CreatorKeysContract {
                 .persistent()
                 .set(&to_balance_key, &new_to_balance);
             extend_key_ttl_to_full_window(&env, &to_balance_key);
+            propagate_flash_loan_guard_ledger(&env, &creator, &from, &to);
 
             // Increment holder count when the recipient had zero balance before.
             if to_balance == 0 {
@@ -11323,6 +11398,7 @@ impl CreatorKeysContract {
             constants::storage::referral_fee_bps(),
             constants::storage::PROTOCOL_FEE_BPS,
             constants::storage::LOCKUP_DURATION_SECS,
+            constants::storage::FLASH_LOAN_GUARD_LEDGERS,
         ];
         for key in global_keys.iter() {
             if env.storage().persistent().has(key) {
@@ -11436,6 +11512,12 @@ impl CreatorKeysContract {
                 i += 1;
             }
 
+            let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &buyer);
+            env.storage()
+                .persistent()
+                .set(&last_buy_ledger_key, &env.ledger().sequence());
+            extend_key_ttl_to_full_window(&env, &last_buy_ledger_key);
+
             env.events().publish(
                 events::buy_event_topics(&creator, &buyer),
                 events::KeysBoughtEvent {
@@ -11519,21 +11601,7 @@ impl CreatorKeysContract {
                 return Err(ContractError::InsufficientBalance);
             }
 
-            // Flash-loan guard: reject if sold in same ledger as last buy
-            let last_buy_ledger_key = constants::storage::last_buy_ledger(&creator, &seller);
-            let last_buy_ledger: Option<u32> = env.storage().persistent().get(&last_buy_ledger_key);
-            let current_ledger = env.ledger().sequence();
-            if last_buy_ledger == Some(current_ledger) {
-                env.events().publish(
-                    events::flash_loan_blocked_topics(&seller, &creator),
-                    events::FlashLoanBlockedEvent {
-                        wallet: seller.clone(),
-                        key_id: creator.clone(),
-                        ledger: current_ledger,
-                    },
-                );
-                return Err(ContractError::FlashLoanDetected);
-            }
+            assert_flash_loan_guard(&env, &creator, &seller)?;
 
             // Anti-flash-trade lockup check
             if let Some(lockup_secs) = read_lockup_duration_secs(&env) {
@@ -13555,6 +13623,9 @@ impl CreatorKeysContract {
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &key_id)
             .map_err(|_| AllowanceError::NotRegistered)?;
 
+        assert_flash_loan_guard(&env, &key_id, &from)
+            .map_err(|_| AllowanceError::FlashLoanDetected)?;
+
         // Mirrors the buy-cooldown guard in `transfer_keys`: a delegating
         // spender must not be able to route keys around the creator's cooldown.
         let cooldown_ledgers: u32 = env
@@ -13628,6 +13699,7 @@ impl CreatorKeysContract {
             .set(&to_balance_key, &new_to_balance);
         extend_key_ttl_to_full_window(&env, &from_balance_key);
         extend_key_ttl_to_full_window(&env, &to_balance_key);
+        propagate_flash_loan_guard_ledger(&env, &key_id, &from, &to);
 
         // The two adjustments below are mutually exclusive: `amount > 0` and
         // `from != to`, so at most one side crosses the zero boundary.
