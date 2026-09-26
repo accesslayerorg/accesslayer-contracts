@@ -9,7 +9,6 @@ use soroban_sdk::{
 pub mod acl_limits_merge_sunset;
 pub mod events;
 
-#[contracterror]
 pub mod test_feature_impl;
 pub mod test_new_features;
 

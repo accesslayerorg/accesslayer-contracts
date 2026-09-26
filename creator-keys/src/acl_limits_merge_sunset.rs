@@ -1,4 +1,3 @@
-#![no_std]
 use crate::ContractError;
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
