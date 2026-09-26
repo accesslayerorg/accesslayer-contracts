@@ -11,7 +11,7 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::CreatorKeysContractClient;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 /// Cost implied by the same fee math used when the contract executes the trade path.
 fn actual_buyback_cost(client: &CreatorKeysContractClient<'_>, price: i128) -> i128 {
@@ -22,6 +22,7 @@ fn actual_buyback_cost(client: &CreatorKeysContractClient<'_>, price: i128) -> i
 /// Quote at the current supply and assert the quoted buyback cost matches the
 /// actual execution-path cost for the same creator and holder.
 fn assert_buyback_quote_matches_execution(
+    env: &Env,
     client: &CreatorKeysContractClient<'_>,
     creator: &Address,
     holder: &Address,
@@ -50,6 +51,9 @@ fn assert_buyback_quote_matches_execution(
         "quoted buyback cost must match execution-path cost before trade"
     );
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply_after_trade = client.sell_key(creator, holder, &None);
     assert_eq!(
         supply_after_trade,
@@ -87,7 +91,7 @@ fn test_buyback_quote_matches_execution_at_supply_one() {
     let creator = register_test_creator(&env, &client, "alice");
     let holder = setup_holder_with_supply(&env, &client, &creator, 1);
 
-    assert_buyback_quote_matches_execution(&client, &creator, &holder, 1);
+    assert_buyback_quote_matches_execution(&env, &client, &creator, &holder, 1);
 }
 
 #[test]
@@ -99,5 +103,5 @@ fn test_buyback_quote_matches_execution_at_supply_five() {
     let creator = register_test_creator(&env, &client, "bob");
     let holder = setup_holder_with_supply(&env, &client, &creator, 5);
 
-    assert_buyback_quote_matches_execution(&client, &creator, &holder, 5);
+    assert_buyback_quote_matches_execution(&env, &client, &creator, &holder, 5);
 }

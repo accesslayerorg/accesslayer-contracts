@@ -1,5 +1,5 @@
 //! Integration tests for admin-only functions reverting when called by a non-admin.
-//!
+//
 //! Every function gated by `assert_is_admin` must reject a non-admin caller with
 //! `ContractError::Unauthorized` and must not mutate any contract state.
 
@@ -11,18 +11,10 @@ use soroban_sdk::{testutils::Address as _, Address, Env};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/// Register a known admin into contract storage and return it.
-fn setup_admin(env: &Env, client: &CreatorKeysContractClient<'_>) -> Address {
-    let admin = Address::generate(env);
-    client.set_protocol_admin(&admin, &admin);
-    admin
-}
-
 /// Full setup: contract + pricing + fees + admin. Returns (client, admin).
 fn full_setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address) {
     let (client, _) = register_creator_keys(env);
-    set_pricing_and_fees(env, &client, 100i128, 9000, 1000);
-    let admin = setup_admin(env, &client);
+    let admin = set_pricing_and_fees(env, &client, 100i128, 9000, 1000);
     (client, admin)
 }
 
@@ -128,6 +120,72 @@ fn test_update_protocol_fee_recipient_no_state_change_on_non_admin_call() {
         stored,
         Some(old_recipient),
         "fee recipient must not change when non-admin call is rejected"
+    );
+}
+
+// ── set_fee_config ──────────────────────────────────────────────────────
+
+#[test]
+fn test_set_fee_config_reverts_for_non_admin() {
+    let env = test_env_with_auths();
+    let (client, _admin) = full_setup(&env);
+
+    let non_admin = Address::generate(&env);
+    let result = client.try_set_fee_config(&non_admin, &8000u32, &2000u32);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_set_fee_config_no_state_change_on_non_admin_call() {
+    let env = test_env_with_auths();
+    let (client, _admin) = full_setup(&env);
+
+    let protocol_bps_before = client.get_protocol_fee_bps();
+
+    let non_admin = Address::generate(&env);
+    let result = client.try_set_fee_config(&non_admin, &8000u32, &2000u32);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+
+    let protocol_bps_after = client.get_protocol_fee_bps();
+    assert_eq!(
+        protocol_bps_before, protocol_bps_after,
+        "protocol fee bps must not change when non-admin set_fee_config call is rejected"
+    );
+}
+
+// ── set_protocol_fee_recipient ──────────────────────────────────────────
+
+#[test]
+fn test_set_protocol_fee_recipient_reverts_for_non_admin() {
+    let env = test_env_with_auths();
+    let (client, admin) = full_setup(&env);
+
+    let original_recipient = Address::generate(&env);
+    client.set_protocol_fee_recipient(&admin, &original_recipient);
+
+    let non_admin = Address::generate(&env);
+    let new_recipient = Address::generate(&env);
+    let result = client.try_set_protocol_fee_recipient(&non_admin, &new_recipient);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_set_protocol_fee_recipient_no_state_change_on_non_admin_call() {
+    let env = test_env_with_auths();
+    let (client, admin) = full_setup(&env);
+
+    let original_recipient = Address::generate(&env);
+    client.set_protocol_fee_recipient(&admin, &original_recipient);
+
+    let non_admin = Address::generate(&env);
+    let new_recipient = Address::generate(&env);
+    let _ = client.try_set_protocol_fee_recipient(&non_admin, &new_recipient);
+
+    let stored = client.get_protocol_fee_recipient();
+    assert_eq!(
+        stored,
+        Some(original_recipient),
+        "fee recipient must not change when non-admin set_protocol_fee_recipient call is rejected"
     );
 }
 

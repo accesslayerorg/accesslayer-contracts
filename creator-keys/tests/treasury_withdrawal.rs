@@ -11,19 +11,10 @@ use soroban_sdk::{
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/// Sets a protocol admin in the contract and returns the admin address.
-fn set_admin(env: &Env, client: &CreatorKeysContractClient<'_>) -> Address {
-    let first_admin = Address::generate(env);
-    let new_admin = Address::generate(env);
-    client.set_protocol_admin(&first_admin, &new_admin);
-    new_admin
-}
-
 /// Full setup: pricing + fees + admin. Returns (client, admin).
 fn setup_with_admin(env: &Env) -> (CreatorKeysContractClient<'_>, Address) {
     let (client, _id) = register_creator_keys(env);
-    set_pricing_and_fees(env, &client, 100i128, 9000, 1000);
-    let admin = set_admin(env, &client);
+    let admin = set_pricing_and_fees(env, &client, 100i128, 9000, 1000);
     (client, admin)
 }
 

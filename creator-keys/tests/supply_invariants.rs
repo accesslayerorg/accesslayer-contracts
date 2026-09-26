@@ -13,7 +13,7 @@ use contract_test_env::{
     test_wallet_address, test_wallet_address_from_index,
 };
 use creator_keys::CreatorKeysContractClient;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 fn setup<'a>(env: &'a Env, price: i128) -> (CreatorKeysContractClient<'a>, Address) {
     let (client, _) = register_creator_keys(env);
@@ -57,6 +57,9 @@ fn test_supply_buy_then_sell_returns_to_zero() {
     assert_eq!(client.get_total_key_supply(&creator), 0);
     client.buy_key(&creator, &buyer, &100, &None);
     assert_eq!(client.get_total_key_supply(&creator), 1);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
     assert_eq!(client.get_total_key_supply(&creator), 0);
 }
@@ -71,6 +74,9 @@ fn test_supply_buy_two_sell_one_conserves_supply() {
     client.buy_key(&creator, &buyer, &100, &None);
     assert_eq!(client.get_total_key_supply(&creator), 2);
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
     assert_eq!(client.get_total_key_supply(&creator), 1);
 }
@@ -83,8 +89,14 @@ fn test_supply_alternating_buys_and_sells() {
 
     // buy → sell → buy → sell: supply must be 0 at end
     client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
     client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
 
     assert_eq!(client.get_total_key_supply(&creator), 0);
@@ -162,6 +174,9 @@ fn test_supply_mixed_trades_three_participants() {
     assert_eq!(client.get_total_key_supply(&creator), 5);
 
     // Alice sells 1, Carol sells 2
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &alice, &None);
     client.sell_key(&creator, &carol, &None);
     client.sell_key(&creator, &carol, &None);
@@ -187,6 +202,9 @@ fn test_supply_never_goes_below_zero_after_all_sells() {
     client.buy_key(&creator, &buyer, &100, &None);
     client.buy_key(&creator, &buyer, &100, &None);
     client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
     client.sell_key(&creator, &buyer, &None);
     client.sell_key(&creator, &buyer, &None);
@@ -206,6 +224,9 @@ fn test_supply_changes_for_one_creator_do_not_affect_another() {
 
     client.buy_key(&creator_a, &buyer, &100, &None);
     client.buy_key(&creator_a, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator_a, &buyer, &None);
 
     // creator_b supply untouched
@@ -227,6 +248,9 @@ fn test_holder_count_reflects_mixed_trade_correctly() {
     client.buy_key(&creator, &b2, &100, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 2);
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &b1, &None);
     assert_eq!(client.get_creator_holder_count(&creator), 1);
 
@@ -243,6 +267,9 @@ fn test_holder_count_unchanged_when_holder_still_has_keys() {
 
     client.buy_key(&creator, &buyer, &100, &None);
     client.buy_key(&creator, &buyer, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
 
     // Buyer still holds 1 key — holder count must stay at 1

@@ -14,6 +14,7 @@ fn test_fee_config_updated_event_emitted() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     // Initial set (no old config)
     client.set_fee_config(&admin, &9000, &1000);
@@ -27,7 +28,7 @@ fn test_fee_config_updated_event_emitted() {
 
     let emitted_event: events::FeeConfigUpdatedEvent = data.into_val(&env);
     assert_eq!(emitted_event.old_bps, 0);
-    assert_eq!(emitted_event.new_bps, 1000);
+    assert_eq!(emitted_event.new_bps, 9000);
     assert_eq!(emitted_event.updated_at_ledger, env.ledger().sequence());
 
     // Update fee config
@@ -39,7 +40,39 @@ fn test_fee_config_updated_event_emitted() {
     assert_eq!(event_name, events::FEE_CONFIG_UPDATED_EVENT_NAME);
 
     let emitted_event: events::FeeConfigUpdatedEvent = data.into_val(&env);
-    assert_eq!(emitted_event.old_bps, 1000);
-    assert_eq!(emitted_event.new_bps, 500);
+    assert_eq!(emitted_event.old_bps, 9000);
+    assert_eq!(emitted_event.new_bps, 9500);
     assert_eq!(emitted_event.updated_at_ledger, env.ledger().sequence());
+}
+
+#[test]
+fn test_creator_fee_bps_updates_sequentially() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
+
+    // First ever update (no old config), assert old_bps is 0
+    client.set_fee_config(&admin, &200, &9800);
+    let event_log = env.events().all();
+    let (_, _, data) = event_log.last().unwrap();
+    let emitted_event: events::FeeConfigUpdatedEvent = data.into_val(&env);
+    assert_eq!(emitted_event.old_bps, 0);
+    assert_eq!(emitted_event.new_bps, 200);
+
+    // Update from 200 to 400
+    client.set_fee_config(&admin, &400, &9600);
+    let event_log = env.events().all();
+    let (_, _, data) = event_log.last().unwrap();
+    let emitted_event: events::FeeConfigUpdatedEvent = data.into_val(&env);
+    assert_eq!(emitted_event.old_bps, 200);
+    assert_eq!(emitted_event.new_bps, 400);
+
+    // Update from 400 to 100
+    client.set_fee_config(&admin, &100, &9900);
+    let event_log = env.events().all();
+    let (_, _, data) = event_log.last().unwrap();
+    let emitted_event: events::FeeConfigUpdatedEvent = data.into_val(&env);
+    assert_eq!(emitted_event.old_bps, 400);
+    assert_eq!(emitted_event.new_bps, 100);
 }

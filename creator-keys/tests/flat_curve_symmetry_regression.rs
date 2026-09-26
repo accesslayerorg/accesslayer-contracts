@@ -7,13 +7,14 @@ mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, set_pricing_and_fees, test_env_with_auths};
 use creator_keys::CurvePreset;
-use soroban_sdk::{testutils::Address as _, Address, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, String};
 
 const KEY_PRICE: i128 = 1000;
 const CREATOR_BPS: u32 = 9000;
 const PROTOCOL_BPS: u32 = 1000;
 
 fn assert_symmetry_for_params(
+    env: &soroban_sdk::Env,
     client: &creator_keys::CreatorKeysContractClient<'_>,
     creator: &Address,
     buyer: &Address,
@@ -56,6 +57,9 @@ fn assert_symmetry_for_params(
         total_sell_price += quote.price;
         total_sell_creator_fee += quote.creator_fee;
         total_sell_protocol_fee += quote.protocol_fee;
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(creator, buyer, &None);
     }
 
@@ -103,8 +107,8 @@ fn test_flat_curve_symmetry() {
 
     // Cover at least three different supply levels: 0, 5, 20
     // Cover small (1) and large (10, 50) amounts
-    assert_symmetry_for_params(&client, &creator, &buyer, 0, 1);
-    assert_symmetry_for_params(&client, &creator, &buyer, 0, 10);
-    assert_symmetry_for_params(&client, &creator, &buyer, 5, 5);
-    assert_symmetry_for_params(&client, &creator, &buyer, 20, 20);
+    assert_symmetry_for_params(&env, &client, &creator, &buyer, 0, 1);
+    assert_symmetry_for_params(&env, &client, &creator, &buyer, 0, 10);
+    assert_symmetry_for_params(&env, &client, &creator, &buyer, 5, 5);
+    assert_symmetry_for_params(&env, &client, &creator, &buyer, 20, 20);
 }

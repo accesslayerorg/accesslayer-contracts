@@ -138,7 +138,7 @@ fn test_batch_claim_exceeds_limit_reverts() {
 fn test_batch_claim_while_paused_fails() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    set_pricing_and_fees(
+    let admin = set_pricing_and_fees(
         &env,
         &client,
         100,
@@ -153,8 +153,6 @@ fn test_batch_claim_while_paused_fails() {
     let distributor = Address::generate(&env);
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
 
-    let admin = Address::generate(&env);
-    client.set_protocol_admin(&admin, &admin);
     client.pause(&admin);
 
     let creators = Vec::from_array(&env, [creator.clone()]);

@@ -73,6 +73,12 @@ distinguishable from other key types.
 | `ReferralFeeBps` | Global | `u32` | `set_referral_fee_bps` (admin) | `buy_key_with_referrer` (referral split), `get_referral_fee_bps` |
 | `DiscountTiers` | Global | `Vec<DiscountTier>` | `update_discount_tiers` (admin) | `get_discount_tiers` (volume-based fee discount evaluation) |
 | `CreatorVolume(Address)` | Per-creator | `i128` | *(not currently written by any entrypoint)* | `get_creator_volume` |
+| `RetentionPolicy` | Global | `RetentionPolicy` | `set_retention_policy` (admin) | `read_retention_policy`, `get_retention_policy` |
+| `CreatorTtlLiveUntil(Address)` | Per-creator | `u32` | `register_creator` (initial write), `extend_creator_ttl` (updated after every trade) | `extend_creator_ttl` (TTL-extension event gate) |
+| `ProtocolFeeBps` | Global | `u32` (basis points, default 100 = 1%) | `set_protocol_fee` (admin) | `collect_protocol_trade_fee`, `compute_trade_fee`, `get_protocol_trade_fee` |
+| `HolderCapBps(Address)` | Per-creator | `u32` (basis points, 1%–25%) | `set_holder_cap` (creator) | `buy_key` (cap enforcement), `get_holder_cap` |
+| `LastBuyTimestamp(Address, Address)` | Per-creator-holder (composite) | `u64` (ledger timestamp) | `buy_key` (updated on every purchase) | `sell_key` (lockup enforcement) |
+| `LockupDurationSecs` | Global | `u64` (seconds, default 86400 = 24h) | `set_lockup_duration` (admin) | `sell_key` (lockup enforcement), `get_lockup_duration` |
 
 > **Note:** `CreatorVolume(Address)` is read by `get_creator_volume` but has no
 > writer in the current implementation, so it always resolves to its `0`
@@ -81,16 +87,10 @@ distinguishable from other key types.
 
 ## TTL extension behavior
 
-The contract does **not** use the `ttl::should_extend(current_ttl, threshold)`
-pure helper (`creator-keys/src/lib.rs`) to decide *whether* to bump TTL on the
-hot buy/sell path — that helper is an isolated, unit-testable decision
-function (see its tests in `lib.rs`) but is not currently wired into
-`extend_creator_ttl`.
-
-Instead, `extend_creator_ttl(env, creator)` runs **unconditionally** after
-every successful `register_creator`, `buy_key`/`buy_key_with_referrer`, and
-`sell_key` call, and extends the TTL of every creator-scoped key that is
-currently present in storage:
+`extend_creator_ttl(env, creator)` runs **unconditionally** after every
+successful `buy_key`/`buy_key_with_referrer`, `sell_key`, and `buyback` call,
+and extends the TTL of every creator-scoped key that is currently present in
+storage:
 
 - `Creator(creator)` — always extended (the key that must exist for the call to have succeeded)
 - `CreatorFeeBalance(creator)` — extended only if present
@@ -114,15 +114,32 @@ effectively always satisfied for any contract that has been live longer than
 successful buy/sell/register call re-bumps creator-scoped TTLs by the full
 `CREATOR_TTL_LEDGERS` window.
 
-A successful `extend_creator_ttl` call emits a TTL-extension event (see
-`events::ttl_extended_topics`) once per invocation, regardless of how many
-individual keys were extended underneath it.
+The Soroban SDK does not expose TTL reads to contract code, so the contract
+tracks the live-until ledger it last set for the creator profile key under
+`CreatorTtlLiveUntil(creator)` (initialised in `register_creator`, updated by
+every `extend_creator_ttl` call). The `ttl::should_extend(current_ttl,
+threshold)` pure helper is used on that tracked value to decide whether to
+emit the TTL-extension event:
 
-Entries **not** covered by `extend_creator_ttl` (global config keys such as
-`FeeConfig`, `KeyPrice`, `AdminAddress`, `TreasuryAddress`,
+- The `extend_ttl` SDK calls still run **unconditionally** on every trade
+  (the runtime no-ops when an entry's TTL is already healthy).
+- A `TTL_EXTENDED_EVENT_NAME` event (see `events::ttl_extended_topics`) is
+  emitted **only when the tracked remaining TTL was below
+  `TTL_EXTENSION_THRESHOLD`** before the call — a healthy TTL silently skips
+  the event.
+
+New entries get the network-default TTL, which can be much shorter than
+`CREATOR_TTL_LEDGERS` on fresh networks. To keep an entry's real TTL aligned
+with the value the contract tracks, the contract forces the full
+`CREATOR_TTL_LEDGERS` window at write time (via `extend_key_ttl_to_full_window`)
+for: the creator profile and curve preset at `register_creator`, `KeyPrice` at
+`set_key_price`, holder `KeyBalance(creator, holder)` on buy, the dividend
+checkpoint/pending pair on settlement, and `CreatorTtlLiveUntil` itself.
+
+Entries **not** covered by `extend_creator_ttl` or a write-time extension
+(global config keys such as `FeeConfig`, `AdminAddress`, `TreasuryAddress`,
 `ProtocolFeeRecipient`, `CurveSlope`, `ReferralFeeBps`, `DiscountTiers`, and
-per-holder keys like `KeyBalance(creator, holder)` and the dividend
-checkpoint/pending pair) do not receive automatic TTL bumps from trade
+any other per-holder keys) do not receive automatic TTL bumps from trade
 activity and should be covered by an operational maintenance job if long-term
 persistence is required — see
 [creator-state-storage-ttl.md](./creator-state-storage-ttl.md) for the

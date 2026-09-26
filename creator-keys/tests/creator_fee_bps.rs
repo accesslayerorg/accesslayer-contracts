@@ -11,6 +11,7 @@ fn test_get_creator_fee_bps_returns_configured_value() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
 
     client.register_creator(
@@ -38,6 +39,7 @@ fn test_get_creator_fee_bps_is_read_only() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
 
     client.register_creator(
@@ -68,6 +70,7 @@ fn test_get_creator_fee_bps_tracks_fee_config_updates() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
 
     client.register_creator(

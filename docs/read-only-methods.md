@@ -95,6 +95,43 @@ The following invariants are guaranteed for successful quote responses:
 
 ---
 
+## Aggregated key stats
+
+### `get_key_stats(key_id: Address) → Result<KeyStatsView, ContractError>`
+
+Returns a single-call snapshot of all key-level fields for a registered creator. Server sync and admin snapshot endpoints can use this instead of multiple individual reads to reduce RPC round trips.
+
+Bumps the TTL on every storage entry it reads so that a cold read keeps all state alive without a separate `refresh_ttl` call.
+
+| Field | Type | Semantics |
+|---|---|---|
+| `current_price` | `i128` | Next-purchase price in stroops: the fixed auction price when an auction is active (`supply < auction_supply`), otherwise the bonding-curve price at the current supply. `0` if no key price has been set. |
+| `circulating_supply` | `u32` | Keys currently in circulation (does not include locked/unclaimed allocations). |
+| `holder_count` | `u32` | Number of distinct wallets holding at least one key. |
+| `trading_paused` | `bool` | `true` if either the per-key pause or the global emergency pause is active. |
+| `supply_cap` | `u32` | Hard supply ceiling set by the creator. `0` means uncapped. |
+| `holder_cap_bps` | `u32` | Per-wallet holding cap in basis points (e.g. `1000` = 10% of supply). `0` means uncapped. |
+| `circuit_breaker_threshold_bps` | `u32` | Price-jump threshold that triggers the circuit breaker. Defaults to `30` when never explicitly configured. |
+| `lockup_duration_seconds` | `u64` | Sell lockup window in seconds; `0` means no lockup is configured. |
+| `launch_penalty_bps` | `u32` | Basis points applied as an early-sell penalty inside the launch window; `0` means no penalty. |
+| `buy_cooldown_ledgers` | `u32` | Per-wallet buy cooldown in ledgers; `0` means no cooldown. |
+| `max_buy_quantity` | `u32` | Per-transaction buy quantity cap; `0` means no limit. |
+| `has_auction` | `bool` | `true` when a pre-launch auction is currently configured. |
+| `auction_price` | `i128` | Fixed auction price per key in stroops. `0` when `has_auction` is `false`. |
+| `auction_supply` | `u32` | Total keys available at the fixed auction price. `0` when `has_auction` is `false`. |
+| `auction_sold` | `u32` | Keys already sold through the auction. `0` when `has_auction` is `false`. |
+
+**TTL behaviour:** Every storage entry read by this function has its TTL extended to at least `TTL_MIN_EXTENSION_LEDGERS` (~30 days). Optional entries that have never been written to storage are skipped (guarded with `.has()`) to avoid a `MissingValue` panic.
+
+**Edge cases:**
+- Returns `Err(ContractError::NotRegistered)` for any `key_id` that has never been registered — the 404-equivalent for callers.
+- All optional numeric fields (`supply_cap`, `holder_cap_bps`, `launch_penalty_bps`, `buy_cooldown_ledgers`, `max_buy_quantity`) return `0` when not configured.
+- `circuit_breaker_threshold_bps` returns the default value `30` when the threshold has never been explicitly set.
+- `current_price` is `0` when `KEY_PRICE` has not been written to storage (contract not fully initialised).
+- Never panics regardless of which optional per-key settings are absent.
+
+---
+
 ## Supply and balance methods
 
 ### `get_total_key_supply(creator: Address) → u32`
@@ -332,6 +369,64 @@ Returns the configured protocol admin address, or `None` if not yet set.
 ### `get_protocol_fee_recipient(env: Env) → Option<Address>`
 
 Returns the configured protocol fee recipient address, or `None` if not yet set.
+
+---
+
+### `get_reputation(env: Env, creator: Address) → ReputationView`
+
+Returns a creator's reputation score together with the per-reason counters that
+produced it (`keys_launched`, `milestones_reached`, `governance_participation`,
+`trade_activity`, `deprecations`) and a signed per-reason breakdown.
+
+The score saturates at zero: a penalty that would push it below zero floors at
+zero rather than reverting, so `new_score` is authoritative and the breakdown
+does not always re-sum to the score once flooring has occurred.
+
+---
+
+### `get_allowance(env: Env, owner: Address, spender: Address, key_id: Address) → u32`
+
+Returns the remaining transfer allowance `owner` granted to `spender` for
+`key_id`, or `0` when none exists. `transfer_from` decrements this in the same
+call that moves the keys, and removes the entry once it reaches zero.
+
+---
+
+### `get_sell_tax_bps(env: Env, creator: Address) → u32`
+
+Returns a creator's configured sell tax in basis points, or `0` when unset.
+Capped at `MAX_SELL_TAX_BPS` when set through `set_sell_tax_bps`.
+
+---
+
+### `get_buyback_pool_balance(env: Env) → (i128, Option<Address>)`
+
+Returns the accumulated buyback balance in the contract's internal ledger and
+the configured pool address. The address is `None` until an admin calls
+`set_buyback_pool_address`; until then collected tax is still accounted in the
+first element.
+
+---
+
+### `get_escalation_config(env: Env) → Option<EscalationConfig>`
+
+Returns the active poll quorum-escalation policy, or `None` when the protocol
+admin has never configured one. A config with `max_extensions == 0` reads back
+as `Some` but is treated as disabled.
+
+---
+
+### `get_escalation_status(env: Env, creator: Address, poll_id: u32) → EscalationView`
+
+Returns a proposal's deadline, extensions consumed and allowed, remaining
+ledgers, current participation in basis points of circulating supply, the
+creator's `quorum_bps`, whether an extension would currently qualify
+(`eligible`), and whether the budget is spent (`exhausted`).
+
+`eligible` requires a configured quorum the proposal has not already reached
+plus participation of at least `threshold_bps` of that requirement.
+`exhausted` is `false` when escalation is disabled, which distinguishes "no
+configured budget" from "a spent budget".
 
 ---
 
