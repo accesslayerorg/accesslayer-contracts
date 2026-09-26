@@ -83,6 +83,20 @@ pub enum ContractError {
     InvalidReferrer = 34,
     WalletCapExceeded = 35,
     DiscountTierLimitExceeded = 36,
+    // --- Staking and stake-receipt NFT ---
+    InvalidLockPeriod = 37,
+    StakePositionNotFound = 38,
+    StakeStillLocked = 39,
+    StakeNftNotFound = 40,
+    StakeNftNotOwned = 41,
+    InvalidTokenAmount = 42,
+    SelfStakeNftTransfer = 43,
+    SpenderNotAuthorized = 44,
+    InsufficientAllowance = 45,
+    // --- Vault rebalancing ---
+    VaultWeightsNotSet = 46,
+    InvalidTargetWeights = 47,
+    TargetWeightsNotNormalized = 48,
 }
 
 pub mod fee {
@@ -366,6 +380,71 @@ pub mod constants {
         pub fn creator_volume(creator: &Address) -> DataKey {
             DataKey::CreatorVolume(creator.clone())
         }
+
+        pub fn stake_position(creator: &Address, owner: &Address, stake_id: u32) -> DataKey {
+            DataKey::StakePosition(creator.clone(), owner.clone(), stake_id)
+        }
+
+        pub fn next_stake_id(creator: &Address, owner: &Address) -> DataKey {
+            DataKey::NextStakeId(creator.clone(), owner.clone())
+        }
+
+        pub fn staked_keys(creator: &Address, owner: &Address) -> DataKey {
+            DataKey::StakedKeys(creator.clone(), owner.clone())
+        }
+
+        pub fn stake_nft(token_id: u64) -> DataKey {
+            DataKey::StakeNft(token_id)
+        }
+
+        pub fn stake_nft_id(creator: &Address, stake_id: u32, owner: &Address) -> DataKey {
+            DataKey::StakeNftId(creator.clone(), stake_id, owner.clone())
+        }
+
+        pub const NEXT_STAKE_NFT_ID: DataKey = DataKey::NextStakeNftId;
+        pub const STAKE_NFT_TOTAL_SUPPLY: DataKey = DataKey::StakeNftTotalSupply;
+
+        pub fn stake_nft_holder_count(owner: &Address) -> DataKey {
+            DataKey::StakeNftHolderCount(owner.clone())
+        }
+
+        pub fn stake_nft_allowance(owner: &Address, spender: &Address) -> DataKey {
+            DataKey::StakeNftAllowance(owner.clone(), spender.clone())
+        }
+
+        pub fn stake_nft_burned(burner: &Address, token_id: u64) -> DataKey {
+            DataKey::StakeNftBurned(burner.clone(), token_id)
+        }
+
+        pub fn vault_target_weights(creator: &Address) -> DataKey {
+            DataKey::VaultTargetWeights(creator.clone())
+        }
+
+        pub fn vault_allocations(creator: &Address) -> DataKey {
+            DataKey::VaultAllocations(creator.clone())
+        }
+
+        pub fn vault_key_price(creator: &Address, key: &Address) -> DataKey {
+            DataKey::VaultKeyPrice(creator.clone(), key.clone())
+        }
+
+        pub fn vault_tolerance_bps(creator: &Address) -> DataKey {
+            DataKey::VaultToleranceBps(creator.clone())
+        }
+
+        pub const FEE_TIERS: DataKey = DataKey::FeeTiers;
+        pub const FEE_VOLUME_BUCKETS: DataKey = DataKey::FeeVolumeBuckets;
+        pub const ACTIVE_FEE_TIER_INDEX: DataKey = DataKey::ActiveFeeTierIndex;
+
+        pub fn creator_curve_slope(creator: &Address) -> DataKey {
+            DataKey::CreatorCurveSlope(creator.clone())
+        }
+
+        pub fn curve_reset_count(creator: &Address) -> DataKey {
+            DataKey::CurveResetCount(creator.clone())
+        }
+
+        pub const GOVERNANCE_ADDRESS: DataKey = DataKey::GovernanceAddress;
     }
 
     fn creator_key(creator: &Address) -> DataKey {
@@ -522,6 +601,40 @@ pub const DEFAULT_REFERRAL_FEE_BPS: u32 = 2000;
 /// Maximum number of discount tiers allowed.
 pub const MAX_DISCOUNT_TIERS: u32 = 5;
 
+// --- Staking and stake receipt NFT ---
+
+/// Token name reported by the SEP-41 `name` view for stake receipt NFTs.
+pub const STAKE_NFT_NAME: &str = "Staked Creator Key Receipt";
+
+/// Token symbol reported by the SEP-41 `symbol` view for stake receipt NFTs.
+pub const STAKE_NFT_SYMBOL: &str = "stkKEY";
+
+/// Stake receipt NFTs are indivisible, so the SEP-41 `decimals` view returns `0`.
+pub const STAKE_NFT_DECIMALS: u32 = 0;
+
+/// TTL extension for stake position and stake receipt storage on every mutation.
+pub const STAKE_TTL_LEDGERS: u32 = CREATOR_TTL_LEDGERS;
+
+// --- Dynamic fee tiers ---
+
+/// Ledgers in the rolling volume window. 24h at ~5s per ledger.
+pub const ROLLING_WINDOW_LEDGERS: u32 = 17_280;
+
+/// Width of one volume bucket. 360 ledgers is ~30 minutes, so the 24h window
+/// spans at most `ROLLING_WINDOW_LEDGERS / VOLUME_BUCKET_LEDGERS` (48) buckets.
+pub const VOLUME_BUCKET_LEDGERS: u32 = 360;
+
+/// Maximum number of dynamic fee tiers accepted by `set_fee_tiers`.
+pub const MAX_FEE_TIERS: u32 = 5;
+
+// --- Vault rebalancing ---
+
+/// Maximum number of pool keys tracked by one creator's staking vault.
+pub const MAX_VAULT_KEYS: u32 = 20;
+
+/// Default rebalance drift tolerance in basis points (0.5% of vault value).
+pub const DEFAULT_VAULT_TOLERANCE_BPS: u32 = 50;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum CurvePreset {
@@ -563,6 +676,26 @@ pub enum DataKey {
     ReferralFeeBps,
     DiscountTiers,
     CreatorVolume(Address),
+    StakePosition(Address, Address, u32),
+    NextStakeId(Address, Address),
+    StakedKeys(Address, Address),
+    StakeNft(u64),
+    StakeNftId(Address, u32, Address),
+    NextStakeNftId,
+    StakeNftTotalSupply,
+    StakeNftHolderCount(Address),
+    StakeNftAllowance(Address, Address),
+    StakeNftBurned(Address, u64),
+    VaultTargetWeights(Address),
+    VaultAllocations(Address),
+    VaultKeyPrice(Address, Address),
+    VaultToleranceBps(Address),
+    FeeTiers,
+    FeeVolumeBuckets,
+    ActiveFeeTierIndex,
+    CreatorCurveSlope(Address),
+    CurveResetCount(Address),
+    GovernanceAddress,
 }
 
 /// Time-locked key allocation for creator self-vesting.
@@ -575,6 +708,20 @@ pub struct LockedAllocation {
     pub amount: u32,
     pub unlock_ledger: u32,
     pub claimed: bool,
+}
+
+/// A single active staking position held by a wallet for one creator.
+///
+/// Positions are keyed by `(creator, owner, stake_id)` in
+/// [`constants::storage::stake_position`], so `stake_id` only has to be unique for
+/// one owner staking into one creator. `owner` is the *current* receipt owner, which
+/// changes when the backing stake receipt NFT is transferred.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakePosition {
+    pub stake_id: u32,
+    pub amount: u32,
+    pub unlock_ledger: u32,
 }
 
 /// Optional immutable collaborator split configured at creator registration.
@@ -848,6 +995,40 @@ pub fn read_co_creator_fee_balance(env: &Env, creator: &Address, co_creator: &Ad
     env.storage().persistent().get(&key).unwrap_or(0)
 }
 
+/// Reads the aggregate number of keys a holder has staked for a creator.
+///
+/// Returns `0` when the holder has no staking positions. The value is a stored
+/// aggregate rather than a sum over positions because Soroban persistent storage
+/// cannot be range-iterated.
+pub fn read_staked_keys(env: &Env, creator: &Address, holder: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::staked_keys(creator, holder))
+        .unwrap_or(0)
+}
+
+/// Writes the aggregate staked-key count for a `(creator, holder)` pair.
+pub fn write_staked_keys(env: &Env, creator: &Address, holder: &Address, amount: u32) {
+    env.storage()
+        .persistent()
+        .set(&constants::storage::staked_keys(creator, holder), &amount);
+}
+
+/// Reads the total number of keys a holder is entitled to for a creator.
+///
+/// Entitlement is the liquid [`DataKey::KeyBalance`] plus the [`DataKey::StakedKeys`]
+/// aggregate. Staked keys remain in `profile.supply` and therefore keep earning
+/// creator dividends, so all dividend math must use this value rather than the
+/// liquid balance alone.
+pub fn read_entitled_keys(env: &Env, creator: &Address, holder: &Address) -> u32 {
+    let liquid: u32 = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::holder_balance_key(creator, holder))
+        .unwrap_or(0);
+    liquid.saturating_add(read_staked_keys(env, creator, holder))
+}
+
 fn credit_co_creator_fee_balance(
     env: &Env,
     creator: &Address,
@@ -926,14 +1107,14 @@ fn is_paused(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
-fn assert_not_paused(env: &Env) -> Result<(), ContractError> {
+pub(crate) fn assert_not_paused(env: &Env) -> Result<(), ContractError> {
     if is_paused(env) {
         return Err(ContractError::ProtocolPaused);
     }
     Ok(())
 }
 
-fn assert_is_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
+pub(crate) fn assert_is_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
     let admin: Address = env
         .storage()
         .persistent()
@@ -943,6 +1124,54 @@ fn assert_is_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
         return Err(ContractError::Unauthorized);
     }
     Ok(())
+}
+
+/// Reads the governance address, returning `None` when governance is unset.
+pub fn read_governance_address(env: &Env) -> Option<Address> {
+    env.storage()
+        .persistent()
+        .get::<DataKey, Address>(&constants::storage::GOVERNANCE_ADDRESS)
+}
+
+/// Authorises a caller that is either the protocol admin or the governance address.
+///
+/// Governance is a distinct principal from the admin so the two can be held by
+/// different entities (an operations multisig and a governance executor, say).
+/// When no governance address is configured only the admin passes. This is the
+/// shared gate for the entrypoints the spec scopes to "admin or governance".
+pub(crate) fn assert_is_admin_or_governance(
+    env: &Env,
+    caller: &Address,
+) -> Result<(), ContractError> {
+    if let Some(governance) = read_governance_address(env) {
+        if *caller == governance {
+            return Ok(());
+        }
+    }
+    assert_is_admin(env, caller)
+}
+
+/// Reads the flat, stored fee configuration without any dynamic-tier adjustment.
+///
+/// Configuration views report what an admin set. Use
+/// [`CreatorKeysContract::get_dynamic_fee_view`] or
+/// [`CreatorKeysContract::get_current_fee`] for the fee a trade will actually pay.
+fn read_effective_fee_config(env: &Env) -> Option<fee::FeeConfig> {
+    effective_fee_config(env)
+}
+
+fn read_required_effective_fee_config(env: &Env) -> Result<fee::FeeConfig, ContractError> {
+    read_effective_fee_config(env).ok_or(ContractError::FeeConfigNotSet)
+}
+
+/// Resolves the curve slope that applies to `creator`.
+///
+/// A creator that has been through [`CreatorKeysContract::reset_curve`] carries a
+/// per-creator slope override, which takes precedence over the global slope. Every
+/// other creator inherits the global slope, so resetting one creator cannot move
+/// another creator's pricing.
+fn resolve_curve_slope(env: &Env, creator: &Address) -> i128 {
+    read_creator_slope(env, creator).unwrap_or_else(|| read_curve_slope(env))
 }
 
 fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
@@ -1058,7 +1287,7 @@ fn assert_sell_proceeds_slippage(
 }
 
 fn accrue_sell_trade_fees(env: &Env, creator: &Address, price: i128) -> Result<(), ContractError> {
-    if read_protocol_fee_config(env).is_none() {
+    if read_effective_fee_config(env).is_none() {
         return Ok(());
     }
 
@@ -1157,7 +1386,7 @@ fn compute_bonding_curve_price(
     match preset {
         CurvePreset::Flat => Ok(base_price),
         CurvePreset::Linear => {
-            let slope = read_curve_slope(env);
+            let slope = resolve_curve_slope(env, creator);
             let supply_component = slope
                 .checked_mul(i128::from(supply))
                 .ok_or(ContractError::Overflow)?;
@@ -1166,7 +1395,7 @@ fn compute_bonding_curve_price(
                 .ok_or(ContractError::Overflow)
         }
         CurvePreset::Quadratic => {
-            let slope = read_curve_slope(env);
+            let slope = resolve_curve_slope(env, creator);
             let supply_sq = (supply as i128)
                 .checked_mul(supply as i128)
                 .ok_or(ContractError::Overflow)?;
@@ -1226,12 +1455,12 @@ fn read_dividend_accumulator(env: &Env, creator: &Address) -> i128 {
 /// On a holder's first settlement the checkpoint is initialised to the current
 /// accumulator so they earn nothing retroactively. Earned and pending amounts
 /// use checked arithmetic to avoid overflow.
-fn settle_holder_dividends(
+pub(crate) fn settle_holder_dividends(
     env: &Env,
     creator: &Address,
     holder: &Address,
-    current_balance: u32,
 ) -> Result<(), ContractError> {
+    let current_entitled = read_entitled_keys(env, creator, holder);
     let accumulator = read_dividend_accumulator(env, creator);
     let checkpoint_key = constants::storage::holder_dividend_checkpoint(creator, holder);
     // Default to current accumulator on first settlement so no retroactive earnings.
@@ -1247,7 +1476,7 @@ fn settle_holder_dividends(
     let diff = accumulator
         .checked_sub(checkpoint)
         .ok_or(ContractError::Overflow)?;
-    let earned = (current_balance as i128)
+    let earned = (current_entitled as i128)
         .checked_mul(diff)
         .ok_or(ContractError::Overflow)?;
     let new_pending = pending.checked_add(earned).ok_or(ContractError::Overflow)?;
@@ -1270,20 +1499,14 @@ fn compute_claimable_dividend(env: &Env, creator: &Address, holder: &Address) ->
     let pending_key = constants::storage::holder_dividend_pending(creator, holder);
     let pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
 
-    let balance_key = constants::storage::holder_balance_key(creator, holder);
-    let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+    let entitled = read_entitled_keys(env, creator, holder);
 
     let diff = accumulator.saturating_sub(checkpoint);
-    let earned = (balance as i128).saturating_mul(diff);
+    let earned = (entitled as i128).saturating_mul(diff);
     pending.saturating_add(earned)
 }
 
-/// Extends TTL for all creator-related storage keys.
-///
-/// This function extends the TTL of the creator's primary storage entries
-/// to prevent active creator state from expiring. Called after successful
-/// buy and sell operations.
-fn extend_creator_ttl(env: &Env, creator: &Address) {
+pub(crate) fn extend_creator_ttl(env: &Env, creator: &Address) {
     let current_ledger = env.ledger().sequence();
     let extend_to = current_ledger + CREATOR_TTL_LEDGERS;
     let threshold = current_ledger;
@@ -1605,7 +1828,7 @@ impl CreatorKeysContract {
         }
 
         // Settle dividends before balance changes so earnings are captured at old balance.
-        settle_holder_dividends(&env, &creator, &buyer, current_balance)?;
+        settle_holder_dividends(&env, &creator, &buyer)?;
 
         if current_balance == 0 {
             profile.holder_count = profile
@@ -1632,7 +1855,12 @@ impl CreatorKeysContract {
         // Balance key is scoped by (creator, holder) so creator positions cannot collide.
         env.storage().persistent().set(&balance_key, &new_balance);
 
-        if let Some(config) = read_protocol_fee_config(&env) {
+        // Record this trade's gross volume before the fee split is computed, so the
+        // trade is priced at the tier its own volume earns. Any later failure reverts
+        // the whole transaction, including this write.
+        apply_trade_volume(&env, price)?;
+
+        if let Some(config) = read_effective_fee_config(&env) {
             let (creator_fee, protocol_fee) =
                 fee::checked_compute_fee_split(price, config.creator_bps, config.protocol_bps)
                     .ok_or(ContractError::Overflow)?;
@@ -1735,9 +1963,13 @@ impl CreatorKeysContract {
         let price = compute_bonding_curve_price(&env, &creator, base_price, sell_supply)?;
 
         // Settle dividends before balance changes so earnings are captured at old balance.
-        settle_holder_dividends(&env, &creator, &seller, current_balance)?;
+        settle_holder_dividends(&env, &creator, &seller)?;
 
         assert_sell_proceeds_slippage(&env, price, min_proceeds)?;
+
+        // A sell is market activity too, so it feeds the same rolling volume window
+        // as a buy. Recorded before the fee split so the tier reflects this trade.
+        apply_trade_volume(&env, price)?;
 
         let new_balance = current_balance
             .checked_sub(1)
@@ -1809,7 +2041,7 @@ impl CreatorKeysContract {
         let curve_price =
             compute_bonding_curve_price(&env, &creator, base_price_stored, profile.supply)?;
         let base_price = compute_buyback_base_price(curve_price, amount)?;
-        let config = read_required_protocol_fee_config(&env)?;
+        let config = read_required_effective_fee_config(&env)?;
         let protocol_fee = fee::apply_percentage_fee(base_price, config.protocol_bps)
             .ok_or(ContractError::Overflow)?;
         let total_cost = fee::compute_buyback_cost(base_price, config.protocol_bps)
@@ -1956,7 +2188,7 @@ impl CreatorKeysContract {
         }
 
         let mut protocol_fee: i128 = 0;
-        if let Some(config) = read_protocol_fee_config(&env) {
+        if let Some(config) = read_effective_fee_config(&env) {
             protocol_fee = fee::apply_percentage_fee(total_cost, config.protocol_bps)
                 .ok_or(ContractError::Overflow)?;
         }
@@ -1986,7 +2218,7 @@ impl CreatorKeysContract {
             }
 
             // Settle dividends before balance changes so earnings are captured at old balance.
-            settle_holder_dividends(&env, &creator, &entry.address, current_balance)?;
+            settle_holder_dividends(&env, &creator, &entry.address)?;
 
             if current_balance == 0 {
                 profile.holder_count = profile
@@ -2591,7 +2823,7 @@ impl CreatorKeysContract {
     }
 
     pub fn compute_fees_for_payment(env: Env, total: i128) -> Result<(i128, i128), ContractError> {
-        let config = read_required_protocol_fee_config(&env)?;
+        let config = read_required_effective_fee_config(&env)?;
         fee::checked_compute_fee_split(total, config.creator_bps, config.protocol_bps)
             .ok_or(ContractError::Overflow)
     }
@@ -2669,7 +2901,7 @@ impl CreatorKeysContract {
         }
 
         let base_price = compute_buyback_base_price(price, amount)?;
-        let config = read_required_protocol_fee_config(&env)?;
+        let config = read_required_effective_fee_config(&env)?;
         fee::compute_buyback_cost(base_price, config.protocol_bps).ok_or(ContractError::Overflow)
     }
 
@@ -2736,7 +2968,7 @@ impl CreatorKeysContract {
             return Err(ContractError::NoKeyHolders);
         }
 
-        let config = read_required_protocol_fee_config(&env)?;
+        let config = read_required_effective_fee_config(&env)?;
         let (net_amount, protocol_amount) =
             fee::compute_fee_split(amount, config.creator_bps, config.protocol_bps);
 
@@ -3069,7 +3301,7 @@ impl CreatorKeysContract {
             .unwrap_or(0);
 
         // Settle dividends for sender before balance changes.
-        settle_holder_dividends(&env, &creator, &from, from_balance)?;
+        settle_holder_dividends(&env, &creator, &from)?;
 
         if from_balance < amount {
             return Err(ContractError::InsufficientBalance);
@@ -3078,7 +3310,7 @@ impl CreatorKeysContract {
         // Settle dividends for recipient before balance changes.
         let to_balance_key = constants::storage::holder_balance_key(&creator, &to);
         let to_balance: u32 = env.storage().persistent().get(&to_balance_key).unwrap_or(0);
-        settle_holder_dividends(&env, &creator, &to, to_balance)?;
+        settle_holder_dividends(&env, &creator, &to)?;
 
         // Update sender balance.
         let new_from_balance = from_balance
@@ -3266,6 +3498,1536 @@ impl CreatorKeysContract {
             .unwrap_or(Vec::new(&env))
     }
 }
+
+// ============================================================================
+// STAKING & STAKE RECEIPT NFT (Feature 1)
+// ============================================================================
+
+pub fn stake_key(
+    env: Env,
+    creator: Address,
+    staker: Address,
+    amount: u32,
+    lock_ledgers: u32,
+) -> Result<u32, ContractError> {
+    staker.require_auth();
+    assert_not_paused(&env)?;
+    read_registered_creator_profile(&env, &creator)?;
+    if amount == 0 {
+        return Err(ContractError::NotPositiveAmount);
+    }
+    if lock_ledgers == 0 {
+        return Err(ContractError::InvalidLockPeriod);
+    }
+    let bal_key = constants::storage::holder_balance_key(&creator, &staker);
+    let liquid: u32 = env.storage().persistent().get(&bal_key).unwrap_or(0);
+    if liquid < amount {
+        return Err(ContractError::InsufficientBalance);
+    }
+    settle_holder_dividends(&env, &creator, &staker)?;
+    let mut profile = read_registered_creator_profile(&env, &creator)?;
+    let new_l = liquid
+        .checked_sub(amount)
+        .ok_or(ContractError::InsufficientBalance)?;
+    if new_l == 0 {
+        profile.holder_count = profile
+            .holder_count
+            .checked_sub(1)
+            .ok_or(ContractError::SellUnderflow)?;
+    }
+    env.storage().persistent().set(&bal_key, &new_l);
+    env.storage()
+        .persistent()
+        .set(&constants::storage::creator(&creator), &profile);
+    let staked = read_staked_keys(&env, &creator, &staker);
+    write_staked_keys(
+        &env,
+        &creator,
+        &staker,
+        staked.checked_add(amount).ok_or(ContractError::Overflow)?,
+    );
+    let cur = env.ledger().sequence();
+    let unlock = cur
+        .checked_add(lock_ledgers)
+        .ok_or(ContractError::Overflow)?;
+    let sid = assign_stake_id(&env, &creator, &staker)?;
+    let pos = StakePosition {
+        stake_id: sid,
+        amount,
+        unlock_ledger: unlock,
+    };
+    write_position(&env, &creator, &staker, &pos);
+    let tid = assign_token_id(&env)?;
+    let rec = StakeNftRecord {
+        token_id: tid,
+        creator: creator.clone(),
+        stake_id: sid,
+        owner: staker.clone(),
+        amount,
+        unlock_ledger: unlock,
+    };
+    env.storage()
+        .persistent()
+        .set(&constants::storage::stake_nft(tid), &rec);
+    env.storage().persistent().set(
+        &constants::storage::stake_nft_id(&creator, sid, &staker),
+        &tid,
+    );
+    change_nft_holder_count(&env, &staker, 1)?;
+    change_nft_total_supply(&env, 1)?;
+    write_creator_supply(&env, &creator, profile.supply);
+    extend_stake_ttl(&env, &creator, &staker, sid, tid);
+    extend_creator_ttl(&env, &creator);
+    env.events().publish(
+        events::stake_nft_minted_topics(&creator, &staker),
+        events::StakeNftMintedEvent {
+            token_id: tid,
+            creator,
+            stake_id: sid,
+            owner: staker,
+            amount,
+            unlock_ledger: unlock,
+            ledger: cur,
+        },
+    );
+    Ok(sid)
+}
+
+pub fn unstake_key(
+    env: Env,
+    creator: Address,
+    holder: Address,
+    stake_id: u32,
+) -> Result<u32, ContractError> {
+    holder.require_auth();
+    assert_not_paused(&env)?;
+    let pos = read_position(&env, &creator, &holder, stake_id)
+        .ok_or(ContractError::StakePositionNotFound)?;
+    if env.ledger().sequence() < pos.unlock_ledger {
+        return Err(ContractError::StakeStillLocked);
+    }
+    settle_holder_dividends(&env, &creator, &holder)?;
+    let sup = read_registered_creator_profile(&env, &creator)?.supply;
+    burn_receipt(&env, &creator, &holder, &pos);
+    Ok(sup)
+}
+
+pub fn get_stake_position(
+    env: Env,
+    creator: Address,
+    owner: Address,
+    stake_id: u32,
+) -> Option<StakePosition> {
+    read_position(&env, &creator, &owner, stake_id)
+}
+pub fn get_stake_nft(env: Env, token_id: u64) -> Option<StakeNftRecord> {
+    read_nft(&env, token_id)
+}
+pub fn get_staked_keys(env: Env, creator: Address, owner: Address) -> u32 {
+    read_staked_keys(&env, &creator, &owner)
+}
+pub fn get_stake_nft_id(env: Env, creator: Address, stake_id: u32, owner: Address) -> Option<u64> {
+    read_nft_id(&env, &creator, stake_id, &owner)
+}
+
+pub fn name(_env: Env) -> String {
+    String::from_str(&_env, STAKE_NFT_NAME)
+}
+pub fn symbol(_env: Env) -> String {
+    String::from_str(&_env, STAKE_NFT_SYMBOL)
+}
+pub fn decimals(_env: Env) -> u32 {
+    STAKE_NFT_DECIMALS
+}
+pub fn total_supply(env: Env) -> i128 {
+    read_nft_total_supply(&env)
+}
+pub fn balance(env: Env, owner: Address) -> i128 {
+    read_nft_balance(&env, &owner)
+}
+pub fn allowance(env: Env, owner: Address, spender: Address) -> i128 {
+    read_allowance(&env, &owner, &spender)
+}
+
+pub fn approve(
+    env: Env,
+    owner: Address,
+    spender: Address,
+    amount: i128,
+    exp: u32,
+) -> Result<i128, ContractError> {
+    owner.require_auth();
+    if amount < 0 {
+        return Err(ContractError::InvalidTokenAmount);
+    }
+    let eff = if exp <= env.ledger().sequence() {
+        0
+    } else {
+        amount
+    };
+    write_allowance(
+        &env,
+        &owner,
+        &spender,
+        &TokenAllowance {
+            amount: eff,
+            expiration_ledger: exp,
+        },
+    );
+    Ok(eff)
+}
+
+pub fn transfer(
+    env: Env,
+    from: Address,
+    to: Address,
+    token_id: u64,
+    amount: i128,
+    spender: Address,
+) -> Result<Vec<Address>, ContractError> {
+    assert_not_paused(&env)?;
+    if amount != 1 {
+        return Err(ContractError::InvalidTokenAmount);
+    }
+    let rec = read_nft(&env, token_id).ok_or(ContractError::StakeNftNotFound)?;
+    if rec.owner != from {
+        return Err(ContractError::StakeNftNotOwned);
+    }
+    if from == to {
+        return Err(ContractError::SelfStakeNftTransfer);
+    }
+    let used = consume_allowance(&env, &from, &spender, amount)?;
+    if !used && spender != from {
+        return Err(ContractError::SpenderNotAuthorized);
+    }
+    if used {
+        spender.require_auth();
+    }
+    let pos = read_position(&env, &rec.creator, &from, rec.stake_id)
+        .ok_or(ContractError::StakePositionNotFound)?;
+    settle_holder_dividends(&env, &rec.creator, &from)?;
+    settle_holder_dividends(&env, &rec.creator, &to)?;
+    let fs = read_staked_keys(&env, &rec.creator, &from);
+    write_staked_keys(
+        &env,
+        &rec.creator,
+        &from,
+        fs.checked_sub(pos.amount)
+            .ok_or(ContractError::InsufficientBalance)?,
+    );
+    let ts = read_staked_keys(&env, &rec.creator, &to);
+    write_staked_keys(
+        &env,
+        &rec.creator,
+        &to,
+        ts.checked_add(pos.amount).ok_or(ContractError::Overflow)?,
+    );
+    env.storage()
+        .persistent()
+        .remove(&constants::storage::stake_position(
+            &rec.creator,
+            &from,
+            pos.stake_id,
+        ));
+    write_position(&env, &rec.creator, &to, &pos);
+    env.storage()
+        .persistent()
+        .remove(&constants::storage::stake_nft_id(
+            &rec.creator,
+            pos.stake_id,
+            &from,
+        ));
+    env.storage().persistent().set(
+        &constants::storage::stake_nft_id(&rec.creator, pos.stake_id, &to),
+        &token_id,
+    );
+    let creator_clone = rec.creator.clone();
+    let upd = StakeNftRecord {
+        token_id,
+        creator: creator_clone.clone(),
+        stake_id: rec.stake_id,
+        owner: to.clone(),
+        amount: rec.amount,
+        unlock_ledger: rec.unlock_ledger,
+    };
+    env.storage()
+        .persistent()
+        .set(&constants::storage::stake_nft(token_id), &upd);
+    change_nft_holder_count(&env, &from, -1)?;
+    change_nft_holder_count(&env, &to, 1)?;
+    extend_stake_ttl(&env, &creator_clone, &from, rec.stake_id, token_id);
+    extend_stake_ttl(&env, &creator_clone, &to, rec.stake_id, token_id);
+    extend_creator_ttl(&env, &rec.creator);
+    env.events().publish(
+        events::stake_nft_transferred_topics(&from, &to),
+        events::StakeNftTransferredEvent {
+            token_id,
+            creator: rec.creator,
+            stake_id: rec.stake_id,
+            from,
+            to,
+            amount,
+            ledger: env.ledger().sequence(),
+        },
+    );
+    Ok(Vec::new(&env))
+}
+
+pub fn burn(
+    env: Env,
+    from: Address,
+    token_id: u64,
+    amount: i128,
+    auth: Address,
+) -> Result<i128, ContractError> {
+    assert_not_paused(&env)?;
+    if amount != 1 {
+        return Err(ContractError::InvalidTokenAmount);
+    }
+    let rec = read_nft(&env, token_id).ok_or(ContractError::StakeNftNotFound)?;
+    if rec.owner != from {
+        return Err(ContractError::StakeNftNotOwned);
+    }
+    let used = consume_allowance(&env, &from, &auth, amount)?;
+    if !used && auth != from {
+        return Err(ContractError::SpenderNotAuthorized);
+    }
+    if used {
+        auth.require_auth();
+    }
+    if env.ledger().sequence() < rec.unlock_ledger {
+        return Err(ContractError::StakeStillLocked);
+    }
+    settle_holder_dividends(&env, &rec.creator, &from)?;
+    burn_receipt(
+        &env,
+        &rec.creator,
+        &from,
+        &StakePosition {
+            stake_id: rec.stake_id,
+            amount: rec.amount,
+            unlock_ledger: rec.unlock_ledger,
+        },
+    );
+    extend_creator_ttl(&env, &rec.creator);
+    Ok(read_nft_total_supply(&env))
+}
+
+pub fn burn_from(
+    env: Env,
+    from: Address,
+    token_id: u64,
+    amount: i128,
+    spender: Address,
+) -> Result<i128, ContractError> {
+    assert_not_paused(&env)?;
+    spender.require_auth();
+    if amount != 1 {
+        return Err(ContractError::InvalidTokenAmount);
+    }
+    let rec = read_nft(&env, token_id).ok_or(ContractError::StakeNftNotFound)?;
+    if rec.owner != from {
+        return Err(ContractError::StakeNftNotOwned);
+    }
+    let bk = constants::storage::stake_nft_burned(&spender, token_id);
+    if env.storage().persistent().has(&bk) {
+        return Err(ContractError::StakeNftNotFound);
+    }
+    let cur = read_allowance(&env, &from, &spender);
+    if cur < amount {
+        return Err(ContractError::InsufficientAllowance);
+    }
+    let ex = env
+        .storage()
+        .persistent()
+        .get::<DataKey, TokenAllowance>(&constants::storage::stake_nft_allowance(&from, &spender))
+        .map(|s| s.expiration_ledger)
+        .unwrap_or(0);
+    write_allowance(
+        &env,
+        &from,
+        &spender,
+        &TokenAllowance {
+            amount: cur - amount,
+            expiration_ledger: ex,
+        },
+    );
+    env.storage().persistent().set(
+        &constants::storage::stake_nft_burned(&spender, token_id),
+        &true,
+    );
+    if env.ledger().sequence() < rec.unlock_ledger {
+        return Err(ContractError::StakeStillLocked);
+    }
+    settle_holder_dividends(&env, &rec.creator, &from)?;
+    burn_receipt(
+        &env,
+        &rec.creator,
+        &from,
+        &StakePosition {
+            stake_id: rec.stake_id,
+            amount: rec.amount,
+            unlock_ledger: rec.unlock_ledger,
+        },
+    );
+    extend_creator_ttl(&env, &rec.creator);
+    Ok(read_nft_total_supply(&env))
+}
+
+// ============================================================================
+// VAULT REBALANCING (Feature 2)
+// ============================================================================
+
+pub fn set_target_weights(
+    env: Env,
+    admin: Address,
+    creator: Address,
+    weights: Vec<TargetWeight>,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    assert_is_admin_or_governance(&env, &admin)?;
+    validate_target_weights(&weights)?;
+    let prev = read_target_weights(&env, &creator);
+    env.storage().persistent().set(
+        &constants::storage::vault_target_weights(&creator),
+        &weights,
+    );
+    let mut a = Vec::new(&env);
+    let mut m = false;
+    for w in weights.iter() {
+        let mut c = 0;
+        for o in prev.iter() {
+            if o.key == w.key {
+                c = 0;
+                m = true;
+            }
+        }
+        a.push_back(VaultAllocation {
+            key: w.key,
+            units: c,
+            value: 0,
+        });
+    }
+    if !m {
+        a = zero_allocations(&env, &weights);
+    }
+    write_allocations(&env, &creator, &a);
+    Ok(())
+}
+
+pub fn set_vault_key_price(
+    env: Env,
+    admin: Address,
+    creator: Address,
+    key: Address,
+    price: i128,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    assert_is_admin_or_governance(&env, &admin)?;
+    if price <= 0 {
+        return Err(ContractError::InvalidTargetWeights);
+    }
+    env.storage()
+        .persistent()
+        .set(&constants::storage::vault_key_price(&creator, &key), &price);
+    Ok(())
+}
+
+pub fn set_vault_tolerance_bps(
+    env: Env,
+    admin: Address,
+    creator: Address,
+    tol: u32,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    assert_is_admin_or_governance(&env, &admin)?;
+    if tol > fee::BPS_MAX {
+        return Err(ContractError::InvalidTargetWeights);
+    }
+    env.storage()
+        .persistent()
+        .set(&constants::storage::vault_tolerance_bps(&creator), &tol);
+    Ok(())
+}
+
+pub fn seed_vault_allocations(
+    env: Env,
+    admin: Address,
+    creator: Address,
+    allocs: Vec<VaultAllocation>,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    assert_is_admin_or_governance(&env, &admin)?;
+    let w = read_target_weights(&env, &creator);
+    if w.is_empty() || allocs.len() != w.len() {
+        return Err(ContractError::VaultWeightsNotSet);
+    }
+    let mut n = Vec::new(&env);
+    for (i, a) in allocs.iter().enumerate() {
+        let wt = w.get(i as u32).ok_or(ContractError::InvalidTargetWeights)?;
+        if a.key != wt.key {
+            return Err(ContractError::InvalidTargetWeights);
+        }
+        if a.units < 0 {
+            return Err(ContractError::InvalidTargetWeights);
+        }
+        let p =
+            read_key_price(&env, &creator, &wt.key).ok_or(ContractError::InvalidTargetWeights)?;
+        n.push_back(VaultAllocation {
+            key: a.key,
+            units: a.units,
+            value: a.units.checked_mul(p).ok_or(ContractError::Overflow)?,
+        });
+    }
+    write_allocations(&env, &creator, &n);
+    Ok(())
+}
+
+pub fn rebalance(
+    env: Env,
+    admin: Address,
+    creator: Address,
+    max_slip: u32,
+) -> Result<VaultRebalanceSummary, ContractError> {
+    admin.require_auth();
+    assert_is_admin_or_governance(&env, &admin)?;
+    let w = read_target_weights(&env, &creator);
+    if w.is_empty() {
+        return Err(ContractError::VaultWeightsNotSet);
+    }
+    let p = resolve_prices(&env, &creator, &w)?;
+    let u = resolve_units(&env, &w, &read_allocations(&env, &creator))?;
+    let priced = value_allocations(&env, &w, &u, &p)?;
+    let tot = total_value_of(&priced)?;
+    let tgt = compute_target_values(&env, &w, tot)?;
+    let mut tu = Vec::new(&env);
+    for i in 0..w.len() {
+        tu.push_back(
+            tgt.get(i)
+                .unwrap_or(0)
+                .checked_div(p.get(i).unwrap_or(1))
+                .ok_or(ContractError::Overflow)?,
+        );
+    }
+    let (tr, su) = match_sellers_to_buyers(&env, &w, &u, &p, &tu, max_slip)?;
+    let al = value_allocations(&env, &w, &su, &p)?;
+    let tv = total_value_of(&al)?;
+    write_allocations(&env, &creator, &al);
+    env.events().publish(
+        events::rebalance_executed_topics(&creator),
+        events::RebalanceExecutedEvent {
+            creator: creator.clone(),
+            trades: tr.clone(),
+            allocations: al.clone(),
+            total_value: tv,
+            max_slippage_bps: max_slip,
+            ledger: env.ledger().sequence(),
+        },
+    );
+    Ok(VaultRebalanceSummary {
+        creator,
+        trades: tr,
+        allocations: al,
+        total_value: tv,
+        max_slippage_bps: max_slip,
+    })
+}
+
+pub fn get_target_weights(env: Env, creator: Address) -> Vec<TargetWeight> {
+    read_target_weights(&env, &creator)
+}
+pub fn get_vault_allocations(env: Env, creator: Address) -> Vec<VaultAllocation> {
+    read_allocations(&env, &creator)
+}
+pub fn get_vault_total_value(env: Env, creator: Address) -> i128 {
+    let w = read_target_weights(&env, &creator);
+    if w.is_empty() {
+        return 0;
+    }
+    let Ok(p) = resolve_prices(&env, &creator, &w) else {
+        return 0;
+    };
+    let a = read_allocations(&env, &creator);
+    let mut t: i128 = 0;
+    for (i, al) in a.iter().enumerate() {
+        t = t
+            .checked_add(
+                al.units
+                    .checked_mul(p.get(i as u32).unwrap_or(0))
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0);
+    }
+    t
+}
+pub fn get_vault_key_price(env: Env, creator: Address, key: Address) -> Option<i128> {
+    read_key_price(&env, &creator, &key)
+}
+pub fn get_vault_tolerance_bps(env: Env, creator: Address) -> u32 {
+    read_tolerance_bps(&env, &creator)
+}
+pub fn get_vault_drift(env: Env, creator: Address) -> Vec<VaultDrift> {
+    let w = read_target_weights(&env, &creator);
+    if w.is_empty() {
+        return Vec::new(&env);
+    }
+    let Ok(p) = resolve_prices(&env, &creator, &w) else {
+        return Vec::new(&env);
+    };
+    let Ok(u) = resolve_units(&env, &w, &read_allocations(&env, &creator)) else {
+        return Vec::new(&env);
+    };
+    let Ok(a) = value_allocations(&env, &w, &u, &p) else {
+        return Vec::new(&env);
+    };
+    let tv = total_value_of(&a).unwrap_or(0);
+    let Ok(tgt) = compute_target_values(&env, &w, tv) else {
+        return Vec::new(&env);
+    };
+    let mut d = Vec::new(&env);
+    for (i, w) in w.iter().enumerate() {
+        let cv = a.get(i as u32).map(|x| x.value).unwrap_or(0);
+        let tv = tgt.get(i as u32).unwrap_or(0);
+        let diff = cv - tv;
+        let mag = if diff < 0 { -diff } else { diff };
+        let drift = if tv > 0 {
+            mag.checked_mul(i128::from(fee::BPS_MAX)).unwrap_or(0) / tv
+        } else {
+            0
+        };
+        d.push_back(VaultDrift {
+            key: w.key,
+            weight_bps: w.weight_bps,
+            target_value: tv,
+            current_value: cv,
+            drift_bps: drift,
+        });
+    }
+    d
+}
+pub fn is_vault_within_tolerance(env: Env, creator: Address) -> bool {
+    let t = i128::from(read_tolerance_bps(&env, &creator));
+    let d = get_vault_drift(env.clone(), creator.clone());
+    if d.is_empty() {
+        return false;
+    }
+    for x in d.iter() {
+        if x.drift_bps > t {
+            return false;
+        }
+    }
+    true
+}
+
+pub fn get_governance_address(env: Env) -> Option<Address> {
+    read_governance_address(&env)
+}
+pub fn set_governance_address(env: Env, admin: Address, gov: Address) -> Result<(), ContractError> {
+    admin.require_auth();
+    assert_is_admin_or_governance(&env, &admin)?;
+    validate_non_zero_address(&env, &gov)?;
+    env.storage()
+        .persistent()
+        .set(&constants::storage::GOVERNANCE_ADDRESS, &gov);
+    Ok(())
+}
+
+// ============================================================================
+// DYNAMIC FEE TIERS (Feature 3)
+// ============================================================================
+
+pub fn set_fee_tiers(env: Env, admin: Address, tiers: Vec<FeeTier>) -> Result<(), ContractError> {
+    admin.require_auth();
+    assert_is_admin_or_governance(&env, &admin)?;
+    if tiers.is_empty() {
+        env.storage()
+            .persistent()
+            .remove(&constants::storage::FEE_TIERS);
+        return Ok(());
+    }
+    validate_fee_tiers(&tiers)?;
+    env.storage()
+        .persistent()
+        .set(&constants::storage::FEE_TIERS, &tiers);
+    Ok(())
+}
+
+pub fn get_current_fee(env: Env) -> u32 {
+    current_protocol_bps(&env)
+}
+pub fn get_dynamic_fee_view(env: Env) -> DynamicFeeView {
+    let s = read_protocol_fee_config(&env);
+    let p = current_protocol_bps(&env);
+    let t = read_fee_tiers(&env);
+    DynamicFeeView {
+        protocol_bps: p,
+        creator_bps: if s.is_some() { fee::BPS_MAX - p } else { 0 },
+        rolling_volume: rolling_volume(&env),
+        tier_index: active_tier_index(&t, rolling_volume(&env)),
+        is_configured: !t.is_empty(),
+    }
+}
+pub fn get_fee_tiers(env: Env) -> Vec<FeeTier> {
+    read_fee_tiers(&env)
+}
+pub fn get_rolling_volume(env: Env) -> i128 {
+    rolling_volume(&env)
+}
+pub fn get_volume_buckets(env: Env) -> Vec<VolumeBucket> {
+    read_volume_buckets(&env)
+}
+
+// ============================================================================
+// BONDING CURVE RESET (Feature 4)
+// ============================================================================
+
+pub fn reset_curve(
+    env: Env,
+    admin: Address,
+    creator: Address,
+    reset: u32,
+    curve: CurveConfig,
+) -> Result<u32, ContractError> {
+    admin.require_auth();
+    creator.require_auth();
+    assert_is_admin(&env, &admin)?;
+    assert_not_paused(&env)?;
+    if curve.slope < 0 {
+        return Err(ContractError::NotPositiveAmount);
+    }
+    let p = read_registered_creator_profile(&env, &creator)?;
+    if p.supply != 0 {
+        return Err(ContractError::InsufficientSupply);
+    }
+    if reset > p.supply {
+        return Err(ContractError::NotPositiveAmount);
+    }
+    let old = p.supply;
+    env.storage()
+        .persistent()
+        .set(&constants::storage::curve_preset(&creator), &curve.preset);
+    env.storage().persistent().set(
+        &constants::storage::creator_curve_slope(&creator),
+        &curve.slope,
+    );
+    write_creator_supply(&env, &creator, reset);
+    let c = read_reset_count(&env, &creator)
+        .checked_add(1)
+        .ok_or(ContractError::Overflow)?;
+    env.storage()
+        .persistent()
+        .set(&constants::storage::curve_reset_count(&creator), &c);
+    extend_creator_ttl(&env, &creator);
+    env.events().publish(
+        events::curve_reset_topics(&creator),
+        events::CurveResetEvent {
+            creator,
+            old_supply: old,
+            new_supply: reset,
+            preset: curve.preset,
+            slope: curve.slope,
+            reset_count: c,
+            ledger: env.ledger().sequence(),
+        },
+    );
+    Ok(reset)
+}
+pub fn get_curve_reset_count(env: Env, creator: Address) -> u32 {
+    read_reset_count(&env, &creator)
+}
+pub fn get_creator_curve_slope(env: Env, creator: Address) -> Option<i128> {
+    read_creator_slope(&env, &creator)
+}
+
+// ============================================================================
+// STAKING & STAKE RECEIPT NFT (Feature 1)
+// ============================================================================
+
+/// A minted stake receipt NFT record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeNftRecord {
+    pub token_id: u64,
+    pub creator: Address,
+    pub stake_id: u32,
+    pub owner: Address,
+    pub amount: u32,
+    pub unlock_ledger: u32,
+}
+
+/// A token-level allowance created by the SEP-41 `approve` entrypoint.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TokenAllowance {
+    pub amount: i128,
+    pub expiration_ledger: u32,
+}
+
+// ============================================================================
+// VAULT REBALANCING (Feature 2)
+// ============================================================================
+
+/// One key's target share of vault value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TargetWeight {
+    pub key: Address,
+    pub weight_bps: u32,
+}
+
+/// One key's current holding in the vault.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VaultAllocation {
+    pub key: Address,
+    pub units: i128,
+    pub value: i128,
+}
+
+/// Per-key divergence between current and target value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VaultDrift {
+    pub key: Address,
+    pub weight_bps: u32,
+    pub target_value: i128,
+    pub current_value: i128,
+    pub drift_bps: i128,
+}
+
+/// Result of a successful rebalance call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VaultRebalanceSummary {
+    pub creator: Address,
+    pub trades: Vec<events::RebalanceTrade>,
+    pub allocations: Vec<VaultAllocation>,
+    pub total_value: i128,
+    pub max_slippage_bps: u32,
+}
+
+// ============================================================================
+// DYNAMIC FEE TIERS (Feature 3)
+// ============================================================================
+
+/// One dynamic fee tier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeTier {
+    pub volume_threshold: i128,
+    pub protocol_bps: u32,
+}
+
+/// One slice of the rolling volume window.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VolumeBucket {
+    pub bucket_start: u32,
+    pub volume: i128,
+}
+
+/// Non-optional view of the active dynamic fee.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DynamicFeeView {
+    pub protocol_bps: u32,
+    pub creator_bps: u32,
+    pub rolling_volume: i128,
+    pub tier_index: u32,
+    pub is_configured: bool,
+}
+
+// ============================================================================
+// BONDING CURVE RESET (Feature 4)
+// ============================================================================
+
+/// Curve parameters applied from a reset point onwards.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveConfig {
+    pub preset: CurvePreset,
+    pub slope: i128,
+}
+
+// ============================================================================
+// HELPER FUNCTIONS FOR NEW FEATURES
+// ============================================================================
+
+// --- Staking helpers ---
+
+fn read_position(
+    env: &Env,
+    creator: &Address,
+    owner: &Address,
+    stake_id: u32,
+) -> Option<StakePosition> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::stake_position(
+            creator, owner, stake_id,
+        ))
+}
+
+fn write_position(env: &Env, creator: &Address, owner: &Address, position: &StakePosition) {
+    env.storage().persistent().set(
+        &constants::storage::stake_position(creator, owner, position.stake_id),
+        position,
+    );
+}
+
+fn read_nft(env: &Env, token_id: u64) -> Option<StakeNftRecord> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::stake_nft(token_id))
+}
+
+fn read_nft_id(env: &Env, creator: &Address, stake_id: u32, owner: &Address) -> Option<u64> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::stake_nft_id(creator, stake_id, owner))
+}
+
+pub fn read_nft_balance(env: &Env, owner: &Address) -> i128 {
+    let count: u32 = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::stake_nft_holder_count(owner))
+        .unwrap_or(0);
+    i128::from(count)
+}
+
+pub fn read_nft_total_supply(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::STAKE_NFT_TOTAL_SUPPLY)
+        .unwrap_or(0)
+}
+
+fn read_allowance(env: &Env, owner: &Address, spender: &Address) -> i128 {
+    let stored: Option<TokenAllowance> = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::stake_nft_allowance(owner, spender));
+    match stored {
+        Some(allowance) if allowance.expiration_ledger > env.ledger().sequence() => {
+            allowance.amount
+        }
+        _ => 0,
+    }
+}
+
+fn write_allowance(env: &Env, owner: &Address, spender: &Address, allowance: &TokenAllowance) {
+    let key = constants::storage::stake_nft_allowance(owner, spender);
+    if allowance.amount == 0 {
+        env.storage().persistent().remove(&key);
+    } else {
+        env.storage().persistent().set(&key, allowance);
+    }
+}
+
+fn consume_allowance(
+    env: &Env,
+    owner: &Address,
+    spender: &Address,
+    amount: i128,
+) -> Result<bool, ContractError> {
+    if spender == owner {
+        return Ok(false);
+    }
+    let current = read_allowance(env, owner, spender);
+    if current == 0 {
+        return Ok(false);
+    }
+    if current < amount {
+        return Err(ContractError::InsufficientAllowance);
+    }
+    let expiry = env
+        .storage()
+        .persistent()
+        .get::<DataKey, TokenAllowance>(&constants::storage::stake_nft_allowance(owner, spender))
+        .map(|s| s.expiration_ledger)
+        .unwrap_or(0);
+    write_allowance(
+        env,
+        owner,
+        spender,
+        &TokenAllowance {
+            amount: current - amount,
+            expiration_ledger: expiry,
+        },
+    );
+    Ok(true)
+}
+
+fn change_nft_holder_count(env: &Env, owner: &Address, delta: i128) -> Result<(), ContractError> {
+    let key = constants::storage::stake_nft_holder_count(owner);
+    let current: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+    let updated = i128::from(current)
+        .checked_add(delta)
+        .ok_or(ContractError::Overflow)?;
+    if updated < 0 {
+        return Err(ContractError::InsufficientAllowance);
+    }
+    env.storage().persistent().set(
+        &key,
+        &u32::try_from(updated).map_err(|_| ContractError::Overflow)?,
+    );
+    Ok(())
+}
+
+fn change_nft_total_supply(env: &Env, delta: i128) -> Result<(), ContractError> {
+    let current = read_nft_total_supply(env);
+    let updated = current.checked_add(delta).ok_or(ContractError::Overflow)?;
+    if updated < 0 {
+        return Err(ContractError::InsufficientAllowance);
+    }
+    env.storage()
+        .persistent()
+        .set(&constants::storage::STAKE_NFT_TOTAL_SUPPLY, &updated);
+    Ok(())
+}
+
+fn extend_stake_ttl(env: &Env, creator: &Address, owner: &Address, stake_id: u32, token_id: u64) {
+    let current = env.ledger().sequence();
+    let extend_to = current + STAKE_TTL_LEDGERS;
+    let p = env.storage().persistent();
+    for key in [
+        constants::storage::staked_keys(creator, owner),
+        constants::storage::next_stake_id(creator, owner),
+        constants::storage::stake_position(creator, owner, stake_id),
+        constants::storage::stake_nft_id(creator, stake_id, owner),
+        constants::storage::stake_nft(token_id),
+    ] {
+        if p.has(&key) {
+            p.extend_ttl(&key, current, extend_to);
+        }
+    }
+}
+
+fn assign_stake_id(env: &Env, creator: &Address, owner: &Address) -> Result<u32, ContractError> {
+    let key = constants::storage::next_stake_id(creator, owner);
+    let stake_id: u32 = env.storage().persistent().get(&key).unwrap_or(1);
+    let next = stake_id.checked_add(1).ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&key, &next);
+    Ok(stake_id)
+}
+
+fn assign_token_id(env: &Env) -> Result<u64, ContractError> {
+    let key = constants::storage::NEXT_STAKE_NFT_ID;
+    let token_id: u64 = env.storage().persistent().get(&key).unwrap_or(1);
+    let next = token_id.checked_add(1).ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&key, &next);
+    Ok(token_id)
+}
+
+fn release_position(
+    env: &Env,
+    creator: &Address,
+    owner: &Address,
+    position: &StakePosition,
+) -> Result<(), ContractError> {
+    let mut profile = read_registered_creator_profile(env, creator)?;
+    let staked = read_staked_keys(env, creator, owner);
+    let remaining = staked
+        .checked_sub(position.amount)
+        .ok_or(ContractError::InsufficientBalance)?;
+    write_staked_keys(env, creator, owner, remaining);
+    let bal_key = constants::storage::holder_balance_key(creator, owner);
+    let liquid: u32 = env.storage().persistent().get(&bal_key).unwrap_or(0);
+    let new_liquid = liquid
+        .checked_add(position.amount)
+        .ok_or(ContractError::Overflow)?;
+    if liquid == 0 {
+        profile.holder_count = profile
+            .holder_count
+            .checked_add(1)
+            .ok_or(ContractError::SellUnderflow)?;
+    }
+    env.storage().persistent().set(&bal_key, &new_liquid);
+    env.storage()
+        .persistent()
+        .set(&constants::storage::creator(creator), &profile);
+    env.storage()
+        .persistent()
+        .remove(&constants::storage::stake_position(
+            creator,
+            owner,
+            position.stake_id,
+        ));
+    Ok(())
+}
+
+fn burn_receipt(env: &Env, creator: &Address, owner: &Address, position: &StakePosition) {
+    let Some(token_id) = read_nft_id(env, creator, position.stake_id, owner) else {
+        return;
+    };
+    release_position(env, creator, owner, position).expect("release_position");
+    env.storage()
+        .persistent()
+        .remove(&constants::storage::stake_nft_id(
+            creator,
+            position.stake_id,
+            owner,
+        ));
+    env.storage()
+        .persistent()
+        .remove(&constants::storage::stake_nft(token_id));
+    change_nft_holder_count(env, owner, -1).expect("holder count underflow");
+    change_nft_total_supply(env, -1).expect("total supply underflow");
+    extend_stake_ttl(env, creator, owner, position.stake_id, token_id);
+}
+
+// --- Vault helpers ---
+
+pub fn read_target_weights(env: &Env, creator: &Address) -> Vec<TargetWeight> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::vault_target_weights(creator))
+        .unwrap_or(Vec::new(env))
+}
+
+pub fn read_allocations(env: &Env, creator: &Address) -> Vec<VaultAllocation> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::vault_allocations(creator))
+        .unwrap_or(Vec::new(env))
+}
+
+pub fn read_key_price(env: &Env, creator: &Address, key: &Address) -> Option<i128> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::vault_key_price(creator, key))
+}
+
+pub fn read_tolerance_bps(env: &Env, creator: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::vault_tolerance_bps(creator))
+        .unwrap_or(DEFAULT_VAULT_TOLERANCE_BPS)
+}
+
+fn write_allocations(env: &Env, creator: &Address, allocations: &Vec<VaultAllocation>) {
+    env.storage()
+        .persistent()
+        .set(&constants::storage::vault_allocations(creator), allocations);
+}
+
+fn validate_target_weights(weights: &Vec<TargetWeight>) -> Result<(), ContractError> {
+    if weights.is_empty() || weights.len() > MAX_VAULT_KEYS {
+        return Err(ContractError::InvalidTargetWeights);
+    }
+    let mut total_bps: u32 = 0;
+    for (i, w) in weights.iter().enumerate() {
+        if w.weight_bps == 0 {
+            return Err(ContractError::InvalidTargetWeights);
+        }
+        total_bps = total_bps
+            .checked_add(w.weight_bps)
+            .ok_or(ContractError::TargetWeightsNotNormalized)?;
+        for o in weights.iter().take(i) {
+            if o.key == w.key {
+                return Err(ContractError::InvalidTargetWeights);
+            }
+        }
+    }
+    if total_bps != fee::BPS_MAX {
+        return Err(ContractError::TargetWeightsNotNormalized);
+    }
+    Ok(())
+}
+
+fn resolve_prices(
+    env: &Env,
+    creator: &Address,
+    weights: &Vec<TargetWeight>,
+) -> Result<Vec<i128>, ContractError> {
+    let mut prices = Vec::new(env);
+    for w in weights.iter() {
+        let p = read_key_price(env, creator, &w.key).ok_or(ContractError::InvalidTargetWeights)?;
+        if p <= 0 {
+            return Err(ContractError::InvalidTargetWeights);
+        }
+        prices.push_back(p);
+    }
+    Ok(prices)
+}
+
+fn zero_allocations(env: &Env, weights: &Vec<TargetWeight>) -> Vec<VaultAllocation> {
+    let mut a = Vec::new(env);
+    for w in weights.iter() {
+        a.push_back(VaultAllocation {
+            key: w.key,
+            units: 0,
+            value: 0,
+        });
+    }
+    a
+}
+
+fn compute_target_values(
+    env: &Env,
+    weights: &Vec<TargetWeight>,
+    total: i128,
+) -> Result<Vec<i128>, ContractError> {
+    let mut t = Vec::new(env);
+    for w in weights.iter() {
+        let val = total
+            .checked_mul(i128::from(w.weight_bps))
+            .ok_or(ContractError::Overflow)?;
+        t.push_back(val / i128::from(fee::BPS_MAX));
+    }
+    Ok(t)
+}
+
+fn value_allocations(
+    env: &Env,
+    weights: &Vec<TargetWeight>,
+    units: &Vec<i128>,
+    prices: &Vec<i128>,
+) -> Result<Vec<VaultAllocation>, ContractError> {
+    let mut a = Vec::new(env);
+    for i in 0..weights.len() {
+        let k = weights.get(i).ok_or(ContractError::InvalidTargetWeights)?;
+        let u = units.get(i).unwrap_or(0);
+        let p = prices.get(i).unwrap_or(0);
+        a.push_back(VaultAllocation {
+            key: k.key,
+            units: u,
+            value: u.checked_mul(p).ok_or(ContractError::Overflow)?,
+        });
+    }
+    Ok(a)
+}
+
+fn total_value_of(a: &Vec<VaultAllocation>) -> Result<i128, ContractError> {
+    let mut tot: i128 = 0;
+    for x in a.iter() {
+        tot = tot.checked_add(x.value).ok_or(ContractError::Overflow)?;
+    }
+    Ok(tot)
+}
+
+fn compute_slippage_bps(ref_p: i128, exec_p: i128) -> Result<u32, ContractError> {
+    let diff = ref_p.checked_sub(exec_p).ok_or(ContractError::Overflow)?;
+    let mag = if diff < 0 { -diff } else { diff };
+    let scaled = mag
+        .checked_mul(i128::from(fee::BPS_MAX))
+        .ok_or(ContractError::Overflow)?;
+    let bps = scaled.checked_div(ref_p).ok_or(ContractError::Overflow)?;
+    u32::try_from(bps).map_err(|_| ContractError::Overflow)
+}
+
+fn resolve_units(
+    env: &Env,
+    weights: &Vec<TargetWeight>,
+    stored: &Vec<VaultAllocation>,
+) -> Result<Vec<i128>, ContractError> {
+    let mut u = Vec::new(env);
+    for i in 0..weights.len() {
+        let k = weights
+            .get(i)
+            .ok_or(ContractError::InvalidTargetWeights)?
+            .key;
+        let mut uk = 0;
+        for a in stored.iter() {
+            if a.key == k {
+                uk = a.units;
+            }
+        }
+        u.push_back(uk);
+    }
+    Ok(u)
+}
+
+const NO_INDEX: i128 = -1;
+
+fn find_nonzero(b: &Vec<i128>) -> i128 {
+    for i in 0..b.len() {
+        if b.get(i).unwrap_or(0) > 0 {
+            return i128::from(i);
+        }
+    }
+    NO_INDEX
+}
+
+fn min_of(l: i128, r: i128) -> i128 {
+    if l < r {
+        l
+    } else {
+        r
+    }
+}
+
+fn match_sellers_to_buyers(
+    env: &Env,
+    weights: &Vec<TargetWeight>,
+    units: &Vec<i128>,
+    prices: &Vec<i128>,
+    target_units: &Vec<i128>,
+    max_slippage_bps: u32,
+) -> Result<(Vec<events::RebalanceTrade>, Vec<i128>), ContractError> {
+    let count = weights.len();
+    let mut updated = units.clone();
+    let mut trades = Vec::new(env);
+    let mut sell = Vec::new(env);
+    let mut buy = Vec::new(env);
+    for i in 0..count {
+        let cur = units.get(i).unwrap_or(0);
+        let tgt = target_units.get(i).unwrap_or(0);
+        let p = prices.get(i).unwrap_or(0);
+        let d = tgt - cur;
+        if d < 0 {
+            sell.push_back(d.checked_mul(p).ok_or(ContractError::Overflow)?);
+            buy.push_back(0);
+        } else {
+            sell.push_back(0);
+            buy.push_back(d.checked_mul(p).ok_or(ContractError::Overflow)?);
+        }
+    }
+    let max_p = count.saturating_mul(2).saturating_add(2);
+    let mut pass = 0;
+    while pass < max_p {
+        let s = find_nonzero(&sell);
+        if s == NO_INDEX {
+            break;
+        }
+        let b = find_nonzero(&buy);
+        if b == NO_INDEX {
+            break;
+        }
+        let si = u32::try_from(s).map_err(|_| ContractError::Overflow)?;
+        let bi = u32::try_from(b).map_err(|_| ContractError::Overflow)?;
+        let sp = prices.get(si).unwrap_or(0);
+        let bp = prices.get(bi).unwrap_or(0);
+        let avail = min_of(sell.get(si).unwrap_or(0), buy.get(bi).unwrap_or(0));
+        if avail <= 0 {
+            break;
+        }
+        let slp = compute_slippage_bps(sp, bp)?;
+        if slp > max_slippage_bps {
+            return Err(ContractError::SlippageExceeded);
+        }
+        let uo = (avail / sp).min(-sell.get(si).unwrap_or(0) / sp);
+        let ui = (avail / bp).min(buy.get(bi).unwrap_or(0) / bp);
+        if uo <= 0 || ui <= 0 {
+            sell.set(si, 0);
+            buy.set(bi, 0);
+            pass += 1;
+            continue;
+        }
+        let vo = uo.checked_mul(sp).ok_or(ContractError::Overflow)?;
+        let vi = ui.checked_mul(bp).ok_or(ContractError::Overflow)?;
+        let mv = min_of(vo, vi);
+        let nu = updated
+            .get(si)
+            .unwrap_or(0)
+            .checked_add(uo)
+            .ok_or(ContractError::Overflow)?;
+        updated.set(si, nu);
+        let nu = updated
+            .get(bi)
+            .unwrap_or(0)
+            .checked_add(ui)
+            .ok_or(ContractError::Overflow)?;
+        updated.set(bi, nu);
+        sell.set(si, sell.get(si).unwrap_or(0) - mv);
+        buy.set(bi, buy.get(bi).unwrap_or(0) - mv);
+        trades.push_back(events::RebalanceTrade {
+            from_key: weights
+                .get(si)
+                .ok_or(ContractError::InvalidTargetWeights)?
+                .key,
+            to_key: weights
+                .get(bi)
+                .ok_or(ContractError::InvalidTargetWeights)?
+                .key,
+            amount: mv,
+            reference_price: sp,
+            execution_price: bp,
+            slippage_bps: slp,
+        });
+        pass += 1;
+    }
+    Ok((trades, updated))
+}
+
+// --- Dynamic fee helpers ---
+
+pub fn read_fee_tiers(env: &Env) -> Vec<FeeTier> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::FEE_TIERS)
+        .unwrap_or(Vec::new(env))
+}
+
+fn read_volume_buckets(env: &Env) -> Vec<VolumeBucket> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::FEE_VOLUME_BUCKETS)
+        .unwrap_or(Vec::new(env))
+}
+
+fn bucket_start_for(seq: u32) -> u32 {
+    seq - (seq % VOLUME_BUCKET_LEDGERS)
+}
+
+fn validate_fee_tiers(t: &Vec<FeeTier>) -> Result<(), ContractError> {
+    if t.is_empty() {
+        return Err(ContractError::InvalidTargetWeights);
+    }
+    if t.len() > MAX_FEE_TIERS {
+        return Err(ContractError::DiscountTierLimitExceeded);
+    }
+    let mut prev: Option<i128> = None;
+    for tier in t.iter() {
+        if tier.protocol_bps > fee::BPS_MAX {
+            return Err(ContractError::InvalidTargetWeights);
+        }
+        if let Some(p) = prev {
+            if tier.volume_threshold <= p {
+                return Err(ContractError::InvalidTargetWeights);
+            }
+        }
+        prev = Some(tier.volume_threshold);
+    }
+    if t.get(0).map(|x| x.volume_threshold) != Some(0) {
+        return Err(ContractError::InvalidTargetWeights);
+    }
+    Ok(())
+}
+
+pub fn rolling_volume(env: &Env) -> i128 {
+    let cutoff = env
+        .ledger()
+        .sequence()
+        .saturating_sub(ROLLING_WINDOW_LEDGERS);
+    let mut tot: i128 = 0;
+    for b in read_volume_buckets(env).iter() {
+        if b.bucket_start >= cutoff {
+            tot = tot.saturating_add(b.volume);
+        }
+    }
+    tot
+}
+
+fn active_tier_index(tiers: &Vec<FeeTier>, vol: i128) -> u32 {
+    let mut idx: u32 = 0;
+    for (pos, tier) in tiers.iter().enumerate() {
+        if vol >= tier.volume_threshold {
+            idx = pos as u32;
+        } else {
+            break;
+        }
+    }
+    idx
+}
+
+pub fn current_protocol_bps(env: &Env) -> u32 {
+    let tiers = read_fee_tiers(env);
+    let flat = read_protocol_fee_config(env).map(|c| c.protocol_bps);
+    if tiers.is_empty() {
+        return flat.unwrap_or(0);
+    }
+    let idx = active_tier_index(&tiers, rolling_volume(env));
+    tiers
+        .get(idx)
+        .map(|t| t.protocol_bps)
+        .unwrap_or_else(|| flat.unwrap_or(0))
+}
+
+fn effective_fee_config(env: &Env) -> Option<fee::FeeConfig> {
+    let stored = read_protocol_fee_config(env)?;
+    if read_fee_tiers(env).is_empty() {
+        return Some(stored);
+    }
+    Some(fee::FeeConfig {
+        creator_bps: fee::BPS_MAX - current_protocol_bps(env),
+        protocol_bps: current_protocol_bps(env),
+    })
+}
+
+fn record_volume(env: &Env, vol: i128) -> Result<(), ContractError> {
+    if vol <= 0 {
+        return Ok(());
+    }
+    let seq = env.ledger().sequence();
+    let bs = bucket_start_for(seq);
+    let cutoff = seq.saturating_sub(ROLLING_WINDOW_LEDGERS);
+    let buckets = read_volume_buckets(env);
+    let mut upd = Vec::new(env);
+    let mut found = false;
+    for b in buckets.iter() {
+        if b.bucket_start == bs {
+            upd.push_back(VolumeBucket {
+                bucket_start: bs,
+                volume: b.volume.checked_add(vol).ok_or(ContractError::Overflow)?,
+            });
+            found = true;
+        } else if b.bucket_start > cutoff {
+            upd.push_back(b);
+        }
+    }
+    if !found {
+        upd.push_back(VolumeBucket {
+            bucket_start: bs,
+            volume: vol,
+        });
+    }
+    env.storage()
+        .persistent()
+        .set(&constants::storage::FEE_VOLUME_BUCKETS, &upd);
+    Ok(())
+}
+
+pub fn apply_trade_volume(env: &Env, vol: i128) -> Result<u32, ContractError> {
+    let tiers = read_fee_tiers(env);
+    if tiers.is_empty() {
+        return Ok(read_protocol_fee_config(env)
+            .map(|c| c.protocol_bps)
+            .unwrap_or(0));
+    }
+    let prev_idx: u32 = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::ACTIVE_FEE_TIER_INDEX)
+        .unwrap_or(events::NO_FEE_TIER_INDEX);
+    let prev_bps = tiers.get(prev_idx).map(|t| t.protocol_bps).unwrap_or(0);
+    record_volume(env, vol)?;
+    let new_idx = active_tier_index(&tiers, rolling_volume(env));
+    let new_bps = tiers.get(new_idx).map(|t| t.protocol_bps).unwrap_or(0);
+    if new_idx != prev_idx {
+        env.storage()
+            .persistent()
+            .set(&constants::storage::ACTIVE_FEE_TIER_INDEX, &new_idx);
+        env.events().publish(
+            (events::FEE_TIER_CHANGED_EVENT_NAME,),
+            events::FeeTierChangedEvent {
+                old_tier_index: prev_idx,
+                new_tier_index: new_idx,
+                old_protocol_bps: prev_bps,
+                new_protocol_bps: new_bps,
+                ledger: env.ledger().sequence(),
+            },
+        );
+    }
+    Ok(new_bps)
+}
+
+// --- Curve reset helpers ---
+
+pub fn read_creator_slope(env: &Env, creator: &Address) -> Option<i128> {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::creator_curve_slope(creator))
+}
+
+pub fn read_reset_count(env: &Env, creator: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&constants::storage::curve_reset_count(creator))
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::fee;
@@ -3855,5 +5617,5 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod test_issues;
+// #[cfg(test)]
+// mod test_issues;

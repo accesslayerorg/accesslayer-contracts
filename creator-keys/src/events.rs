@@ -22,7 +22,7 @@
 
 use crate::{
     constants, read_registered_creator_profile, CreatorKeysContract, CreatorKeysContractArgs,
-    CreatorKeysContractClient,
+    CreatorKeysContractClient, VaultAllocation,
 };
 use soroban_sdk::{
     contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
@@ -421,6 +421,208 @@ pub struct TreasuryWithdrawalEvent {
 /// Shared treasury withdrawal event topics tuple.
 pub fn treasury_withdrawal_event_topics(recipient: &Address) -> (Symbol, Address) {
     (TREASURY_WITHDRAWAL_EVENT_NAME, recipient.clone())
+}
+
+// --- Vault rebalancing ---
+
+/// Event name for a completed vault rebalance.
+pub const REBALANCE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("rebal");
+
+/// Stable field order for rebalance execution payloads.
+pub const REBALANCE_EXECUTED_DATA_FIELDS: [&str; 6] = [
+    "creator",
+    "trades",
+    "allocations",
+    "total_value",
+    "max_slippage_bps",
+    "ledger",
+];
+
+/// One trade executed by a vault rebalance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RebalanceTrade {
+    pub from_key: Address,
+    pub to_key: Address,
+    pub amount: i128,
+    pub reference_price: i128,
+    pub execution_price: i128,
+    pub slippage_bps: u32,
+}
+
+/// Stable rebalance execution payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RebalanceExecutedEvent {
+    pub creator: Address,
+    pub trades: Vec<RebalanceTrade>,
+    pub allocations: Vec<VaultAllocation>,
+    pub total_value: i128,
+    pub max_slippage_bps: u32,
+    pub ledger: u32,
+}
+
+/// Shared rebalance execution event topics tuple.
+pub fn rebalance_executed_topics(creator: &Address) -> (Symbol, Address) {
+    (REBALANCE_EXECUTED_EVENT_NAME, creator.clone())
+}
+
+// --- Dynamic fee tiers ---
+
+/// Event name for a dynamic fee tier transition.
+pub const FEE_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("fee_tier");
+
+/// Stable field order for fee tier transition payloads.
+pub const FEE_TIER_CHANGED_DATA_FIELDS: [&str; 5] = [
+    "old_tier_index",
+    "new_tier_index",
+    "old_protocol_bps",
+    "new_protocol_bps",
+    "ledger",
+];
+
+/// Stable fee tier transition payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct FeeTierChangedEvent {
+    pub old_tier_index: u32,
+    pub new_tier_index: u32,
+    pub old_protocol_bps: u32,
+    pub new_protocol_bps: u32,
+    pub ledger: u32,
+}
+
+/// Sentinel tier index used before any dynamic fee tier has ever been resolved.
+pub const NO_FEE_TIER_INDEX: u32 = u32::MAX;
+
+// --- Staking and stake receipt NFT ---
+
+/// Event name for a minted stake receipt NFT.
+pub const STAKE_NFT_MINTED_EVENT_NAME: Symbol = symbol_short!("snft_mint");
+
+/// Event name for a burned stake receipt NFT.
+pub const STAKE_NFT_BURNED_EVENT_NAME: Symbol = symbol_short!("snft_burn");
+
+/// Event name for a stake receipt NFT transfer.
+pub const STAKE_NFT_TRANSFERRED_EVENT_NAME: Symbol = symbol_short!("transfer");
+
+/// Stable field order for stake receipt mint payloads.
+pub const STAKE_NFT_MINTED_DATA_FIELDS: [&str; 7] = [
+    "token_id",
+    "creator",
+    "stake_id",
+    "owner",
+    "amount",
+    "unlock_ledger",
+    "ledger",
+];
+
+/// Stable field order for stake receipt transfer payloads.
+pub const STAKE_NFT_TRANSFERRED_DATA_FIELDS: [&str; 7] = [
+    "token_id", "creator", "stake_id", "from", "to", "amount", "ledger",
+];
+
+/// Stable field order for stake receipt burn payloads.
+pub const STAKE_NFT_BURNED_DATA_FIELDS: [&str; 6] = [
+    "token_id", "creator", "stake_id", "owner", "amount", "ledger",
+];
+
+/// Stable stake receipt mint payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeNftMintedEvent {
+    pub token_id: u64,
+    pub creator: Address,
+    pub stake_id: u32,
+    pub owner: Address,
+    pub amount: u32,
+    pub unlock_ledger: u32,
+    pub ledger: u32,
+}
+
+/// Stable stake receipt transfer payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeNftTransferredEvent {
+    pub token_id: u64,
+    pub creator: Address,
+    pub stake_id: u32,
+    pub from: Address,
+    pub to: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Stable stake receipt burn payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakeNftBurnedEvent {
+    pub token_id: u64,
+    pub creator: Address,
+    pub stake_id: u32,
+    pub owner: Address,
+    pub amount: u32,
+    pub ledger: u32,
+}
+
+/// Shared stake receipt mint event topics tuple.
+pub fn stake_nft_minted_topics(creator: &Address, owner: &Address) -> (Symbol, Address, Address) {
+    (STAKE_NFT_MINTED_EVENT_NAME, creator.clone(), owner.clone())
+}
+
+/// Shared stake receipt transfer event topics tuple.
+pub fn stake_nft_transferred_topics(from: &Address, to: &Address) -> (Symbol, Address, Address) {
+    (STAKE_NFT_TRANSFERRED_EVENT_NAME, from.clone(), to.clone())
+}
+
+/// Shared stake receipt burn event topics tuple.
+pub fn stake_nft_burned_topics(creator: &Address, owner: &Address) -> (Symbol, Address, Address) {
+    (STAKE_NFT_BURNED_EVENT_NAME, creator.clone(), owner.clone())
+}
+
+// --- Bonding curve reset ---
+
+/// Event name for a bonding curve reset.
+pub const CURVE_RESET_EVENT_NAME: Symbol = symbol_short!("curve_rst");
+
+/// Stable field order for curve reset payloads.
+pub const CURVE_RESET_DATA_FIELDS: [&str; 7] = [
+    "creator",
+    "old_supply",
+    "new_supply",
+    "preset",
+    "slope",
+    "reset_count",
+    "ledger",
+];
+
+/// Stable curve reset payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(CURVE_RESET_EVENT_NAME, creator)`
+/// - data: `CurveResetEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveResetEvent {
+    /// Creator whose curve was reset.
+    pub creator: Address,
+    /// Supply immediately before the reset. Always `0`; a reset requires a full buyback.
+    pub old_supply: u32,
+    /// Supply immediately after the reset, the relaunch point.
+    pub new_supply: u32,
+    /// Curve shape applied from `new_supply` onwards.
+    pub preset: crate::CurvePreset,
+    /// Curve slope applied from `new_supply` onwards.
+    pub slope: i128,
+    /// Running count of successful resets for this creator.
+    pub reset_count: u32,
+    /// Ledger sequence number at reset time.
+    pub ledger: u32,
+}
+
+/// Shared curve reset event topics tuple.
+pub fn curve_reset_topics(creator: &Address) -> (Symbol, Address) {
+    (CURVE_RESET_EVENT_NAME, creator.clone())
 }
 
 #[contracterror]
