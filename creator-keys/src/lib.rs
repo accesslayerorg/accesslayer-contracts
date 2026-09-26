@@ -9,7 +9,6 @@ use soroban_sdk::{
 pub mod events;
 pub mod ratings_royalties_dividends;
 
-#[contracterror]
 pub mod test_feature_impl;
 pub mod test_new_features;
 

@@ -1,4 +1,3 @@
-#![no_std]
 use crate::ContractError;
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
@@ -243,10 +242,10 @@ pub fn calculate_dynamic_fee(env: &Env, creator: &Address, rolling_24h_volume: i
         .instance()
         .get(&DevPeterDataKey::VolumeFeeConfig)
         .unwrap_or(VolumeFeeConfig {
-            threshold_low_volume: 10_000_0000000,   // 10k XLM
-            threshold_high_volume: 100_000_0000000, // 100k XLM
-            base_fee_bps: 500,                      // 5%
-            discounted_fee_bps: 250,                // 2.5%
+            threshold_low_volume: 100_000_000_000,    // 10k XLM
+            threshold_high_volume: 1_000_000_000_000, // 100k XLM
+            base_fee_bps: 500,                        // 5%
+            discounted_fee_bps: 250,                  // 2.5%
         });
 
     let active_fee = if rolling_24h_volume >= config.threshold_high_volume {
