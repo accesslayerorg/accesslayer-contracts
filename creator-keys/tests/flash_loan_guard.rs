@@ -4,7 +4,7 @@ use creator_keys::{
 };
 use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
-    Address, Env, String, Symbol, TryFromVal, TryIntoVal,
+    Address, Env, String, Symbol, TryIntoVal,
 };
 
 fn setup() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
