@@ -230,14 +230,13 @@ impl CreatorKeysFactory {
 mod test {
     use super::*;
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::Bytes;
 
     fn setup(env: &Env) -> (CreatorKeysFactoryClient<'_>, Address) {
         env.mock_all_auths();
 
-        // Upload a valid minimal Wasm module to satisfy deploy_v2 requirements during tests
-        let wasm_hash = env
-            .deployer()
-            .upload_contract_wasm(&[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+        let wasm_bytes = Bytes::from_slice(env, &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+        let wasm_hash = env.deployer().upload_contract_wasm(wasm_bytes);
 
         let client = CreatorKeysFactoryClient::new(env, &env.register(CreatorKeysFactory, ()));
         let admin = Address::generate(env);
@@ -268,9 +267,8 @@ mod test {
             Err(Ok(FactoryError::Unauthorized))
         );
         client.set_creator_allowed(&admin, &stranger, &true);
-        let wasm_hash = env
-            .deployer()
-            .upload_contract_wasm(&[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+        let wasm_bytes = Bytes::from_slice(&env, &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+        let wasm_hash = env.deployer().upload_contract_wasm(wasm_bytes);
         assert_eq!(
             client.try_initialise(&admin, &wasm_hash),
             Err(Ok(FactoryError::AlreadyInitialised))
