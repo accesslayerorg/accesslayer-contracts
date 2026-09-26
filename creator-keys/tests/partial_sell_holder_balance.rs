@@ -6,8 +6,11 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, register_test_creator, set_key_price_for_tests};
-use soroban_sdk::{testutils::Address as _, Address};
+use contract_test_env::{
+    assert_storage_absent, register_creator_keys, register_test_creator, set_key_price_for_tests,
+};
+use creator_keys::constants;
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address};
 
 const KEY_PRICE: i128 = 100;
 
@@ -33,6 +36,9 @@ fn test_partial_sell_decrements_holder_balance_by_sold_quantity() {
     assert_eq!(client.get_total_key_supply(&creator), 5);
 
     // Sell 2 keys
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     client.sell_key(&creator, &holder, &None);
 
@@ -58,6 +64,9 @@ fn test_partial_sell_decrements_creator_supply_by_sold_quantity() {
     assert_eq!(supply_before, 5);
 
     // Sell 2 keys
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     client.sell_key(&creator, &holder, &None);
 
@@ -85,6 +94,9 @@ fn test_two_sequential_partial_sells_each_produce_correct_balance() {
     assert_eq!(client.get_total_key_supply(&creator), 5);
 
     // First partial sell: sell 2 keys
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     client.sell_key(&creator, &holder, &None);
 
@@ -100,6 +112,9 @@ fn test_two_sequential_partial_sells_each_produce_correct_balance() {
     );
 
     // Second partial sell: sell 1 key
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
 
     assert_eq!(
@@ -130,6 +145,9 @@ fn test_holder_entry_not_removed_after_partial_sell() {
 
     // Partial sell: sell 3 keys (leaving 2)
     for _ in 0..3 {
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator, &holder, &None);
     }
 
@@ -150,7 +168,9 @@ fn test_holder_entry_not_removed_after_partial_sell() {
 fn test_full_sell_removes_holder_entry() {
     let env = soroban_sdk::Env::default();
     env.mock_all_auths();
-    let (client, creator) = setup(&env);
+    let (client, contract_id) = register_creator_keys(&env);
+    set_key_price_for_tests(&env, &client, KEY_PRICE);
+    let creator = register_test_creator(&env, &client, "alice");
     let holder = Address::generate(&env);
 
     // Buy 5 keys
@@ -160,6 +180,9 @@ fn test_full_sell_removes_holder_entry() {
 
     // Full sell: sell all 5 keys
     for _ in 0..5 {
+        let mut l = env.ledger().get();
+        l.sequence_number += 1;
+        env.ledger().set(l);
         client.sell_key(&creator, &holder, &None);
     }
 
@@ -173,6 +196,14 @@ fn test_full_sell_removes_holder_entry() {
         0,
         "holder count should be 0 after full sell (entry removed)"
     );
+
+    // Verify the underlying storage key has been removed.
+    env.as_contract(&contract_id, || {
+        assert_storage_absent(
+            &env,
+            &constants::storage::holder_balance_key(&creator, &holder),
+        );
+    });
 }
 
 #[test]
@@ -188,6 +219,9 @@ fn test_supply_matches_balance_after_partial_sell() {
     }
 
     // Sell 2 keys
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     client.sell_key(&creator, &holder, &None);
 

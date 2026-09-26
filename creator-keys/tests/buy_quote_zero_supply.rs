@@ -44,10 +44,12 @@ fn test_buy_quote_zero_supply_various_prices() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
 
+    let admin = set_pricing_and_fees(&env, &client, 1000, 9000, 1000);
+
     let test_prices = [1, 10, 100, 500, 1000, 10000];
 
     for (i, price) in test_prices.iter().enumerate() {
-        set_pricing_and_fees(&env, &client, *price, 9000, 1000);
+        client.set_key_price(&admin, price);
         let creator = register_test_creator(&env, &client, &format!("creator{}", i));
 
         let quote = client.get_buy_quote(&creator);

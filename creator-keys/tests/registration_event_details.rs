@@ -16,6 +16,7 @@ fn test_register_creator_event_field_values_match_fixtures() {
 
     // 1. Setup deterministic fixtures
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
     let handle_str = "fixture_handle";
     let handle = String::from_str(&env, handle_str);
@@ -91,6 +92,7 @@ fn test_register_creator_event_fields_update_with_fee_config() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     // First registration with one config
     client.set_fee_config(&admin, &9000, &1000);

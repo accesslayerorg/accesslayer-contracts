@@ -367,7 +367,7 @@ fn test_buy_quote_updates_after_fee_config_mutation() {
     let price = 1_000_i128;
 
     // Set initial fee config: 90% creator, 10% protocol
-    set_pricing_and_fees(&env, &client, price, 9000, 1000);
+    let admin = set_pricing_and_fees(&env, &client, price, 9000, 1000);
     let creator = register_test_creator(&env, &client, "alice");
 
     // Get quote with initial fee config
@@ -380,7 +380,6 @@ fn test_buy_quote_updates_after_fee_config_mutation() {
     assert_eq!(q_before.total_amount, price + 900 + 100);
 
     // Update fee config: 50% creator, 50% protocol
-    let admin = Address::generate(&env);
     client.set_fee_config(&admin, &5000u32, &5000u32);
 
     // Get quote after fee config update

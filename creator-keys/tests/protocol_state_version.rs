@@ -33,6 +33,7 @@ fn test_protocol_state_version_increments_on_fee_config_update() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     // Read initial version
     let version_before = client.get_protocol_state_version();
@@ -64,6 +65,7 @@ fn test_protocol_state_version_monotonically_increasing() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     let mut previous_version = client.get_protocol_state_version();
 
@@ -89,6 +91,7 @@ fn test_get_protocol_state_version_increments_only_on_config_updates() {
     let client = CreatorKeysContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
     let buyer = Address::generate(&env);
 

@@ -16,6 +16,7 @@ fn test_set_protocol_fee_recipient_rejects_zero_address() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let zero_str = String::from_str(
         &env,
         "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
@@ -43,6 +44,7 @@ fn test_set_protocol_fee_recipient_accepts_valid_address() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let recipient = Address::generate(&env);
 
     let result = client.try_set_protocol_fee_recipient(&admin, &recipient);
@@ -61,6 +63,7 @@ fn test_set_protocol_fee_recipient_idempotent() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let recipient = Address::generate(&env);
 
     client.set_protocol_fee_recipient(&admin, &recipient);
@@ -72,4 +75,47 @@ fn test_set_protocol_fee_recipient_idempotent() {
         Some(recipient),
         "recipient unchanged after idempotent set"
     );
+}
+
+#[test]
+fn test_set_protocol_fee_recipient_emits_event_on_update() {
+    use creator_keys::events;
+    use soroban_sdk::{testutils::Events, IntoVal};
+
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
+    let old_recipient = Address::generate(&env);
+    let new_recipient = Address::generate(&env);
+
+    client.set_protocol_fee_recipient(&admin, &old_recipient);
+    client.set_protocol_fee_recipient(&admin, &new_recipient);
+
+    let all_events = env.events().all();
+    let update_events: Vec<_> = all_events
+        .iter()
+        .filter(|(_, topics, _)| {
+            topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .map(|v| {
+                    let sym: soroban_sdk::Symbol = v.into_val(&env);
+                    sym == events::PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME
+                })
+                .unwrap_or(false)
+        })
+        .collect();
+
+    assert_eq!(
+        update_events.len(),
+        1,
+        "updating fee recipient via set_protocol_fee_recipient must emit exactly one event"
+    );
+
+    let (_, _, data) = update_events.last().unwrap();
+    let payload: events::ProtocolFeeRecipientUpdatedEvent = data.into_val(&env);
+
+    assert_eq!(payload.old_recipient, old_recipient);
+    assert_eq!(payload.new_recipient, new_recipient);
 }

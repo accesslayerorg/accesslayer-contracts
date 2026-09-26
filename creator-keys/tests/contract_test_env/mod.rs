@@ -13,7 +13,7 @@
 use creator_keys::{constants, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    Address, Env, String,
+    Address, Env, IntoVal, String, Val,
 };
 use std::string::String as StdString;
 
@@ -80,6 +80,7 @@ pub fn set_protocol_fee_bps(
     protocol_bps: u32,
 ) -> Address {
     let admin = Address::generate(env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     admin
 }
@@ -93,6 +94,7 @@ pub fn set_pricing_and_fees(
     protocol_bps: u32,
 ) -> Address {
     let admin = Address::generate(env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_key_price(&admin, &key_price);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     admin
@@ -139,6 +141,7 @@ pub fn register_test_creator_with_fee_config(
     protocol_bps: u32,
 ) -> Address {
     let admin = Address::generate(env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     let creator = Address::generate(env);
     client.register_creator(
@@ -163,6 +166,27 @@ pub fn set_stored_key_price(env: &Env, contract_id: &Address, price: i128) {
             .persistent()
             .set(&constants::storage::KEY_PRICE, &price);
     });
+}
+
+/// Assert that a storage key is absent from the contract's persistent storage.
+///
+/// Must be called inside an `env.as_contract()` scope (see the full-sell test
+/// for a usage example). Panics with a descriptive message if the key is present.
+///
+/// # Type parameters
+///
+/// `K` must implement [`IntoVal<Env, Val>`] (satisfied by [`DataKey`] and
+/// [`Symbol`] values).  The bound is the same one that
+/// [`Persistent::has`](soroban_sdk::storage::Persistent::has) requires, so any
+/// key that works with `env.storage().persistent().has(key)` works here.
+pub fn assert_storage_absent<K>(env: &Env, key: &K)
+where
+    K: IntoVal<Env, Val> + std::fmt::Debug,
+{
+    assert!(
+        !env.storage().persistent().has(key),
+        "storage key is unexpectedly present: {key:?}"
+    );
 }
 
 fn account_strkey_from_seed(seed: &str) -> StdString {

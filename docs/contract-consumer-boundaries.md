@@ -17,6 +17,7 @@ Stable structs returned by read-only methods are part of the integration contrac
 
 - **`ProtocolFeeView` / `get_protocol_fee_view`**: Non-optional fee configuration snapshot (`is_configured` plus bps). Used when you must not branch on `Option` at the type level.
 - **`CreatorDetailsView`**, **`CreatorFeeView`**, **`HolderKeyCountView`**: Registration and per-creator state without panicking on bad addresses.
+- **`KeyStatsView` / `get_key_stats`**: Single-call aggregated snapshot of all key-level fields (`current_price`, `circulating_supply`, `holder_count`, `trading_paused`, `supply_cap`, `holder_cap_bps`, `circuit_breaker_threshold_bps`, `lockup_duration_seconds`, `launch_penalty_bps`, `buy_cooldown_ledgers`, `max_buy_quantity`, and auction fields when configured). Server sync and admin snapshot endpoints should use this instead of assembling state from multiple individual reads. Returns `Err(ContractError::NotRegistered)` for unknown key IDs. See [read-only-methods.md](./read-only-methods.md) for full field semantics.
 - **Quotes** — `get_buy_quote` / `get_sell_quote` → `QuoteResponse` (`price`, `creator_fee`, `protocol_fee`, `total_amount`). **Buy** uses `total_amount = price + fees`; **sell** uses `total_amount = price - fees` (seller payout after fees, under current logic).
 - **Constants exposed as entrypoints** — e.g. `get_key_decimals` — must stay aligned with any off-chain display or formatting.
 

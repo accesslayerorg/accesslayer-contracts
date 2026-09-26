@@ -1,0 +1,584 @@
+#![cfg(test)]
+
+use crate::{
+    ContractError, CreatorKeysContract, CreatorKeysContractClient, KeyMetadata,
+    RegisterCreatorParams, METADATA_AVATAR_URI_MAX_LEN, METADATA_BIO_MAX_LEN,
+    METADATA_NAME_MAX_LEN,
+};
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
+
+fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
+    client.set_key_price(&admin, &100i128);
+    client.set_curve_slope(&admin, &100i128);
+    client.set_fee_config(&admin, &9000u32, &1000u32);
+
+    (env, client, admin, treasury)
+}
+
+fn register_creator(env: &Env, client: &CreatorKeysContractClient, creator: &Address) {
+    client.register_creator(
+        &RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+}
+
+#[test]
+fn test_circuit_breaker_threshold_configuration_and_trigger() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    // Default threshold is 30%.
+    // Buy 1: supply 0 -> 1. Price moves from base_price (100) to 200 (100% increase > 30%).
+    let buyer = Address::generate(&env);
+    let result = client.try_buy_key(&creator, &buyer, &1000i128, &None);
+    assert_eq!(result, Err(Ok(ContractError::CircuitBreakerTriggered)));
+
+    // Admin sets threshold to 200% (200)
+    client.set_circuit_breaker_threshold(&admin, &200u32);
+
+    // Now buy succeeds because price delta (100%) < 200% threshold
+    let supply = client.buy_key(&creator, &buyer, &1000i128, &None);
+    assert_eq!(supply, 1);
+}
+
+#[test]
+fn test_referral_system_fee_split_and_validation() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    // Set high threshold so buy doesn't trigger circuit breaker
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let buyer = Address::generate(&env);
+    let referrer = Address::generate(&env);
+
+    // Buyer or creator as referrer panics with InvalidReferrer
+    let res_buyer_ref =
+        client.try_buy_key_with_referrer(&creator, &buyer, &1000i128, &None, &Some(buyer.clone()));
+    assert_eq!(res_buyer_ref, Err(Ok(ContractError::InvalidReferrer)));
+
+    let res_creator_ref = client.try_buy_key_with_referrer(
+        &creator,
+        &buyer,
+        &1000i128,
+        &None,
+        &Some(creator.clone()),
+    );
+    assert_eq!(res_creator_ref, Err(Ok(ContractError::InvalidReferrer)));
+
+    // Valid referral buy
+    // Price at supply 0 is 100. Protocol fee at 10% (1000 bps) is 10.
+    // Treasury gets 50% (5), referrer gets 50% (5).
+    let treasury_bal_before = client.get_treasury_balance();
+    client.buy_key_with_referrer(&creator, &buyer, &1000i128, &None, &Some(referrer.clone()));
+
+    let treasury_bal_after = client.get_treasury_balance();
+    assert_eq!(treasury_bal_after - treasury_bal_before, 5);
+
+    let ref_earnings = client.get_referral_earnings(&referrer);
+    assert_eq!(ref_earnings, 5);
+
+    // Buy without referrer sends full protocol fee (20) to treasury (price at supply 1 is 200, 10% = 20)
+    let buyer2 = Address::generate(&env);
+    let treasury_bal_before2 = client.get_treasury_balance();
+    client.buy_key(&creator, &buyer2, &1000i128, &None);
+    let treasury_bal_after2 = client.get_treasury_balance();
+    assert_eq!(treasury_bal_after2 - treasury_bal_before2, 20);
+}
+
+#[test]
+fn test_whitelist_mode_and_permissions() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let wallet = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    // Non-creator caller panics with NotRegistered on whitelist functions
+    assert_eq!(
+        client.try_enable_whitelist(&attacker),
+        Err(Ok(ContractError::NotRegistered))
+    );
+    assert_eq!(
+        client.try_disable_whitelist(&attacker),
+        Err(Ok(ContractError::NotRegistered))
+    );
+    assert_eq!(
+        client.try_add_to_whitelist(&attacker, &wallet),
+        Err(Ok(ContractError::NotRegistered))
+    );
+    assert_eq!(
+        client.try_remove_from_whitelist(&attacker, &wallet),
+        Err(Ok(ContractError::NotRegistered))
+    );
+
+    // Enable whitelist
+    client.enable_whitelist(&creator);
+
+    // Buy by non-whitelisted wallet fails with NotWhitelisted
+    assert_eq!(
+        client.try_buy_key(&creator, &wallet, &1000i128, &None),
+        Err(Ok(ContractError::NotWhitelisted))
+    );
+
+    // Add to whitelist
+    client.add_to_whitelist(&creator, &wallet);
+
+    // Buy by whitelisted wallet succeeds
+    let supply = client.buy_key(&creator, &wallet, &1000i128, &None);
+    assert_eq!(supply, 1);
+
+    // Remove from whitelist
+    client.remove_from_whitelist(&creator, &wallet);
+    let buyer2 = Address::generate(&env);
+    assert_eq!(
+        client.try_buy_key(&creator, &buyer2, &1000i128, &None),
+        Err(Ok(ContractError::NotWhitelisted))
+    );
+
+    // Disable whitelist mode
+    client.disable_whitelist(&creator);
+    // Any wallet can buy now
+    let supply2 = client.buy_key(&creator, &buyer2, &1000i128, &None);
+    assert_eq!(supply2, 2);
+}
+
+#[test]
+fn test_key_burn_reduces_supply_and_balance() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let holder = Address::generate(&env);
+    client.buy_key(&creator, &holder, &1000i128, &None);
+
+    let balance_before = client.get_key_balance(&creator, &holder);
+    let supply_before = client.get_creator_supply(&creator);
+    assert_eq!(balance_before, 1);
+    assert_eq!(supply_before, 1);
+
+    // Burn with quantity > balance panics with InsufficientBalance
+    assert_eq!(
+        client.try_burn(&holder, &creator, &2u32),
+        Err(Ok(ContractError::InsufficientBalance))
+    );
+
+    // Burn 1 key
+    let new_supply = client.burn(&holder, &creator, &1u32);
+    assert_eq!(new_supply, 0);
+
+    let balance_after = client.get_key_balance(&creator, &holder);
+    let supply_after = client.get_creator_supply(&creator);
+    assert_eq!(balance_after, 0);
+    assert_eq!(supply_after, 0);
+}
+
+// ===========================================================================
+// #780 — Key metadata initialisation and update tests
+// ===========================================================================
+
+#[test]
+fn test_initialise_key_stores_metadata() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Crypto enthusiast"),
+        avatar_uri: String::from_str(&env, "https://example.com/alice.png"),
+    };
+
+    client.initialise_key(&creator, &metadata);
+
+    let stored = client.get_key_metadata(&creator);
+    assert_eq!(stored, Some(metadata));
+}
+
+#[test]
+fn test_initialise_key_panics_on_duplicate() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+
+    client.initialise_key(&creator, &metadata);
+
+    // Second initialisation should fail
+    let result = client.try_initialise_key(&creator, &metadata);
+    assert_eq!(result, Err(Ok(ContractError::KeyAlreadyInitialised)));
+}
+
+#[test]
+fn test_initialise_key_panics_on_empty_name() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, ""),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+
+    let result = client.try_initialise_key(&creator, &metadata);
+    assert_eq!(result, Err(Ok(ContractError::DisplayNameEmpty)));
+}
+
+#[test]
+fn test_initialise_key_panics_on_name_too_long() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    // Create a name exceeding METADATA_NAME_MAX_LEN (64 bytes)
+    let long_name = "a".repeat((METADATA_NAME_MAX_LEN + 1) as usize);
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, &long_name),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+
+    let result = client.try_initialise_key(&creator, &metadata);
+    assert_eq!(result, Err(Ok(ContractError::NameTooLong)));
+}
+
+#[test]
+fn test_initialise_key_panics_on_unregistered_creator() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+
+    let result = client.try_initialise_key(&creator, &metadata);
+    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+}
+
+#[test]
+fn test_update_metadata_updates_provided_fields() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let initial = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Old bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/old.png"),
+    };
+    client.initialise_key(&creator, &initial);
+
+    // Update only bio and avatar_uri, leave name unchanged
+    client.update_metadata(
+        &creator,
+        &None,
+        &Some(String::from_str(&env, "New bio")),
+        &Some(String::from_str(&env, "https://example.com/new.png")),
+    );
+
+    let stored = client.get_key_metadata(&creator).unwrap();
+    assert_eq!(stored.name, String::from_str(&env, "Alice"));
+    assert_eq!(stored.bio, String::from_str(&env, "New bio"));
+    assert_eq!(
+        stored.avatar_uri,
+        String::from_str(&env, "https://example.com/new.png")
+    );
+}
+
+#[test]
+fn test_update_metadata_none_fields_unchanged() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let initial = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+    client.initialise_key(&creator, &initial);
+
+    // Update with all None — should be a no-op
+    client.update_metadata(&creator, &None, &None, &None);
+
+    let stored = client.get_key_metadata(&creator).unwrap();
+    assert_eq!(stored, initial);
+}
+
+#[test]
+fn test_update_metadata_panics_on_uninitialised_key() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    // Metadata not initialised — should fail
+    let result = client.try_update_metadata(
+        &creator,
+        &Some(String::from_str(&env, "New name")),
+        &None,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+}
+
+#[test]
+fn test_update_metadata_panics_on_name_too_long() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let initial = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+    client.initialise_key(&creator, &initial);
+
+    let long_name = "b".repeat((METADATA_NAME_MAX_LEN + 1) as usize);
+    let result = client.try_update_metadata(
+        &creator,
+        &Some(String::from_str(&env, &long_name)),
+        &None,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
+}
+
+#[test]
+fn test_update_metadata_panics_on_bio_too_long() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let initial = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+    client.initialise_key(&creator, &initial);
+
+    let long_bio = "c".repeat((METADATA_BIO_MAX_LEN + 1) as usize);
+    let result = client.try_update_metadata(
+        &creator,
+        &None,
+        &Some(String::from_str(&env, &long_bio)),
+        &None,
+    );
+    assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
+}
+
+#[test]
+fn test_update_metadata_panics_on_avatar_uri_too_long() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let initial = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+    client.initialise_key(&creator, &initial);
+
+    let long_uri = "d".repeat((METADATA_AVATAR_URI_MAX_LEN + 1) as usize);
+    let result = client.try_update_metadata(
+        &creator,
+        &None,
+        &None,
+        &Some(String::from_str(&env, &long_uri)),
+    );
+    assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
+}
+
+#[test]
+fn test_update_metadata_panics_on_non_creator_caller() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let initial = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        bio: String::from_str(&env, "Bio"),
+        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+    };
+    client.initialise_key(&creator, &initial);
+
+    let attacker = Address::generate(&env);
+    let result = client.try_update_metadata(
+        &attacker,
+        &Some(String::from_str(&env, "Hacked")),
+        &None,
+        &None,
+    );
+    // Non-creator caller: attacker has no metadata so this returns NotRegistered
+    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+}
+
+#[test]
+fn test_get_key_metadata_returns_none_for_uninitialised() {
+    let (env, client, _admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let result = client.get_key_metadata(&creator);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_holding_cap_buy_transfer_and_update() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    // Only a registered creator may set the cap, within the admin bound.
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_set_holding_cap(&attacker, &1),
+        Err(Ok(ContractError::NotRegistered))
+    );
+    client.set_holding_cap_bound(&admin, &5);
+    assert_eq!(
+        client.try_set_holding_cap(&creator, &6),
+        Err(Ok(ContractError::InvalidHolderCap))
+    );
+    assert_eq!(
+        client.try_set_holding_cap(&creator, &0),
+        Err(Ok(ContractError::InvalidHolderCap))
+    );
+    assert_eq!(client.get_holding_cap(&creator), None);
+    client.set_holding_cap(&creator, &1);
+    assert_eq!(client.get_holding_cap(&creator), Some(1));
+
+    // At-cap buy is rejected.
+    let buyer = Address::generate(&env);
+    client.buy_key(&creator, &buyer, &1000i128, &None);
+    assert_eq!(
+        client.try_buy_key(&creator, &buyer, &1000i128, &None),
+        Err(Ok(ContractError::WalletCapExceeded))
+    );
+
+    // Over-cap transfer is rejected.
+    let other = Address::generate(&env);
+    client.buy_key(&creator, &other, &1000i128, &None);
+    assert_eq!(
+        client.try_transfer_keys(&creator, &buyer, &other, &1),
+        Err(Ok(ContractError::WalletCapExceeded))
+    );
+
+    // Raising the cap allows the transfer.
+    client.set_holding_cap(&creator, &2);
+    client.transfer_keys(&creator, &buyer, &other, &1);
+    assert_eq!(client.get_key_balance(&creator, &other), 2);
+}
+
+#[test]
+fn test_early_access_mode_whitelist_and_permissions() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let wallet = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_set_early_access_mode(&attacker, &creator, &true),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    assert_eq!(
+        client.try_update_whitelist(&attacker, &creator, &wallet, &true),
+        Err(Ok(ContractError::Unauthorized))
+    );
+
+    // Non-whitelisted wallet is rejected during early access.
+    client.set_early_access_mode(&creator, &creator, &true);
+    assert_eq!(
+        client.try_buy_key(&creator, &wallet, &1000i128, &None),
+        Err(Ok(ContractError::NotWhitelisted))
+    );
+
+    // Admin can whitelist; the wallet can then buy.
+    assert!(!client.get_wallet_whitelist_status(&creator, &wallet));
+    client.update_whitelist(&admin, &creator, &wallet, &true);
+    assert!(client.get_wallet_whitelist_status(&creator, &wallet));
+    assert_eq!(client.buy_key(&creator, &wallet, &1000i128, &None), 1);
+
+    // Removal blocks again; disabling the mode opens trading to everyone.
+    client.update_whitelist(&creator, &creator, &wallet, &false);
+    assert!(!client.get_wallet_whitelist_status(&creator, &wallet));
+    assert_eq!(
+        client.try_buy_key(&creator, &wallet, &1000i128, &None),
+        Err(Ok(ContractError::NotWhitelisted))
+    );
+    client.set_early_access_mode(&admin, &creator, &false);
+    assert_eq!(client.buy_key(&creator, &wallet, &1000i128, &None), 2);
+}
+
+#[test]
+fn test_registered_referral_first_trade_fee_and_claim() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let referee = Address::generate(&env);
+    let referrer = Address::generate(&env);
+
+    assert_eq!(
+        client.try_register_referral(&referee, &referee),
+        Err(Ok(ContractError::InvalidReferrer))
+    );
+    client.set_referral_fee_bps(&admin, &2000);
+    client.register_referral(&referee, &referrer);
+    assert_eq!(client.get_referrer(&referee), Some(referrer.clone()));
+    assert_eq!(
+        client.try_register_referral(&referee, &referrer),
+        Err(Ok(ContractError::AlreadyRegistered))
+    );
+
+    // First trade: price 100, protocol fee 10, referrer gets 20% = 2.
+    client.buy_key(&creator, &referee, &1000i128, &None);
+    assert_eq!(client.get_referral_earnings(&referrer), 2);
+
+    // Subsequent trades pay no referral fee.
+    client.buy_key(&creator, &referee, &1000i128, &None);
+    assert_eq!(client.get_referral_earnings(&referrer), 2);
+
+    // Claim returns the accumulated amount and resets the balance.
+    assert_eq!(client.claim_referral_rewards(&referrer), 2);
+    assert_eq!(client.get_referral_earnings(&referrer), 0);
+    assert_eq!(
+        client.try_claim_referral_rewards(&referrer),
+        Err(Ok(ContractError::NotPositiveAmount))
+    );
+}
