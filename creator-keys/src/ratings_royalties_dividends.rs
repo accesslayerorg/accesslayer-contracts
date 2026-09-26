@@ -1,8 +1,6 @@
 #![no_std]
-use soroban_sdk::{
-    contracttype, symbol_short, Address, Env, Symbol,
-};
 use crate::ContractError;
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -66,15 +64,15 @@ pub fn record_key_rating(
     let summary_key = DevPeterDataKey::KeyRating(creator.clone());
     let rater_key = DevPeterDataKey::HolderRating(creator.clone(), rater.clone());
 
-    let mut summary: KeyRatingSummary = env
-        .storage()
-        .instance()
-        .get(&summary_key)
-        .unwrap_or(KeyRatingSummary {
-            total_score: 0,
-            count: 0,
-            average_score_scaled: 0,
-        });
+    let mut summary: KeyRatingSummary =
+        env.storage()
+            .instance()
+            .get(&summary_key)
+            .unwrap_or(KeyRatingSummary {
+                total_score: 0,
+                count: 0,
+                average_score_scaled: 0,
+            });
 
     let previous_rating: Option<u32> = env.storage().instance().get(&rater_key);
 
@@ -125,9 +123,10 @@ pub fn set_creator_royalty(
         // Max 25% royalty bound
         return Err(ContractError::InvalidFeeConfig);
     }
-    env.storage()
-        .instance()
-        .set(&DevPeterDataKey::CreatorRoyaltyBps(creator.clone()), &royalty_bps);
+    env.storage().instance().set(
+        &DevPeterDataKey::CreatorRoyaltyBps(creator.clone()),
+        &royalty_bps,
+    );
     Ok(())
 }
 
@@ -173,15 +172,15 @@ pub fn distribute_holder_dividends(
     }
 
     let pool_key = DevPeterDataKey::DividendPool(creator.clone());
-    let mut pool: DividendPoolState = env
-        .storage()
-        .instance()
-        .get(&pool_key)
-        .unwrap_or(DividendPoolState {
-            total_distributed: 0,
-            current_cycle: 0,
-            last_snapshot_ledger: env.ledger().sequence(),
-        });
+    let mut pool: DividendPoolState =
+        env.storage()
+            .instance()
+            .get(&pool_key)
+            .unwrap_or(DividendPoolState {
+                total_distributed: 0,
+                current_cycle: 0,
+                last_snapshot_ledger: env.ledger().sequence(),
+            });
 
     pool.total_distributed += amount;
     pool.current_cycle += 1;
@@ -225,7 +224,9 @@ pub fn claim_holder_dividend(
         return Err(ContractError::NoDividendClaimable);
     }
 
-    env.storage().instance().set(&claim_key, &pool.current_cycle);
+    env.storage()
+        .instance()
+        .set(&claim_key, &pool.current_cycle);
 
     env.events().publish(
         (DIVIDEND_CLAIMED_EVENT, creator.clone(), holder.clone()),
@@ -236,11 +237,7 @@ pub fn claim_holder_dividend(
 }
 
 /// #943: Get dynamic fee percentage based on 24h rolling volume.
-pub fn calculate_dynamic_fee(
-    env: &Env,
-    creator: &Address,
-    rolling_24h_volume: i128,
-) -> u32 {
+pub fn calculate_dynamic_fee(env: &Env, creator: &Address, rolling_24h_volume: i128) -> u32 {
     let config: VolumeFeeConfig = env
         .storage()
         .instance()
