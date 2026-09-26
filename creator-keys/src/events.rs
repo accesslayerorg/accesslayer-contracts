@@ -879,6 +879,20 @@ pub fn trading_paused_topics(creator: &Address) -> (Symbol, Address) {
     (TRADING_PAUSED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for a key trading pause with a fixed expiry.
+pub const PAUSE_EXPIRY_SET_EVENT_NAME: Symbol = symbol_short!("pp_exp");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PauseExpirySetEvent {
+    pub key_id: Address,
+    pub pause_expires_at: u32,
+}
+
+pub fn pause_expiry_set_topics(key_id: &Address) -> (Symbol, Address) {
+    (PAUSE_EXPIRY_SET_EVENT_NAME, key_id.clone())
+}
+
 // --- Global emergency pause events (#784) ---
 
 /// Event name emitted when the protocol-wide emergency pause activates.
