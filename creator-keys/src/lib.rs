@@ -7,6 +7,8 @@ use soroban_sdk::{
 };
 
 pub mod events;
+pub mod ratings_royalties_dividends;
+
 pub mod test_feature_impl;
 pub mod test_new_features;
 
