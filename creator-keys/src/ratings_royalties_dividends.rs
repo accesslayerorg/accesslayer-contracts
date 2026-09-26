@@ -53,7 +53,7 @@ pub fn record_key_rating(
 ) -> Result<KeyRatingSummary, ContractError> {
     rater.require_auth();
 
-    if score < 1 || score > 5 {
+    if !(1..=5).contains(&score) {
         return Err(ContractError::Unauthorized);
     }
     if rater_balance == 0 {
