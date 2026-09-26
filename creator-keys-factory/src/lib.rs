@@ -233,9 +233,15 @@ mod test {
 
     fn setup(env: &Env) -> (CreatorKeysFactoryClient<'_>, Address) {
         env.mock_all_auths();
+
+        // Upload a valid minimal Wasm module to satisfy deploy_v2 requirements during tests
+        let wasm_hash = env
+            .deployer()
+            .upload_contract_wasm(&[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+
         let client = CreatorKeysFactoryClient::new(env, &env.register(CreatorKeysFactory, ()));
         let admin = Address::generate(env);
-        client.initialise(&admin, &BytesN::from_array(env, &[7; 32]));
+        client.initialise(&admin, &wasm_hash);
         (client, admin)
     }
 
@@ -262,8 +268,11 @@ mod test {
             Err(Ok(FactoryError::Unauthorized))
         );
         client.set_creator_allowed(&admin, &stranger, &true);
+        let wasm_hash = env
+            .deployer()
+            .upload_contract_wasm(&[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
         assert_eq!(
-            client.try_initialise(&admin, &BytesN::from_array(&env, &[7; 32])),
+            client.try_initialise(&admin, &wasm_hash),
             Err(Ok(FactoryError::AlreadyInitialised))
         );
     }
