@@ -32,6 +32,7 @@ fn test_get_protocol_treasury_share_bps_returns_configured_value() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
@@ -52,6 +53,7 @@ fn test_get_protocol_treasury_share_bps_tracks_configuration_updates() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     // First configuration: 2000 bps protocol share
     client.set_fee_config(&admin, &8000u32, &2000u32);
@@ -78,6 +80,7 @@ fn test_get_protocol_treasury_share_bps_is_read_only() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     client.set_fee_config(&admin, &7000u32, &3000u32);
 
@@ -106,6 +109,7 @@ fn test_get_protocol_treasury_share_bps_explicit_basis_point_units() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     // Test: 100 bps = 1% protocol share
     client.set_fee_config(&admin, &9900u32, &100u32);

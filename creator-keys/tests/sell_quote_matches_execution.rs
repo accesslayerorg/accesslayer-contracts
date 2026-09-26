@@ -12,7 +12,7 @@ use contract_test_env::{
     test_env_with_auths,
 };
 use creator_keys::CreatorKeysContractClient;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
 
 /// Seller net proceeds implied by the same fee math used at execution time.
 fn actual_sell_proceeds(client: &CreatorKeysContractClient<'_>, price: i128) -> i128 {
@@ -22,6 +22,7 @@ fn actual_sell_proceeds(client: &CreatorKeysContractClient<'_>, price: i128) -> 
 
 /// Quote then sell at the current supply; assert quoted and actual proceeds match.
 fn assert_sell_quote_matches_execution(
+    env: &Env,
     client: &CreatorKeysContractClient<'_>,
     creator: &Address,
     holder: &Address,
@@ -55,6 +56,9 @@ fn assert_sell_quote_matches_execution(
         "difference between quoted and actual proceeds must be zero before sell"
     );
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     let supply_after = client.sell_key(creator, holder, &None);
     assert_eq!(
         supply_after,
@@ -97,7 +101,7 @@ fn test_sell_quote_proceeds_match_execution_at_supply_one() {
     let creator = register_test_creator(&env, &client, "alice");
     let holder = setup_holder_with_supply(&env, &client, &creator, 1);
 
-    assert_sell_quote_matches_execution(&client, &creator, &holder, 1);
+    assert_sell_quote_matches_execution(&env, &client, &creator, &holder, 1);
 }
 
 #[test]
@@ -109,7 +113,7 @@ fn test_sell_quote_proceeds_match_execution_at_supply_five() {
     let creator = register_test_creator(&env, &client, "bob");
     let holder = setup_holder_with_supply(&env, &client, &creator, 5);
 
-    assert_sell_quote_matches_execution(&client, &creator, &holder, 5);
+    assert_sell_quote_matches_execution(&env, &client, &creator, &holder, 5);
 }
 
 #[test]
@@ -137,6 +141,9 @@ fn test_buy_then_sell_has_symmetric_price_impact_after_fees() {
     assert_eq!(sell_quote.price, expected_sell_price);
     assert_eq!(sell_quote.total_amount, expected_sell_proceeds);
 
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &trader, &None);
     let final_buy_quote = client.get_buy_quote(&creator);
     assert_eq!(client.get_total_key_supply(&creator), starting_supply);

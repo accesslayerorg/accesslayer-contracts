@@ -45,6 +45,7 @@ Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs#L50-L83) as `p
 | `31` | `WhitelistOnly` | Buyer address is not in creator whitelist during whitelist window | Triggered in [`check_whitelist`](../creator-keys/src/lib.rs#L683) when whitelist is active and buyer is not allowed. |
 | `32` | `WhitelistTooLarge` | Whitelist configuration address count exceeds maximum limit | Triggered in [`validate_whitelist_config`](../creator-keys/src/lib.rs#L637) when address count `> MAX_WHITELIST_SIZE`. |
 | `33` | `AirdropRecipientLimitExceeded` | Airdrop recipient list length exceeds max limit per transaction | Triggered in [`airdrop_keys`](../creator-keys/src/lib.rs#L1730) when `recipients.len() > MAX_AIRDROP_RECIPIENT_LIMIT`. |
+| `40` | `DisplayNameEmpty` | Creator display handle is blank (empty string or ASCII whitespace only) | Triggered in [`validate_creator_handle`](../creator-keys/src/lib.rs) before the length and character checks when the handle contains no non-whitespace bytes. |
 
 ---
 
@@ -63,6 +64,95 @@ Defined in [`creator-keys/src/events.rs`](../creator-keys/src/events.rs#L366-L37
 | `26` | `PollExpired` | Voting attempted on a poll after its expiration timestamp | Triggered in [`vote_poll`](../creator-keys/src/events.rs#L523) when `current_ledger_time > expires_at`. |
 | `27` | `NotAHolder` | Voter does not hold any keys for the poll creator (`balance == 0`) | Triggered in [`vote_poll`](../creator-keys/src/events.rs#L532) when voter key balance is zero. |
 | `28` | `InvalidOption` | Selected option index is out of bounds for the target poll | Triggered in [`vote_poll`](../creator-keys/src/events.rs#L526) when `option_index >= options.len()`. |
+| `29` | `QuorumNotReached` | Proposal close attempted when total voting weight participation is below the creator's configured quorum threshold | Triggered in [`close_poll`](../creator-keys/src/events.rs) when `total_voting_weight * 10_000 < circulating_supply * quorum_bps`. |
+| `30` | `QuorumTooHigh` | Quorum threshold basis points exceeds maximum limit (`> 5000` / 50%) | Triggered in [`set_quorum_bps`](../creator-keys/src/lib.rs) when `quorum_bps > 5000`. |
+| `31` | `QuorumTooLow` | Quorum threshold basis points is below minimum limit (`< 100` / 1%) | Triggered in [`set_quorum_bps`](../creator-keys/src/lib.rs) when `quorum_bps < 100`. |
+| `32` | `Unauthorized` | Caller lacks required creator authorization | Triggered in [`set_quorum_bps`](../creator-keys/src/lib.rs) when caller is not the registered creator. |
+| `33` | `AlreadyClosed` | Poll or proposal has already been closed | Triggered in [`close_poll`](../creator-keys/src/events.rs) or [`cast_vote`](../creator-keys/src/events.rs) when `poll.closed == true`. |
+
+---
+
+## `ReputationError` Reference (Creator Reputation)
+
+Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs) as `pub enum ReputationError`.
+
+Returned by [`get_reputation`](../creator-keys/src/lib.rs) and
+[`apply_governance_violation`](../creator-keys/src/lib.rs).
+
+| Code | Name | Description | Trigger Condition |
+|:---:|---|---|---|
+| `1` | `Overflow` | Arithmetic overflow while accumulating a reputation delta | Triggered when a score update would exceed `i128` bounds. |
+| `2` | `NotRegistered` | The creator address is not registered | Triggered when reading or updating reputation for an unknown creator. |
+| `3` | `Unauthorized` | The caller is not the protocol admin | Triggered in `apply_governance_violation` when the caller is not the admin. |
+| `4` | `NotPositiveAmount` | The supplied violation penalty is not positive | Triggered in `apply_governance_violation` when `penalty <= 0`. |
+
+The zero floor never surfaces as an error: a negative delta that would push the
+score below zero saturates at zero instead of reverting.
+
+---
+
+## `AllowanceError` Reference (Key Transfer Allowances)
+
+Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs) as `pub enum AllowanceError`.
+
+Returned by [`approve`](../creator-keys/src/lib.rs) and
+[`transfer_from`](../creator-keys/src/lib.rs).
+
+| Code | Name | Description | Trigger Condition |
+|:---:|---|---|---|
+| `1` | `Overflow` | Arithmetic overflow while decrementing a balance or allowance | Triggered on `u32` balance or allowance arithmetic overflow. |
+| `2` | `ZeroAmount` | The requested transfer amount was zero | Triggered in `transfer_from` when `amount == 0`. |
+| `3` | `SelfTransfer` | The spender attempted to transfer to itself | Triggered in `transfer_from` when `from == to`. |
+| `4` | `InsufficientBalance` | The owner's live (non-frozen) key balance is smaller than the amount | Triggered in `transfer_from` when the spendable balance is below `amount`. |
+| `5` | `InsufficientAllowance` | The spender's approved allowance is smaller than the amount | Triggered in `transfer_from` when the stored allowance is below `amount`. |
+| `6` | `NotRegistered` | The creator address is not registered | Triggered when `key_id` has no creator profile. |
+| `7` | `ProtocolPaused` | The contract is paused | Triggered in `transfer_from` when the pause flag is set. |
+| `8` | `FrozenPosition` | The sender's keys are frozen and cannot be transferred | Triggered when the live balance is reduced below `amount` by frozen keys. |
+| `9` | `HoldingCapExceeded` | The recipient would exceed the creator's per-wallet holding cap | Triggered when the post-transfer recipient balance exceeds the cap. |
+| `10` | `ZeroAddress` | The recipient address was the zero address | Triggered in `transfer_from` when `to` is the zero address. |
+| `11` | `CooldownActive` | The sender is still inside the creator's post-buy cooldown window | Triggered in `transfer_from` when the sender's last buy is within the creator's `cooldown_ledgers`, mirroring `transfer_keys`. |
+
+`transfer_from` enforces the same invariants as the direct `transfer_keys`
+path, including the cooldown window, so a spender cannot route keys around a
+creator's protections.
+
+---
+
+## `SellTaxError` Reference (Sell Tax / Buyback)
+
+Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs) as `pub enum SellTaxError`.
+
+Returned by [`set_sell_tax_bps`](../creator-keys/src/lib.rs).
+
+| Code | Name | Description | Trigger Condition |
+|:---:|---|---|---|
+| `1` | `Unauthorized` | The caller is not the creator owning the key | Triggered when `caller != creator`. |
+| `2` | `NotRegistered` | The creator address is not registered | Triggered when the creator has no profile. |
+| `3` | `TaxExceedsMax` | The requested tax exceeds the protocol ceiling | Triggered when `tax_bps > MAX_SELL_TAX_BPS`. |
+| `4` | `Overflow` | Arithmetic overflow while accruing the tax into the buyback pool | Triggered on `i128` buyback balance overflow. |
+
+---
+
+## `EscalationError` Reference (Poll Quorum Escalation)
+
+Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs) as `pub enum EscalationError`.
+
+Returned by [`set_escalation_config`](../creator-keys/src/lib.rs),
+[`evaluate_poll_escalation`](../creator-keys/src/lib.rs), and
+[`get_escalation_status`](../creator-keys/src/lib.rs).
+
+| Code | Name | Description | Trigger Condition |
+|:---:|---|---|---|
+| `1` | `Unauthorized` | The caller is not the protocol admin | Triggered in `set_escalation_config`. |
+| `2` | `PollNotFound` | The poll does not exist for the creator | Triggered when the poll record is missing. |
+| `3` | `AlreadyClosed` | The poll has already been closed | Triggered in `evaluate_poll_escalation` when `poll.closed`. |
+| `4` | `Overflow` | Arithmetic overflow while extending a deadline | Triggered when `expires_at + extension_ledgers` overflows `u32`. |
+| `5` | `TooEarlyToEscalate` | The proposal is not close enough to its deadline to be evaluated | Triggered when the ledger is more than `ESCALATION_EVALUATION_WINDOW_LEDGERS` before the deadline. |
+| `6` | `BelowEscalationThreshold` | Participation is not within the escalation threshold of quorum | Triggered when participation is below `threshold_bps` of the quorum requirement, or when quorum was never configured, or when the proposal has already reached quorum. |
+| `7` | `MaxExtensionsReached` | The proposal already consumed its maximum number of extensions | Triggered when `extensions_used >= max_extensions`. |
+| `8` | `EscalationDisabled` | Quorum escalation is disabled | Triggered when no config is set, or when `max_extensions == 0`. |
+| `9` | `InvalidEscalationConfig` | The supplied escalation configuration is invalid | Triggered when a bound in `EscalationConfig` is violated. |
+| `10` | `NotRegistered` | The creator address is not registered | Triggered when the creator has no profile. |
 
 ---
 
@@ -136,6 +226,7 @@ try {
 - `AlreadyRegistered` (Code 1) guards against re-registering an existing creator. Off-chain apps should call `is_registered(creator)` or `get_creator(creator)` prior to registration.
 - `NotRegistered` (Code 2) applies to trades, quotes, and management. Callers must register creators prior to key trading.
 - `HandleTooShort` (12), `HandleTooLong` (13), and `InvalidHandleCharacter` (14) are deterministic handle validation checks. Validate handles client-side (`/^[a-z0-9_]{3,32}$/`) before submission.
+- `DisplayNameEmpty` (40) is checked ahead of (12) and (14): a handle that is empty or entirely ASCII whitespace reports this rather than `HandleTooShort` or `InvalidHandleCharacter`.
 
 ### Fees and Pricing
 - `FeeConfigNotSet` (7) and `KeyPriceNotSet` (5) are initialization gates. Detect these and inform users that pricing/fees are not yet configured.

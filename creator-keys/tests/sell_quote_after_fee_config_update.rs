@@ -16,6 +16,7 @@ fn test_sell_quote_reflects_updated_fee_config() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_key_price(&admin, &1000);
     // Original fee config: 90/10 split
     client.set_fee_config(&admin, &9000, &1000);
@@ -61,6 +62,7 @@ fn test_sell_quote_total_amount_updates_after_fee_config_change() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_key_price(&admin, &500);
     client.set_fee_config(&admin, &9000, &1000);
 

@@ -26,6 +26,7 @@ fn test_is_protocol_config_initialized_returns_true_after_fee_config_is_set() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
@@ -40,6 +41,7 @@ fn test_is_protocol_config_initialized_is_read_only() {
     let contract_id = env.register(CreatorKeysContract, ());
     let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
 
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
@@ -56,7 +58,7 @@ fn test_protocol_config_state_is_unchanged_after_rejected_reinitialization() {
     let (client, _) = register_creator_keys(&env);
     let admin = set_protocol_fee_bps(&env, &client, 9000u32, 1000u32);
 
-    let result = client.try_set_fee_config(&admin, &8000u32, &1000u32);
+    let result = client.try_set_fee_config(&admin, &8000u32, &3000u32);
     assert_eq!(result, Err(Ok(ContractError::InvalidFeeConfig)));
 
     let config = client.get_fee_config().unwrap();

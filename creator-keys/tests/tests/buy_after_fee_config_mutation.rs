@@ -20,6 +20,7 @@ fn test_buy_execution_applies_updated_protocol_fee() {
 
     let admin = soroban_sdk::Address::generate(&env);
     client.set_key_price(&admin, &1000);
+    client.set_protocol_admin(&admin, &admin);
     // Original fee config: 90/10 split
     client.set_fee_config(&admin, &9000, &1000);
 
@@ -63,6 +64,7 @@ fn test_buy_execution_fee_matches_quote_after_fee_config_update() {
 
     let admin = soroban_sdk::Address::generate(&env);
     client.set_key_price(&admin, &500);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &9000, &1000);
 
     let creator = register_test_creator(&env, &client, "bob");

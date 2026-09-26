@@ -16,6 +16,7 @@ fn test_initialization_event_admin_matches_argument() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "test_handle");
 
@@ -50,6 +51,7 @@ fn test_initialization_event_protocol_fee_bps_matches_argument() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "test_handle");
 
@@ -89,6 +91,7 @@ fn test_initialization_event_protocol_fee_recipient_matches_argument() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "test_handle");
 
@@ -126,6 +129,7 @@ fn test_initialization_event_initialized_at_ledger_matches_current() {
     let (client, _) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "test_handle");
 

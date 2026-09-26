@@ -80,6 +80,7 @@ pub fn set_protocol_fee_bps(
     protocol_bps: u32,
 ) -> Address {
     let admin = Address::generate(env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     admin
 }
@@ -93,6 +94,7 @@ pub fn set_pricing_and_fees(
     protocol_bps: u32,
 ) -> Address {
     let admin = Address::generate(env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_key_price(&admin, &key_price);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     admin
@@ -139,6 +141,7 @@ pub fn register_test_creator_with_fee_config(
     protocol_bps: u32,
 ) -> Address {
     let admin = Address::generate(env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &creator_bps, &protocol_bps);
     let creator = Address::generate(env);
     client.register_creator(
