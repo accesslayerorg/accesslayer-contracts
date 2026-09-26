@@ -253,10 +253,10 @@ pub enum AllowanceError {
     HoldingCapExceeded = 9,
     /// The spender address was the zero address.
     ZeroAddress = 10,
-    /// The source wallet is inside the flash-loan guard window.
-    FlashLoanDetected = 11,
     /// The sender is still inside the creator's post-buy cooldown window.
     CooldownActive = 11,
+    /// The source wallet is inside the flash-loan guard window.
+    FlashLoanDetected = 12,
 }
 
 /// Errors raised by the sell-tax entrypoints
