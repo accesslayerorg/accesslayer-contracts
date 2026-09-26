@@ -4,6 +4,7 @@ pub mod quote_view_errors;
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Vec};
 
 pub mod events;
+pub mod acl_limits_merge_sunset;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
