@@ -206,6 +206,13 @@ pub enum CooldownError {
     CooldownTooLong = 2,
     /// The creator address is not registered.
     NotRegistered = 3,
+    /// A trade (buy or sell) was blocked because the per-wallet trade cooldown
+    /// window has not yet elapsed since the last trade. The number of seconds
+    /// remaining is emitted in the accompanying `CooldownViolationEvent`.
+    CooldownViolation = 4,
+    /// The requested cooldown duration exceeds the allowed maximum of
+    /// [`MAX_TRADE_COOLDOWN_SECS`].
+    DurationTooLong = 5,
 }
 
 /// Errors raised by the reputation-scoring entrypoints
@@ -785,6 +792,16 @@ pub mod constants {
             DataKey::BuyCooldown(creator.clone())
         }
 
+        /// Storage key for the per-creator trade cooldown duration in seconds (issue #974).
+        pub fn cooldown_duration(creator: &Address) -> DataKey {
+            DataKey::CooldownDuration(creator.clone())
+        }
+
+        /// Storage key for the (creator, wallet) last-trade Unix timestamp (issue #974).
+        pub fn last_trade_timestamp(creator: &Address, wallet: &Address) -> DataKey {
+            DataKey::LastTradeTimestamp(creator.clone(), wallet.clone())
+        }
+
         /// Storage key for a creator's deprecation marker; value is `buyback_price_per_key` (i128).
         pub fn deprecated_key(creator: &Address) -> DataKey {
             DataKey::DeprecatedKey(creator.clone())
@@ -956,6 +973,19 @@ pub mod constants {
 
 /// Stable, non-optional view of the protocol fee configuration.
 ///
+/// Returned by [`CreatorKeysContract::get_cooldown_status`] (issue #974).
+/// Describes whether a wallet is currently within the per-wallet trade cooldown
+/// window for a creator's key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownStatus {
+    /// `true` when the wallet is inside the cooldown window and trades are blocked.
+    pub active: bool,
+    /// Unix timestamp at which the cooldown expires and trading resumes.
+    /// `0` when no cooldown is active or none is configured for this creator.
+    pub expires_at: u64,
+}
+
 /// Returned by [`CreatorKeysContract::get_protocol_fee_view`] for indexer-friendly consumption.
 /// When `is_configured` is `false`, both bps fields are `0` and no fee config has been stored.
 #[derive(Clone)]
@@ -1283,6 +1313,11 @@ pub const MAX_LAUNCH_PENALTY_BPS: u32 = 2_000;
 /// restriction (the default when no cooldown has been configured).
 pub const MAX_BUY_COOLDOWN_LEDGERS: u32 = 720;
 
+/// Maximum allowed trade cooldown duration in seconds for
+/// [`CreatorKeysContract::set_cooldown`] (issue #974).
+/// 86 400 seconds = 24 hours.
+pub const MAX_TRADE_COOLDOWN_SECS: u64 = 86_400;
+
 /// Maximum allowed per-transaction buy quantity limit.
 pub const MAX_BUY_QUANTITY_LIMIT: u32 = 10_000;
 
@@ -1591,6 +1626,13 @@ pub enum DataKey {
     BuybackPoolAddress,
     /// Protocol-wide poll quorum-escalation configuration.
     EscalationConfig,
+    /// Per-creator trade cooldown duration in seconds (issue #974).
+    /// A value of `0` (or absent) means no cooldown is configured.
+    /// Set via `set_cooldown`. Applies to both buy and sell.
+    CooldownDuration(Address),
+    /// (creator, wallet) -> Unix timestamp of the wallet's most recent trade
+    /// (buy or sell) for this creator (issue #974).
+    LastTradeTimestamp(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -4552,6 +4594,41 @@ impl CreatorKeysContract {
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
         assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
+        // Enforce per-wallet trade cooldown (issue #974): check timestamp-based
+        // cooldown before any price or balance changes.
+        {
+            let duration_secs: u64 = env
+                .storage()
+                .persistent()
+                .get(&constants::storage::cooldown_duration(&creator))
+                .unwrap_or(0);
+            if duration_secs > 0 {
+                if let Some(last_ts) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, u64>(&constants::storage::last_trade_timestamp(
+                        &creator, &buyer,
+                    ))
+                {
+                    let now = env.ledger().timestamp();
+                    let expires_at = last_ts.saturating_add(duration_secs);
+                    if now < expires_at {
+                        let seconds_remaining = expires_at - now;
+                        env.events().publish(
+                            events::cooldown_violation_topics(&creator, &buyer),
+                            events::CooldownViolationEvent {
+                                wallet: buyer.clone(),
+                                creator_id: creator.clone(),
+                                expires_at,
+                                seconds_remaining,
+                            },
+                        );
+                        return Err(ContractError::CooldownActive);
+                    }
+                }
+            }
+        }
+
         let auction_config_key = constants::storage::auction_config(&creator);
         let mut auction_config: Option<AuctionConfig> =
             env.storage().persistent().get(&auction_config_key);
@@ -4749,6 +4826,15 @@ impl CreatorKeysContract {
                 .set(&last_buy_key, &env.ledger().timestamp());
             extend_key_ttl_to_full_window(&env, &last_buy_key);
 
+            // Update the per-wallet last-trade timestamp used by the trade
+            // cooldown guard (issue #974).
+            let last_trade_key =
+                constants::storage::last_trade_timestamp(&creator, &buyer);
+            env.storage()
+                .persistent()
+                .set(&last_trade_key, &env.ledger().timestamp());
+            extend_key_ttl_to_full_window(&env, &last_trade_key);
+
             total_price = total_price
                 .checked_add(key_price)
                 .ok_or(ContractError::Overflow)?;
@@ -4937,6 +5023,41 @@ impl CreatorKeysContract {
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
         assert_whitelist_allows_buy(&env, &profile, &buyer)?;
+
+        // Enforce per-wallet trade cooldown (issue #974): check timestamp-based
+        // cooldown before any price or balance changes.
+        {
+            let duration_secs: u64 = env
+                .storage()
+                .persistent()
+                .get(&constants::storage::cooldown_duration(&creator))
+                .unwrap_or(0);
+            if duration_secs > 0 {
+                if let Some(last_ts) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, u64>(&constants::storage::last_trade_timestamp(
+                        &creator, &buyer,
+                    ))
+                {
+                    let now = env.ledger().timestamp();
+                    let expires_at = last_ts.saturating_add(duration_secs);
+                    if now < expires_at {
+                        let seconds_remaining = expires_at - now;
+                        env.events().publish(
+                            events::cooldown_violation_topics(&creator, &buyer),
+                            events::CooldownViolationEvent {
+                                wallet: buyer.clone(),
+                                creator_id: creator.clone(),
+                                expires_at,
+                                seconds_remaining,
+                            },
+                        );
+                        return Err(ContractError::CooldownActive);
+                    }
+                }
+            }
+        }
 
         let auction_config_key = constants::storage::auction_config(&creator);
         let mut auction_config: Option<AuctionConfig> =
@@ -5155,6 +5276,14 @@ impl CreatorKeysContract {
             .persistent()
             .set(&last_buy_key, &env.ledger().timestamp());
         extend_key_ttl_to_full_window(&env, &last_buy_key);
+
+        // Update the per-wallet last-trade timestamp used by the trade
+        // cooldown guard (issue #974).
+        let last_trade_key = constants::storage::last_trade_timestamp(&creator, &buyer);
+        env.storage()
+            .persistent()
+            .set(&last_trade_key, &env.ledger().timestamp());
+        extend_key_ttl_to_full_window(&env, &last_trade_key);
 
         // Deduct the protocol trade fee before computing the creator payout so
         // the fee collector is paid ahead of every other participant. A share
@@ -5392,6 +5521,41 @@ impl CreatorKeysContract {
             }
         }
 
+        // Enforce per-wallet trade cooldown (issue #974): check timestamp-based
+        // cooldown before any price or balance changes.
+        {
+            let duration_secs: u64 = env
+                .storage()
+                .persistent()
+                .get(&constants::storage::cooldown_duration(&creator))
+                .unwrap_or(0);
+            if duration_secs > 0 {
+                if let Some(last_ts) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, u64>(&constants::storage::last_trade_timestamp(
+                        &creator, &seller,
+                    ))
+                {
+                    let now = env.ledger().timestamp();
+                    let expires_at = last_ts.saturating_add(duration_secs);
+                    if now < expires_at {
+                        let seconds_remaining = expires_at - now;
+                        env.events().publish(
+                            events::cooldown_violation_topics(&creator, &seller),
+                            events::CooldownViolationEvent {
+                                wallet: seller.clone(),
+                                creator_id: creator.clone(),
+                                expires_at,
+                                seconds_remaining,
+                            },
+                        );
+                        return Err(ContractError::CooldownActive);
+                    }
+                }
+            }
+        }
+
         let base_price: i128 = env
             .storage()
             .persistent()
@@ -5541,6 +5705,14 @@ impl CreatorKeysContract {
             (events::SELL_EVENT_NAME, creator.clone(), seller.clone()),
             sell_event_data,
         );
+
+        // Update the per-wallet last-trade timestamp used by the trade
+        // cooldown guard (issue #974).
+        let last_trade_key = constants::storage::last_trade_timestamp(&creator, &seller);
+        env.storage()
+            .persistent()
+            .set(&last_trade_key, &env.ledger().timestamp());
+        extend_key_ttl_to_full_window(&env, &last_trade_key);
 
         record_trade_price_snapshot(&env, &creator);
 
@@ -8914,8 +9086,89 @@ impl CreatorKeysContract {
             .unwrap_or(0)
     }
 
-    /// Sets the maximum number of keys a single buy transaction may purchase
-    /// for this creator's keys.
+    // -------------------------------------------------------------------------
+    // Trade cooldown — timestamp-based, applies to both buy and sell (issue #974)
+    // -------------------------------------------------------------------------
+
+    /// Sets the per-wallet trade cooldown duration for a creator's keys.
+    ///
+    /// Once set, both `buy_key` and `sell_key` will reject trades by the same
+    /// wallet within `duration_secs` seconds of their last trade, returning
+    /// [`CooldownError::CooldownViolation`] and emitting a
+    /// [`events::COOLDOWN_VIOLATION_EVENT_NAME`] event that carries
+    /// `seconds_remaining`.
+    ///
+    /// Only the key creator may call this. `duration_secs` must be in
+    /// `0..=MAX_TRADE_COOLDOWN_SECS` (86 400 s = 24 h); values above that
+    /// return [`CooldownError::DurationTooLong`]. A value of `0` disables
+    /// the cooldown (the default when none has been configured).
+    pub fn set_cooldown(
+        env: Env,
+        key_id: Address,
+        duration_secs: u64,
+    ) -> Result<(), CooldownError> {
+        key_id.require_auth();
+        read_registered_creator_profile(&env, &key_id)
+            .map_err(|_| CooldownError::NotRegistered)?;
+        if duration_secs > MAX_TRADE_COOLDOWN_SECS {
+            return Err(CooldownError::DurationTooLong);
+        }
+        let key = constants::storage::cooldown_duration(&key_id);
+        env.storage().persistent().set(&key, &duration_secs);
+        extend_key_ttl_to_full_window(&env, &key);
+        env.events().publish(
+            events::cooldown_set_topics(&key_id),
+            events::CooldownSetEvent {
+                creator_id: key_id.clone(),
+                duration_secs,
+            },
+        );
+        Ok(())
+    }
+
+    /// Returns the cooldown status for a specific wallet on a creator's key.
+    ///
+    /// - `active`: `true` when the wallet is currently within its cooldown window.
+    /// - `expires_at`: Unix timestamp at which the cooldown expires
+    ///   (`0` when no cooldown is active or none is configured).
+    pub fn get_cooldown_status(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+    ) -> CooldownStatus {
+        let duration_secs: u64 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::cooldown_duration(&key_id))
+            .unwrap_or(0);
+
+        if duration_secs == 0 {
+            return CooldownStatus {
+                active: false,
+                expires_at: 0,
+            };
+        }
+
+        let last_ts: Option<u64> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::last_trade_timestamp(&key_id, &wallet));
+
+        match last_ts {
+            None => CooldownStatus {
+                active: false,
+                expires_at: 0,
+            },
+            Some(last) => {
+                let expires_at = last.saturating_add(duration_secs);
+                let now = env.ledger().timestamp();
+                CooldownStatus {
+                    active: now < expires_at,
+                    expires_at,
+                }
+            }
+        }
+    }
     ///
     /// Only callable by the key creator. `max_qty` must be in 1..=10 000.
     /// A value of 0 disables the limit (no per-tx cap).
