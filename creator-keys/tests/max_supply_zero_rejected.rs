@@ -1,9 +1,10 @@
-//! Unit tests for supply cap of zero rejected at creator registration (#470).
+//! Unit tests for a supply cap of zero at creator registration.
 //!
-//! Covers: Some(0) supply cap reverts at registration, no creator state is written
-//! after a failed registration, and Some(1) is accepted as the minimum valid cap.
+//! Covers: a `Some(0)` supply cap is treated as unlimited (#997) and leaves cap
+//! storage unwritten while `get_supply_info` reports cap `0` and unbounded
+//! remaining, and `Some(1)` is accepted as the minimum meaningful cap.
 
-use creator_keys::{ContractError, CreatorKeysContract, CreatorKeysContractClient};
+use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 fn make_client(env: &Env) -> CreatorKeysContractClient<'_> {
@@ -16,12 +17,13 @@ fn make_client(env: &Env) -> CreatorKeysContractClient<'_> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_max_supply_zero_reverts_at_registration() {
+fn test_max_supply_zero_treated_as_unlimited_at_registration() {
     let env = Env::default();
     env.mock_all_auths();
     let client = make_client(&env);
 
     let creator = Address::generate(&env);
+    // #997: a cap of 0 is normalized to "unlimited" and accepted.
     let result = client.try_register_creator(
         &creator_keys::RegisterCreatorParams {
             creator: creator.clone(),
@@ -34,10 +36,13 @@ fn test_max_supply_zero_reverts_at_registration() {
         &None,
         &None,
     );
-    assert_eq!(
-        result,
-        Err(Ok(ContractError::NotPositiveAmount)),
-        "max_supply: Some(0) must revert with NotPositiveAmount"
+    assert!(
+        result.is_ok(),
+        "max_supply: Some(0) must be accepted as unlimited (#997)"
+    );
+    assert!(
+        client.is_creator_registered(&creator),
+        "creator must be registered with max_supply: Some(0) as unlimited"
     );
 }
 
@@ -46,13 +51,14 @@ fn test_max_supply_zero_reverts_at_registration() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_no_creator_state_written_after_zero_supply_cap_rejection() {
+fn test_zero_supply_cap_leaves_cap_storage_unwritten() {
     let env = Env::default();
     env.mock_all_auths();
     let client = make_client(&env);
 
     let creator = Address::generate(&env);
-    let _ = client.try_register_creator(
+    // #997: cap 0 registers as unlimited and writes no cap storage entry.
+    client.register_creator(
         &creator_keys::RegisterCreatorParams {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
@@ -65,18 +71,23 @@ fn test_no_creator_state_written_after_zero_supply_cap_rejection() {
         &None,
     );
 
-    // Creator must not appear as registered
     assert!(
-        !client.is_creator_registered(&creator),
-        "creator must not be registered after a failed registration"
+        client.is_creator_registered(&creator),
+        "creator must be registered with an unlimited cap"
     );
 
-    // Max supply must not have been written
+    // Max supply must not have been written for an uncapped key
     let stored_cap = client.get_max_supply(&creator);
     assert_eq!(
         stored_cap, None,
-        "max_supply storage must be empty after a failed registration"
+        "max_supply storage must stay empty for an unlimited (0) cap"
     );
+
+    // get_supply_info reports cap 0 with unbounded remaining (#997)
+    let info = client.get_supply_info(&creator);
+    assert_eq!(info.supply, 0);
+    assert_eq!(info.cap, 0);
+    assert_eq!(info.remaining, u32::MAX);
 }
 
 // ---------------------------------------------------------------------------

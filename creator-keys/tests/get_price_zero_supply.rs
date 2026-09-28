@@ -33,14 +33,14 @@ fn test_get_price_supply_zero_and_one_standard_linear_curve() {
     let creator = register_test_creator(&env, &client, "alice");
 
     // Supply 0: must return base price and not panic
-    let price_at_zero = client.get_price(&creator, &0u64);
+    let price_at_zero = client.get_price_at_supply(&creator, &0u64);
     assert_eq!(
         price_at_zero, BASE_PRICE,
         "get_price at supply 0 must return the configured base price"
     );
 
     // Supply 1: must return price strictly greater than base price and not panic
-    let price_at_one = client.get_price(&creator, &1u64);
+    let price_at_one = client.get_price_at_supply(&creator, &1u64);
     assert!(
         price_at_one > BASE_PRICE,
         "get_price at supply 1 ({}) must be strictly greater than base price ({})",
@@ -54,10 +54,10 @@ fn test_get_price_supply_zero_and_one_standard_linear_curve() {
     );
 
     // Check try_get_price variants succeed without panic
-    let try_zero = client.try_get_price(&creator, &0u64);
+    let try_zero = client.try_get_price_at_supply(&creator, &0u64);
     assert_eq!(try_zero, Ok(Ok(BASE_PRICE)));
 
-    let try_one = client.try_get_price(&creator, &1u64);
+    let try_one = client.try_get_price_at_supply(&creator, &1u64);
     assert_eq!(try_one, Ok(Ok(BASE_PRICE + CURVE_SLOPE)));
 }
 
@@ -78,14 +78,14 @@ fn test_get_price_various_base_prices_at_zero_and_one_supply() {
         client.set_key_price(&admin, &price);
         let creator = register_test_creator(&env, &client, &format!("creator_{}", i));
 
-        let price_0 = client.get_price(&creator, &0u64);
+        let price_0 = client.get_price_at_supply(&creator, &0u64);
         assert_eq!(
             price_0, price,
             "get_price at supply 0 must return configured base price {}",
             price
         );
 
-        let price_1 = client.get_price(&creator, &1u64);
+        let price_1 = client.get_price_at_supply(&creator, &1u64);
         assert!(
             price_1 > price,
             "get_price at supply 1 ({}) must be strictly greater than base price ({})",
@@ -111,8 +111,8 @@ fn test_get_price_curve_presets_supply_zero_and_one() {
 
     // 1. Linear Preset (default)
     let linear_creator = register_test_creator(&env, &client, "linear_creator");
-    let linear_0 = client.get_price(&linear_creator, &0u64);
-    let linear_1 = client.get_price(&linear_creator, &1u64);
+    let linear_0 = client.get_price_at_supply(&linear_creator, &0u64);
+    let linear_1 = client.get_price_at_supply(&linear_creator, &1u64);
     assert_eq!(linear_0, BASE_PRICE);
     assert_eq!(linear_1, BASE_PRICE + CURVE_SLOPE);
     assert!(linear_1 > linear_0);
@@ -131,8 +131,8 @@ fn test_get_price_curve_presets_supply_zero_and_one() {
         &None,
         &None,
     );
-    let quad_0 = client.get_price(&quad_creator, &0u64);
-    let quad_1 = client.get_price(&quad_creator, &1u64);
+    let quad_0 = client.get_price_at_supply(&quad_creator, &0u64);
+    let quad_1 = client.get_price_at_supply(&quad_creator, &1u64);
     assert_eq!(quad_0, BASE_PRICE);
     assert_eq!(quad_1, BASE_PRICE + CURVE_SLOPE);
     assert!(quad_1 > quad_0);
@@ -151,8 +151,8 @@ fn test_get_price_curve_presets_supply_zero_and_one() {
         &None,
         &None,
     );
-    let flat_0 = client.get_price(&flat_creator, &0u64);
-    let flat_1 = client.get_price(&flat_creator, &1u64);
+    let flat_0 = client.get_price_at_supply(&flat_creator, &0u64);
+    let flat_1 = client.get_price_at_supply(&flat_creator, &1u64);
     assert_eq!(flat_0, BASE_PRICE);
     assert_eq!(flat_1, BASE_PRICE);
 }
@@ -172,9 +172,9 @@ fn test_get_price_read_only_does_not_mutate_state() {
     assert_eq!(supply_before, 0);
 
     // Invoke get_price at supply 0 and 1 multiple times
-    let _ = client.get_price(&creator, &0u64);
-    let _ = client.get_price(&creator, &1u64);
-    let _ = client.get_price(&creator, &0u64);
+    let _ = client.get_price_at_supply(&creator, &0u64);
+    let _ = client.get_price_at_supply(&creator, &1u64);
+    let _ = client.get_price_at_supply(&creator, &0u64);
 
     let supply_after = client.get_total_key_supply(&creator);
     assert_eq!(
@@ -194,7 +194,7 @@ fn test_get_price_matches_query_price_and_buy_quote_at_supply_zero() {
 
     let creator = register_test_creator(&env, &client, "match_check_creator");
 
-    let get_price_val = client.get_price(&creator, &0u64);
+    let get_price_val = client.get_price_at_supply(&creator, &0u64);
     let query_price_val = client.query_price(&creator, &0u64);
     let buy_quote = client.get_buy_quote(&creator);
 
@@ -213,14 +213,14 @@ fn test_get_price_uninitialized_base_price_returns_error_without_panic() {
 
     let creator = Address::generate(&env);
 
-    let result_0 = client.try_get_price(&creator, &0u64);
+    let result_0 = client.try_get_price_at_supply(&creator, &0u64);
     assert_eq!(
         result_0,
         Err(Ok(ContractError::KeyPriceNotSet)),
         "uninitialized key price must return KeyPriceNotSet error"
     );
 
-    let result_1 = client.try_get_price(&creator, &1u64);
+    let result_1 = client.try_get_price_at_supply(&creator, &1u64);
     assert_eq!(
         result_1,
         Err(Ok(ContractError::KeyPriceNotSet)),
@@ -244,8 +244,8 @@ fn test_get_price_callable_during_emergency_pause() {
     assert!(client.get_is_paused());
 
     // Price reads must still answer without panic
-    let price_0 = client.get_price(&creator, &0u64);
-    let price_1 = client.get_price(&creator, &1u64);
+    let price_0 = client.get_price_at_supply(&creator, &0u64);
+    let price_1 = client.get_price_at_supply(&creator, &1u64);
 
     assert_eq!(price_0, BASE_PRICE);
     assert_eq!(price_1, BASE_PRICE + CURVE_SLOPE);

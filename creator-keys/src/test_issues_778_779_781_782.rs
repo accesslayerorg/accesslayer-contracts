@@ -1,10 +1,11 @@
 //! Tests for issues #778 (holder snapshots), #779 (key metadata), #781
 //! (flash-loan guard), and #782 (settable co-creator revenue split).
 
-use crate::{ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams};
-use soroban_sdk::{
-    testutils::Address as _, testutils::Ledger as _, Address, Bytes, Env, String, Vec,
+use crate::{
+    ContractError, CreatorKeysContract, CreatorKeysContractClient, KeyMetadata,
+    RegisterCreatorParams,
 };
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String, Vec};
 
 fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let env = Env::default();
@@ -111,6 +112,58 @@ fn test_take_snapshot_unregistered_creator_fails() {
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
+#[test]
+fn test_distribute_protocol_revenue_uses_staked_snapshot_weights_and_retains_dust() {
+    let (env, client, admin, treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_protocol_fee(&admin, &Some(1000u32), &treasury);
+
+    let staker_a = Address::generate(&env);
+    let staker_b = Address::generate(&env);
+    client.buy_keys(&creator, &staker_a, &1u32, &10000i128, &None);
+    client.buy_keys(&creator, &staker_b, &2u32, &10000i128, &None);
+    client.stake_keys(&creator, &staker_a, &1u32);
+    client.stake_keys(&creator, &staker_b, &2u32);
+
+    let mut holders = Vec::new(&env);
+    holders.push_back(staker_a.clone());
+    holders.push_back(staker_b.clone());
+    client.take_snapshot(&admin, &creator, &7u32, &holders);
+
+    let treasury_before = client.get_treasury_balance();
+    client.distribute_protocol_revenue(&admin, &creator, &7u32);
+
+    let first_share = treasury_before / 3;
+    let second_share = (treasury_before * 2) / 3;
+    assert_eq!(
+        client.get_claimable_dividend(&creator, &staker_a),
+        first_share
+    );
+    assert_eq!(
+        client.get_claimable_dividend(&creator, &staker_b),
+        second_share
+    );
+    assert_eq!(
+        client.get_treasury_balance(),
+        treasury_before - first_share - second_share
+    );
+}
+
+#[test]
+fn test_distribute_protocol_revenue_rejects_unknown_snapshot_and_non_admin() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+
+    let unknown = client.try_distribute_protocol_revenue(&admin, &creator, &999u32);
+    assert_eq!(unknown, Err(Ok(ContractError::SnapshotNotFound)));
+
+    let not_admin = Address::generate(&env);
+    let unauthorized = client.try_distribute_protocol_revenue(&not_admin, &creator, &999u32);
+    assert_eq!(unauthorized, Err(Ok(ContractError::Unauthorized)));
+}
+
 // ─── #779: key metadata initialisation ──────────────────────────────────
 
 #[test]
@@ -119,16 +172,17 @@ fn test_initialise_key_stores_metadata() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"Alice");
-    let bio = Bytes::from_slice(&env, b"Digital artist");
-    let avatar = Bytes::from_slice(&env, b"ipfs://avatar");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "Alice"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Digital artist"),
+        image_cid: String::from_str(&env, "QmAvatar"),
+    };
 
-    client.initialise_key(&creator, &name, &bio, &avatar);
+    client.initialise_key(&creator, &metadata);
 
     let meta = client.get_key_metadata(&creator).unwrap();
-    assert_eq!(meta.name, name);
-    assert_eq!(meta.bio, bio);
-    assert_eq!(meta.avatar_uri, avatar);
+    assert_eq!(meta, metadata);
 }
 
 #[test]
@@ -137,25 +191,31 @@ fn test_initialise_key_name_too_long_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let long_name = Bytes::from_slice(&env, &[b'a'; 65]);
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, &"a".repeat(65)),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "bio"),
+        image_cid: String::from_str(&env, "QmImage"),
+    };
 
-    let result = client.try_initialise_key(&creator, &long_name, &bio, &avatar);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::NameTooLong)));
 }
 
 #[test]
-fn test_initialise_key_bio_too_long_fails() {
+fn test_initialise_key_description_too_long_fails() {
     let (env, client, _admin, _treasury) = setup_test();
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"name");
-    let long_bio = Bytes::from_slice(&env, &[b'a'; 257]);
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        symbol: String::from_str(&env, "KEY"),
+        description: String::from_str(&env, &"a".repeat(257)),
+        image_cid: String::from_str(&env, "QmImage"),
+    };
 
-    let result = client.try_initialise_key(&creator, &name, &long_bio, &avatar);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::BioTooLong)));
 }
 
@@ -165,12 +225,15 @@ fn test_initialise_key_twice_fails() {
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
-    let name = Bytes::from_slice(&env, b"name");
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        symbol: String::from_str(&env, "KEY"),
+        description: String::from_str(&env, "bio"),
+        image_cid: String::from_str(&env, "QmImage"),
+    };
 
-    client.initialise_key(&creator, &name, &bio, &avatar);
-    let result = client.try_initialise_key(&creator, &name, &bio, &avatar);
+    client.initialise_key(&creator, &metadata);
+    let result = client.try_initialise_key(&creator, &metadata);
     assert_eq!(result, Err(Ok(ContractError::KeyAlreadyInitialised)));
 }
 
@@ -186,10 +249,13 @@ fn test_initialise_key_non_creator_fails_auth() {
     // checking that the entrypoint requires creator's auth at all — the
     // NotRegistered/registration path already proves the address parameter
     // is `creator`, not an implicit caller.
-    let name = Bytes::from_slice(&env, b"name");
-    let bio = Bytes::from_slice(&env, b"bio");
-    let avatar = Bytes::from_slice(&env, b"uri");
-    client.initialise_key(&creator, &name, &bio, &avatar);
+    let metadata = KeyMetadata {
+        name: String::from_str(&env, "name"),
+        symbol: String::from_str(&env, "KEY"),
+        description: String::from_str(&env, "bio"),
+        image_cid: String::from_str(&env, "QmImage"),
+    };
+    client.initialise_key(&creator, &metadata);
     assert!(client.get_key_metadata(&creator).is_some());
 }
 
