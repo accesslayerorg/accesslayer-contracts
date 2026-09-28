@@ -73,7 +73,7 @@ fn test_buy_on_deprecated_key_returns_key_deprecated() {
     buy_one(&client, &creator, &buyer);
 
     // escrow = 1 key × 100 = 100
-    client.deprecate_key(&creator, &creator, &100_i128, &100_i128);
+    client.deprecate_key(&creator, &creator, &100_i128, &100_i128, &String::from_str(&env, "test"), &None);
 
     let result = client.try_buy_key(&creator, &buyer, &10_000_i128, &None);
     assert_eq!(result, Err(Ok(ContractError::KeyDeprecated)));
@@ -97,7 +97,7 @@ fn test_holder_redeem_receives_correct_payout() {
 
     let buyback_price: i128 = 500;
     let required_escrow: i128 = 3 * buyback_price; // 1500
-    client.deprecate_key(&creator, &creator, &buyback_price, &required_escrow);
+    client.deprecate_key(&creator, &creator, &buyback_price, &required_escrow, &String::from_str(&env, "sunsetting"), &None);
 
     let payout = client.redeem(&creator, &holder);
     assert_eq!(payout, required_escrow);
@@ -120,7 +120,7 @@ fn test_deprecate_key_insufficient_escrow_returns_error() {
     buy_one(&client, &creator, &buyer);
     buy_one(&client, &creator, &buyer);
 
-    let result = client.try_deprecate_key(&creator, &creator, &100_i128, &199_i128);
+    let result = client.try_deprecate_key(&creator, &creator, &100_i128, &199_i128, &String::from_str(&env, "test"), &None);
     assert_eq!(result, Err(Ok(ContractError::InsufficientEscrow)));
 }
 
@@ -134,7 +134,7 @@ fn test_deprecate_key_exact_escrow_succeeds() {
     buy_one(&client, &creator, &buyer);
     buy_one(&client, &creator, &buyer);
 
-    let result = client.try_deprecate_key(&creator, &creator, &100_i128, &200_i128);
+    let result = client.try_deprecate_key(&creator, &creator, &100_i128, &200_i128, &String::from_str(&env, "test"), &None);
     assert_eq!(result, Ok(Ok(())));
 }
 
@@ -144,7 +144,7 @@ fn test_deprecate_key_zero_supply_requires_zero_escrow() {
     let creator = register_creator(&env, &client, "edgar");
 
     // No keys minted; required escrow = 0 so even escrow_payment = 0 is fine.
-    let result = client.try_deprecate_key(&creator, &creator, &100_i128, &0_i128);
+    let result = client.try_deprecate_key(&creator, &creator, &100_i128, &0_i128, &String::from_str(&env, "test"), &None);
     assert_eq!(result, Ok(Ok(())));
 }
 
@@ -158,7 +158,7 @@ fn test_non_creator_deprecate_key_returns_unauthorized() {
     let creator = register_creator(&env, &client, "frank");
     let attacker = Address::generate(&env);
 
-    let result = client.try_deprecate_key(&creator, &attacker, &100_i128, &0_i128);
+    let result = client.try_deprecate_key(&creator, &attacker, &100_i128, &0_i128, &String::from_str(&env, "test"), &None);
     assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
 }
 
@@ -176,7 +176,7 @@ fn test_deprecate_key_emits_key_deprecated_event() {
 
     let buyback_price: i128 = 200;
     let escrow: i128 = 200; // 1 × 200
-    client.deprecate_key(&creator, &creator, &buyback_price, &escrow);
+    client.deprecate_key(&creator, &creator, &buyback_price, &escrow, &String::from_str(&env, "test reason"), &None);
 
     let all_events = env.events().all();
     let dep_event = all_events
@@ -198,6 +198,8 @@ fn test_deprecate_key_emits_key_deprecated_event() {
     assert_eq!(data.buyback_price_per_key, buyback_price);
     assert_eq!(data.circulating_supply, 1);
     assert_eq!(data.total_escrow, escrow);
+    assert_eq!(data.reason, String::from_str(&env, "test reason"));
+    assert_eq!(data.successor_key_id, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +216,7 @@ fn test_redeem_emits_keys_redeemed_event() {
     buy_one(&client, &creator, &holder);
 
     let buyback_price: i128 = 300;
-    client.deprecate_key(&creator, &creator, &buyback_price, &(2 * buyback_price));
+    client.deprecate_key(&creator, &creator, &buyback_price, &(2 * buyback_price), &String::from_str(&env, "retiring"), &None);
 
     client.redeem(&creator, &holder);
 
@@ -253,7 +255,7 @@ fn test_redeem_zero_balance_returns_insufficient_balance() {
     let no_keys = Address::generate(&env);
 
     buy_one(&client, &creator, &other);
-    client.deprecate_key(&creator, &creator, &100_i128, &100_i128);
+    client.deprecate_key(&creator, &creator, &100_i128, &100_i128, &String::from_str(&env, "test"), &None);
 
     let result = client.try_redeem(&creator, &no_keys);
     assert_eq!(result, Err(Ok(ContractError::InsufficientBalance)));
@@ -264,9 +266,9 @@ fn test_double_deprecation_returns_key_deprecated() {
     let (env, client, _admin) = setup();
     let creator = register_creator(&env, &client, "jake");
 
-    client.deprecate_key(&creator, &creator, &100_i128, &0_i128);
+    client.deprecate_key(&creator, &creator, &100_i128, &0_i128, &String::from_str(&env, "test"), &None);
 
-    let result = client.try_deprecate_key(&creator, &creator, &200_i128, &0_i128);
+    let result = client.try_deprecate_key(&creator, &creator, &200_i128, &0_i128, &String::from_str(&env, "test"), &None);
     assert_eq!(result, Err(Ok(ContractError::KeyDeprecated)));
 }
 
@@ -283,7 +285,7 @@ fn test_multiple_holders_redeem_independently() {
     buy_one(&client, &creator, &holder_b);
 
     let buyback_price: i128 = 150;
-    client.deprecate_key(&creator, &creator, &buyback_price, &(3 * buyback_price));
+    client.deprecate_key(&creator, &creator, &buyback_price, &(3 * buyback_price), &String::from_str(&env, "test"), &None);
 
     let payout_a = client.redeem(&creator, &holder_a);
     assert_eq!(payout_a, 2 * buyback_price);
@@ -299,7 +301,7 @@ fn test_deprecate_key_negative_price_returns_not_positive_amount() {
     let (env, client, _admin) = setup();
     let creator = register_creator(&env, &client, "leo");
 
-    let result = client.try_deprecate_key(&creator, &creator, &-1_i128, &0_i128);
+    let result = client.try_deprecate_key(&creator, &creator, &-1_i128, &0_i128, &String::from_str(&env, "test"), &None);
     assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
 }
 
@@ -308,7 +310,7 @@ fn test_deprecate_key_unregistered_creator_returns_not_registered() {
     let (env, client, _admin) = setup();
     let ghost = Address::generate(&env);
 
-    let result = client.try_deprecate_key(&ghost, &ghost, &100_i128, &0_i128);
+    let result = client.try_deprecate_key(&ghost, &ghost, &100_i128, &0_i128, &String::from_str(&env, "test"), &None);
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
@@ -320,7 +322,7 @@ fn test_buy_key_with_referrer_also_blocked_on_deprecated_key() {
     let referrer = Address::generate(&env);
 
     buy_one(&client, &creator, &buyer);
-    client.deprecate_key(&creator, &creator, &100_i128, &100_i128);
+    client.deprecate_key(&creator, &creator, &100_i128, &100_i128, &String::from_str(&env, "test"), &None);
 
     let result =
         client.try_buy_key_with_referrer(&creator, &buyer, &10_000_i128, &None, &Some(referrer));

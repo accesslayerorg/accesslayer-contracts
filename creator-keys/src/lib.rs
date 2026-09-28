@@ -838,6 +838,11 @@ pub mod constants {
             DataKey::DeprecationEscrow(creator.clone())
         }
 
+        /// Storage key for the rich deprecation metadata record (#973).
+        pub fn deprecation_info(creator: &Address) -> DataKey {
+            DataKey::DeprecationInfo(creator.clone())
+        }
+
         /// Storage key for the price-oracle approved-caller allowlist.
         pub const APPROVED_CALLERS: DataKey = DataKey::ApprovedCallers;
 
@@ -1660,6 +1665,9 @@ pub enum DataKey {
     /// Escrow balance held on behalf of a deprecated key's creator.
     /// Funds are paid out to redeeming holders and any remainder is returned on full redemption.
     DeprecationEscrow(Address),
+    /// Rich deprecation metadata written by `deprecate_key` (#973).
+    /// Value is a `DeprecationInfo` struct holding reason, optional successor, and timestamp.
+    DeprecationInfo(Address),
     /// Configured early exit penalty bps for key.
     EarlyExitPenaltyBps(Address),
     /// Maximum buy quantity per transaction for a creator.
@@ -2232,6 +2240,40 @@ pub struct AirdropSummary {
     pub total_cost: i128,
     pub recipient_count: u32,
     pub skipped_count: u32,
+}
+
+// =========================================================================
+// #973 — Key deprecation and successor designation
+// =========================================================================
+
+/// Persistent storage record written by `deprecate_key` (#973).
+///
+/// Stored at `DataKey::DeprecationInfo(creator)` in addition to the existing
+/// `DataKey::DeprecatedKey` marker used by the escrow-buyback path (#834).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationInfo {
+    /// Human-readable reason supplied by the creator (max 256 bytes).
+    pub reason: String,
+    /// Optional address of the successor key the creator recommends holders
+    /// migrate to. `None` means no successor has been designated.
+    pub successor_key_id: Option<Address>,
+    /// Ledger sequence at which `deprecate_key` was called.
+    pub deprecated_at_ledger: u32,
+}
+
+/// Return type for `get_deprecation_status` (#973).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationStatus {
+    /// `true` if the key has been deprecated.
+    pub is_deprecated: bool,
+    /// Human-readable reason (empty string when `is_deprecated` is `false`).
+    pub reason: String,
+    /// Optional successor key address; `None` when not deprecated or not set.
+    pub successor_key_id: Option<Address>,
+    /// Ledger sequence of deprecation; `0` when not deprecated.
+    pub deprecated_at_ledger: u32,
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
@@ -6435,6 +6477,7 @@ impl CreatorKeysContract {
 
     // =========================================================================
     // #834 — Key deprecation and holder buybacks
+    // #973 — Key deprecation reason and successor designation
     // =========================================================================
 
     /// Deprecates a creator key, disabling new buys and initiating an orderly
@@ -6444,6 +6487,10 @@ impl CreatorKeysContract {
     /// (`escrow_payment`) at the time of calling. Holders can then call
     /// [`CreatorKeysContract::redeem`] to exchange their keys for the fixed
     /// buyback price.
+    ///
+    /// `reason` is a human-readable string (max 256 bytes) explaining why the
+    /// key is being deprecated. `successor_key_id` is an optional address of a
+    /// replacement key the creator recommends holders migrate to.
     ///
     /// # Errors
     ///
@@ -6460,6 +6507,8 @@ impl CreatorKeysContract {
         caller: Address,
         buyback_price_per_key: i128,
         escrow_payment: i128,
+        reason: String,
+        successor_key_id: Option<Address>,
     ) -> Result<(), ContractError> {
         caller.require_auth();
         assert_not_paused(&env)?;
@@ -6469,6 +6518,11 @@ impl CreatorKeysContract {
         }
         if buyback_price_per_key <= 0 {
             return Err(ContractError::NotPositiveAmount);
+        }
+
+        // Reject reason strings longer than 256 bytes.
+        if reason.len() > 256 {
+            return Err(ContractError::BioTooLong);
         }
 
         let profile = read_registered_creator_profile(&env, &creator)?;
@@ -6492,6 +6546,8 @@ impl CreatorKeysContract {
             return Err(ContractError::InsufficientEscrow);
         }
 
+        let current_ledger = env.ledger().sequence();
+
         // Persist the deprecation marker (stores the fixed buyback price).
         let dep_key = constants::storage::deprecated_key(&creator);
         env.storage()
@@ -6507,6 +6563,18 @@ impl CreatorKeysContract {
             .set(&escrow_key, &required_escrow);
         extend_key_ttl_to_full_window(&env, &escrow_key);
 
+        // Persist the rich deprecation metadata (#973).
+        let info_key = constants::storage::deprecation_info(&creator);
+        env.storage().persistent().set(
+            &info_key,
+            &DeprecationInfo {
+                reason: reason.clone(),
+                successor_key_id: successor_key_id.clone(),
+                deprecated_at_ledger: current_ledger,
+            },
+        );
+        extend_key_ttl_to_full_window(&env, &info_key);
+
         env.events().publish(
             events::key_deprecated_topics(&creator),
             events::KeyDeprecatedEvent {
@@ -6514,7 +6582,9 @@ impl CreatorKeysContract {
                 buyback_price_per_key,
                 circulating_supply,
                 total_escrow: required_escrow,
-                ledger: env.ledger().sequence(),
+                reason,
+                successor_key_id,
+                ledger: current_ledger,
             },
         );
 
@@ -6528,6 +6598,50 @@ impl CreatorKeysContract {
         .map_err(|_| ContractError::Overflow)?;
 
         Ok(())
+    }
+
+    /// Returns the deprecation status for a creator key (#973).
+    ///
+    /// Always succeeds — if the key is not deprecated, returns a
+    /// `DeprecationStatus` with `is_deprecated = false` and zeroed fields.
+    pub fn get_deprecation_status(
+        env: Env,
+        creator: Address,
+    ) -> DeprecationStatus {
+        let is_deprecated = env
+            .storage()
+            .persistent()
+            .has(&constants::storage::deprecated_key(&creator));
+
+        if !is_deprecated {
+            return DeprecationStatus {
+                is_deprecated: false,
+                reason: String::from_str(&env, ""),
+                successor_key_id: None,
+                deprecated_at_ledger: 0,
+            };
+        }
+
+        let info: Option<DeprecationInfo> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::deprecation_info(&creator));
+
+        match info {
+            Some(d) => DeprecationStatus {
+                is_deprecated: true,
+                reason: d.reason,
+                successor_key_id: d.successor_key_id,
+                deprecated_at_ledger: d.deprecated_at_ledger,
+            },
+            // Fallback: key was deprecated via the old path without DeprecationInfo.
+            None => DeprecationStatus {
+                is_deprecated: true,
+                reason: String::from_str(&env, ""),
+                successor_key_id: None,
+                deprecated_at_ledger: 0,
+            },
+        }
     }
 
     /// Redeems all keys held by `holder` for a deprecated creator key.
