@@ -12,7 +12,10 @@
 mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, register_test_creator, set_key_price_for_tests};
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, Vec,
+};
 
 const KEY_PRICE: i128 = 100;
 
@@ -25,6 +28,14 @@ fn setup(env: &Env) -> (creator_keys::CreatorKeysContractClient<'_>, Address) {
 
 fn registry_contains(registry: &Vec<Address>, wallet: &Address) -> bool {
     registry.contains(wallet.clone())
+}
+
+/// Advance the ledger by one sequence number.
+///
+/// The flash-loan guard rejects a sell in the same ledger as the wallet's last
+/// buy, so tests that sell right after buying must advance the ledger first.
+fn advance_ledger(env: &Env) {
+    env.ledger().with_mut(|ledger| ledger.sequence_number += 1);
 }
 
 /// Registry starts empty for a freshly registered creator and for unknown keys.
@@ -95,6 +106,7 @@ fn repeat_buys_do_not_duplicate_and_sell_does_not_remove() {
     assert_eq!(client.get_historical_holder_count(&creator), 1);
 
     // Full exit: the wallet's balance reaches zero but the registry entry stays.
+    advance_ledger(&env);
     client.sell_key(&creator, &wallet, &None);
     client.sell_key(&creator, &wallet, &None);
     client.sell_key(&creator, &wallet, &None);
@@ -168,6 +180,7 @@ fn re_entry_after_full_exit_does_not_duplicate() {
     let wallet = Address::generate(&env);
 
     client.buy_key(&creator, &wallet, &KEY_PRICE, &None);
+    advance_ledger(&env);
     client.sell_key(&creator, &wallet, &None);
     client.buy_key(&creator, &wallet, &KEY_PRICE, &None);
 
