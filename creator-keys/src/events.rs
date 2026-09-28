@@ -993,6 +993,28 @@ pub fn keys_claimed_topics(creator: &Address, beneficiary: &Address) -> (Symbol,
     )
 }
 
+pub const VESTING_CLIFF_CLAIMED_EVENT_NAME: Symbol = symbol_short!("vc_claim");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VestingCliffClaimedEvent {
+    pub creator_id: Address,
+    pub beneficiary: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+pub fn vesting_cliff_claimed_topics(
+    creator: &Address,
+    beneficiary: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        VESTING_CLIFF_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        beneficiary.clone(),
+    )
+}
+
 // --- Timelock events ---
 
 /// Event name for config change proposed.

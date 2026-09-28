@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
 pub mod quote_view_errors;
-
+pub mod vesting;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Vec,
 };
@@ -784,6 +784,10 @@ pub mod constants {
 
         pub fn vesting_schedule(creator: &Address, beneficiary: &Address) -> DataKey {
             DataKey::VestingSchedule(creator.clone(), beneficiary.clone())
+        }
+
+        pub fn vesting_cliff_config(creator: &Address, beneficiary: &Address) -> DataKey {
+            DataKey::VestingCliffConfig(creator.clone(), beneficiary.clone())
         }
 
         pub const CIRCUIT_BREAKER_THRESHOLD: DataKey = DataKey::CircuitBreakerThreshold;
@@ -1800,6 +1804,8 @@ pub enum DataKey {
     /// gated access (Issue #953). Absent means access gating is not configured
     /// for that creator and `subscribe` rejects.
     MinHoldForAccess(Address),
+    /// (creator, beneficiary) -> cliff-vesting config (issue #916).
+    VestingCliffConfig(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -11745,7 +11751,109 @@ impl CreatorKeysContract {
 
         Ok(claimable)
     }
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_vesting_cliff(
+        env: Env,
+        creator: Address,
+        caller: Address,
+        beneficiary: Address,
+        total_allocation: i128,
+        cliff_timestamp: u64,
+        start_timestamp: u64,
+        duration_secs: u64,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        if caller != creator {
+            return Err(ContractError::Unauthorized);
+        }
+        if total_allocation <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        let key = constants::storage::vesting_cliff_config(&creator, &beneficiary);
+        if env.storage().persistent().has(&key) {
+            return Err(ContractError::AlreadyRegistered);
+        }
+        let config = vesting::VestingConfig {
+            total_allocation,
+            cliff_timestamp,
+            start_timestamp,
+            duration_secs,
+            claimed_amount: 0,
+        };
+        env.storage().persistent().set(&key, &config);
+        extend_key_ttl_to_full_window(&env, &key);
+        Ok(())
+    }
 
+    pub fn claim_vested_cliff(
+        env: Env,
+        creator: Address,
+        beneficiary: Address,
+    ) -> Result<i128, ContractError> {
+        beneficiary.require_auth();
+        let key = constants::storage::vesting_cliff_config(&creator, &beneficiary);
+        let mut config: vesting::VestingConfig = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NotRegistered)?;
+        let now = env.ledger().timestamp();
+        let claimable = vesting::claimable_amount(&config, now);
+        if claimable == 0 {
+            return Err(ContractError::NoDividendClaimable);
+        }
+        config.claimed_amount = config
+            .claimed_amount
+            .checked_add(claimable)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&key, &config);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        let balance_key = constants::storage::holder_balance_key(&creator, &beneficiary);
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let claimable_u32 = u32::try_from(claimable).map_err(|_| ContractError::Overflow)?;
+        let new_balance = current_balance
+            .checked_add(claimable_u32)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&balance_key, &new_balance);
+        extend_key_ttl_to_full_window(&env, &balance_key);
+
+        if current_balance == 0 {
+            let mut profile = read_registered_creator_profile(&env, &creator)?;
+            profile.holder_count = profile
+                .holder_count
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
+            let profile_key = constants::storage::creator(&creator);
+            env.storage().persistent().set(&profile_key, &profile);
+        }
+
+        env.events().publish(
+            events::vesting_cliff_claimed_topics(&creator, &beneficiary),
+            events::VestingCliffClaimedEvent {
+                creator_id: creator,
+                beneficiary,
+                amount: claimable,
+                ledger: env.ledger().sequence(),
+            },
+        );
+        Ok(claimable)
+    }
+
+    pub fn get_vesting_info(
+        env: Env,
+        creator: Address,
+        beneficiary: Address,
+    ) -> Result<vesting::VestingInfo, ContractError> {
+        let key = constants::storage::vesting_cliff_config(&creator, &beneficiary);
+        let config: vesting::VestingConfig = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NotRegistered)?;
+        let now = env.ledger().timestamp();
+        Ok(vesting::get_vesting_info(&config, now))
+    }
     pub fn set_circuit_breaker_threshold(
         env: Env,
         admin: Address,
