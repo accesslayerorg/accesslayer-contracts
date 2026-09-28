@@ -2198,6 +2198,10 @@ pub struct KeyDeprecatedEvent {
     pub circulating_supply: u32,
     /// Total XLM escrowed (`circulating_supply * buyback_price_per_key`).
     pub total_escrow: i128,
+    /// Human-readable reason supplied by the creator (#973).
+    pub reason: String,
+    /// Optional successor key address (#973). `None` when not designated.
+    pub successor_key_id: Option<Address>,
     /// Ledger sequence number at the time of deprecation.
     pub ledger: u32,
 }

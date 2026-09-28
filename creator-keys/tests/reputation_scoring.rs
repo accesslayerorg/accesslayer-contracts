@@ -250,7 +250,7 @@ fn test_key_deprecation_decrements_reputation() {
     // Escrow must cover every circulating key at the fixed buyback price.
     let buyback_price = 100_i128;
     let required_escrow = buyback_price * client.get_total_key_supply(&creator) as i128;
-    client.deprecate_key(&creator, &creator, &buyback_price, &required_escrow);
+    client.deprecate_key(&creator, &creator, &buyback_price, &required_escrow, &String::from_str(&env, "sunsetting"), &None);
 
     let view = client.get_reputation(&creator);
     assert_eq!(view.score, before - REPUTATION_DEPRECATION_PENALTY);
@@ -379,7 +379,7 @@ fn test_deprecation_penalty_clamps_to_zero_not_negative() {
     // A trade only earned 5 points, less than the 50-point deprecation penalty.
     let before = client.get_reputation(&creator).score;
     assert!(before < REPUTATION_DEPRECATION_PENALTY);
-    client.deprecate_key(&creator, &creator, &100, &KEY_PRICE);
+    client.deprecate_key(&creator, &creator, &100, &KEY_PRICE, &String::from_str(&env, "sunsetting"), &None);
 
     assert_eq!(client.get_reputation(&creator).score, 0);
 }
