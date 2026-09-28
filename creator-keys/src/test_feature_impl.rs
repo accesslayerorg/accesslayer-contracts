@@ -607,3 +607,46 @@ fn batch_buy_v2_multi_order_slippage_independent_per_order() {
     assert_eq!(client.get_key_balance(&creator_a, &buyer), 0);
     assert_eq!(client.get_key_balance(&creator_b, &buyer), 0);
 }
+
+#[test]
+fn batch_sell_v2_succeeds_single_order_no_slippage() {
+    let (env, client, _admin) = setup();
+    let creator = Address::generate(&env);
+    let seller = Address::generate(&env);
+    register(&env, &client, &creator);
+
+    client.buy_key(&creator, &seller, &500i128, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
+
+    let mut orders = soroban_sdk::Vec::new(&env);
+    orders.push_back((creator.clone(), 1u32, None::<i128>));
+
+    let results = client.batch_sell_v2(&seller, &orders);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results.get(0).unwrap().quantity, 1);
+    assert_eq!(client.get_key_balance(&creator, &seller), 0);
+}
+
+#[test]
+fn batch_sell_v2_reverts_on_per_order_slippage_breach() {
+    let (env, client, _admin) = setup();
+    let creator_a = Address::generate(&env);
+    let creator_b = Address::generate(&env);
+    let seller = Address::generate(&env);
+    register(&env, &client, &creator_a);
+    register(&env, &client, &creator_b);
+
+    client.buy_key(&creator_a, &seller, &500i128, &None);
+    client.buy_key(&creator_b, &seller, &500i128, &None);
+    env.ledger().with_mut(|l| l.sequence_number += 1);
+
+    let mut orders = soroban_sdk::Vec::new(&env);
+    orders.push_back((creator_a.clone(), 1u32, None::<i128>));
+    orders.push_back((creator_b.clone(), 1u32, Some(1i128))); // tighter bound than actual proceeds
+
+    let result = client.try_batch_sell_v2(&seller, &orders);
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+
+    assert_eq!(client.get_key_balance(&creator_a, &seller), 1);
+    assert_eq!(client.get_key_balance(&creator_b, &seller), 1);
+}
