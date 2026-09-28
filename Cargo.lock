@@ -278,6 +278,7 @@ dependencies = [
 name = "creator-keys-factory"
 version = "0.1.0"
 dependencies = [
+ "creator-keys",
  "soroban-sdk",
 ]
 
