@@ -174,8 +174,9 @@ fn test_initialise_key_stores_metadata() {
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Digital artist"),
-        avatar_uri: String::from_str(&env, "ipfs://avatar"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Digital artist"),
+        image_cid: String::from_str(&env, "QmAvatar"),
     };
 
     client.initialise_key(&creator, &metadata);
@@ -192,8 +193,9 @@ fn test_initialise_key_name_too_long_fails() {
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, &"a".repeat(65)),
-        bio: String::from_str(&env, "bio"),
-        avatar_uri: String::from_str(&env, "uri"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "bio"),
+        image_cid: String::from_str(&env, "QmImage"),
     };
 
     let result = client.try_initialise_key(&creator, &metadata);
@@ -201,15 +203,16 @@ fn test_initialise_key_name_too_long_fails() {
 }
 
 #[test]
-fn test_initialise_key_bio_too_long_fails() {
+fn test_initialise_key_description_too_long_fails() {
     let (env, client, _admin, _treasury) = setup_test();
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, "name"),
-        bio: String::from_str(&env, &"a".repeat(257)),
-        avatar_uri: String::from_str(&env, "uri"),
+        symbol: String::from_str(&env, "KEY"),
+        description: String::from_str(&env, &"a".repeat(257)),
+        image_cid: String::from_str(&env, "QmImage"),
     };
 
     let result = client.try_initialise_key(&creator, &metadata);
@@ -224,8 +227,9 @@ fn test_initialise_key_twice_fails() {
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, "name"),
-        bio: String::from_str(&env, "bio"),
-        avatar_uri: String::from_str(&env, "uri"),
+        symbol: String::from_str(&env, "KEY"),
+        description: String::from_str(&env, "bio"),
+        image_cid: String::from_str(&env, "QmImage"),
     };
 
     client.initialise_key(&creator, &metadata);
@@ -247,8 +251,9 @@ fn test_initialise_key_non_creator_fails_auth() {
     // is `creator`, not an implicit caller.
     let metadata = KeyMetadata {
         name: String::from_str(&env, "name"),
-        bio: String::from_str(&env, "bio"),
-        avatar_uri: String::from_str(&env, "uri"),
+        symbol: String::from_str(&env, "KEY"),
+        description: String::from_str(&env, "bio"),
+        image_cid: String::from_str(&env, "QmImage"),
     };
     client.initialise_key(&creator, &metadata);
     assert!(client.get_key_metadata(&creator).is_some());

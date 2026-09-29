@@ -372,6 +372,64 @@ Returns the configured protocol fee recipient address, or `None` if not yet set.
 
 ---
 
+### `get_reputation(env: Env, creator: Address) → ReputationView`
+
+Returns a creator's reputation score together with the per-reason counters that
+produced it (`keys_launched`, `milestones_reached`, `governance_participation`,
+`trade_activity`, `deprecations`) and a signed per-reason breakdown.
+
+The score saturates at zero: a penalty that would push it below zero floors at
+zero rather than reverting, so `new_score` is authoritative and the breakdown
+does not always re-sum to the score once flooring has occurred.
+
+---
+
+### `get_allowance(env: Env, owner: Address, spender: Address, key_id: Address) → u32`
+
+Returns the remaining transfer allowance `owner` granted to `spender` for
+`key_id`, or `0` when none exists. `transfer_from` decrements this in the same
+call that moves the keys, and removes the entry once it reaches zero.
+
+---
+
+### `get_sell_tax_bps(env: Env, creator: Address) → u32`
+
+Returns a creator's configured sell tax in basis points, or `0` when unset.
+Capped at `MAX_SELL_TAX_BPS` when set through `set_sell_tax_bps`.
+
+---
+
+### `get_buyback_pool_balance(env: Env) → (i128, Option<Address>)`
+
+Returns the accumulated buyback balance in the contract's internal ledger and
+the configured pool address. The address is `None` until an admin calls
+`set_buyback_pool_address`; until then collected tax is still accounted in the
+first element.
+
+---
+
+### `get_escalation_config(env: Env) → Option<EscalationConfig>`
+
+Returns the active poll quorum-escalation policy, or `None` when the protocol
+admin has never configured one. A config with `max_extensions == 0` reads back
+as `Some` but is treated as disabled.
+
+---
+
+### `get_escalation_status(env: Env, creator: Address, poll_id: u32) → EscalationView`
+
+Returns a proposal's deadline, extensions consumed and allowed, remaining
+ledgers, current participation in basis points of circulating supply, the
+creator's `quorum_bps`, whether an extension would currently qualify
+(`eligible`), and whether the budget is spent (`exhausted`).
+
+`eligible` requires a configured quorum the proposal has not already reached
+plus participation of at least `threshold_bps` of that requirement.
+`exhausted` is `false` when escalation is disabled, which distinguishes "no
+configured budget" from "a spent budget".
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.

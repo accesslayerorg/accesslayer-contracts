@@ -11,9 +11,15 @@ use creator_keys::events::{self, ttl_extended_topics};
 use creator_keys::CREATOR_TTL_LEDGERS;
 use soroban_sdk::testutils::storage::Persistent;
 use soroban_sdk::testutils::Ledger;
-use soroban_sdk::{testutils::Address as _, testutils::Events, Address, IntoVal};
+use soroban_sdk::{testutils::Address as _, testutils::Events, Address, IntoVal, TryFromVal};
 
 const KEY_PRICE: i128 = 100;
+
+/// Symbol of the `DataKey::Creator` variant, used to identify the creator
+/// profile storage key while iterating the contract's persistent map.
+fn creator_key_symbol() -> soroban_sdk::Symbol {
+    soroban_sdk::symbol_short!("Creator")
+}
 
 /// Read remaining TTL (ledgers until expiry) for a creator's profile key.
 fn creator_ttl_remaining(env: &soroban_sdk::Env, contract_id: &Address, creator: &Address) -> u32 {
@@ -245,6 +251,38 @@ fn buy_extends_instance_ttl() {
     );
 }
 
+/// Extend the TTL of every persistent key in the contract except the creator
+/// profile key under test, so the ledger advance in `sell_extends_instance_ttl`
+/// drains only that one entry below the extension threshold.
+///
+/// The test env archives contract data after ~4095 ledgers by default, so
+/// advancing by the creator TTL (~63k ledgers) archives every shorter-TTL key
+/// that the `sell_key` path reads and the sell panics with
+/// `Storage::InternalError` before it ever reaches the TTL-extension logic.
+fn keep_all_persistent_keys_alive_except_creator(env: &soroban_sdk::Env, contract_id: &Address) {
+    env.as_contract(contract_id, || {
+        let all = env.storage().persistent().all();
+        for key in all.keys().iter() {
+            // `DataKey` is a `#[contracttype]` enum, so each storage key is a
+            // `Vec<Val>` whose first element is the variant symbol. `extend_ttl`
+            // can only lengthen a TTL, never shorten one, so the creator profile
+            // has to be skipped rather than reset.
+            let is_creator_key = soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(env, &key)
+                .ok()
+                .and_then(|parts| parts.get(0))
+                .and_then(|variant| soroban_sdk::Symbol::try_from_val(env, &variant).ok())
+                .is_some_and(|variant| variant == creator_key_symbol());
+            if !is_creator_key {
+                env.storage().persistent().extend_ttl(
+                    &key,
+                    CREATOR_TTL_LEDGERS,
+                    CREATOR_TTL_LEDGERS,
+                );
+            }
+        }
+    });
+}
+
 #[test]
 fn sell_extends_instance_ttl() {
     let env = soroban_sdk::Env::default();
@@ -257,6 +295,8 @@ fn sell_extends_instance_ttl() {
     assert_eq!(result, Ok(Ok(1)), "buy should succeed");
 
     let ttl_before = creator_ttl_remaining(&env, &contract_id, &creator);
+
+    keep_all_persistent_keys_alive_except_creator(&env, &contract_id);
 
     let mut ledger = env.ledger().get();
     ledger.sequence_number += ttl_before.saturating_sub(1).max(1);

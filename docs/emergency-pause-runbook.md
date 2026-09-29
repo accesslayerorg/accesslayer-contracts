@@ -190,3 +190,39 @@ rather than deliberate.
 
 If you are uncertain whether the fix is sufficient, keep the contract paused and
 consult additional reviewers before proceeding.
+
+---
+
+## 9. Multisig Platform Trading Halt (#1000)
+
+Separate from the single-admin `pause`/`unpause` above, the multisig admin set
+configured with `set_global_pause_admins` can halt **bonding-curve trading only**
+(every buy and sell across all keys) without blocking other entry points.
+
+Every call below takes `signers: Vec<Address>`: at least **two distinct**
+members of the global-pause admin set, each of whom must sign the transaction.
+Fewer signers, a repeated signer, or a non-member fails with
+`EmergencyPauseError::{InsufficientSigners, DuplicateSigner, Unauthorized}`.
+
+| Entry point | Effect |
+|---|---|
+| `pause_platform(signers)` | Halts trading immediately; emits `plat_pau` with `actor` and `timestamp` |
+| `queue_platform_resume(signers)` | Starts the 24h timelock; returns the executable timestamp; emits `plat_rq` |
+| `resume_platform(signers)` | Lifts the halt once the timelock has elapsed; emits `plat_res` |
+| `set_key_pause_override(signers, key_id, paused)` | Halts or releases a single key; emits `key_pau` |
+| `is_paused()` / `get_platform_resume_eta()` / `is_key_paused(key_id)` | Read-only views |
+
+While halted, `buy_key`, `buy_keys`, `buy_key_with_referrer`,
+`buy_keys_with_referrer`, `sell_key`, `batch_buy`, `batch_buy_v2` and
+`batch_sell` return `ContractError::GlobalTradingHalted`.
+
+Operational notes:
+
+- `resume_platform` before the queued timestamp fails with
+  `TimelockNotElapsed`; use the 24h window to complete the checklist in
+  section 6.
+- The per-key override is independent of the platform halt: resuming the
+  platform does not release an overridden key, and clearing a key's override
+  does not let it trade while the platform is halted.
+- `is_paused` reports only this platform halt. The legacy protocol pause is
+  still reported by `get_is_paused`.

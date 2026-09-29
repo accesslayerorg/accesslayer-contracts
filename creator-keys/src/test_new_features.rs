@@ -1,11 +1,15 @@
 #![cfg(test)]
 
 use crate::{
+    events::{MetadataUpdatedEvent, METADATA_UPDATED_EVENT_NAME},
     ContractError, CreatorKeysContract, CreatorKeysContractClient, KeyMetadata,
-    RegisterCreatorParams, METADATA_AVATAR_URI_MAX_LEN, METADATA_BIO_MAX_LEN,
+    RegisterCreatorParams, METADATA_DESCRIPTION_MAX_LEN, METADATA_IMAGE_CID_MAX_LEN,
     METADATA_NAME_MAX_LEN,
 };
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Events},
+    Address, Env, IntoVal, String, Symbol,
+};
 
 fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let env = Env::default();
@@ -207,8 +211,9 @@ fn test_initialise_key_stores_metadata() {
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Crypto enthusiast"),
-        avatar_uri: String::from_str(&env, "https://example.com/alice.png"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Crypto enthusiast"),
+        image_cid: String::from_str(&env, "bafy-alice-image"),
     };
 
     client.initialise_key(&creator, &metadata);
@@ -225,8 +230,9 @@ fn test_initialise_key_panics_on_duplicate() {
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Bio"),
+        image_cid: String::from_str(&env, "bafy-avatar"),
     };
 
     client.initialise_key(&creator, &metadata);
@@ -244,8 +250,9 @@ fn test_initialise_key_panics_on_empty_name() {
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, ""),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Bio"),
+        image_cid: String::from_str(&env, "bafy-avatar"),
     };
 
     let result = client.try_initialise_key(&creator, &metadata);
@@ -262,8 +269,9 @@ fn test_initialise_key_panics_on_name_too_long() {
     let long_name = "a".repeat((METADATA_NAME_MAX_LEN + 1) as usize);
     let metadata = KeyMetadata {
         name: String::from_str(&env, &long_name),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Bio"),
+        image_cid: String::from_str(&env, "bafy-avatar"),
     };
 
     let result = client.try_initialise_key(&creator, &metadata);
@@ -277,8 +285,9 @@ fn test_initialise_key_panics_on_unregistered_creator() {
 
     let metadata = KeyMetadata {
         name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Bio"),
+        image_cid: String::from_str(&env, "bafy-avatar"),
     };
 
     let result = client.try_initialise_key(&creator, &metadata);
@@ -286,162 +295,131 @@ fn test_initialise_key_panics_on_unregistered_creator() {
 }
 
 #[test]
-fn test_update_metadata_updates_provided_fields() {
+fn test_update_metadata_updates_only_mutable_fields_and_emits_changed_values() {
     let (env, client, _admin, _treasury) = setup_test();
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
-
     let initial = KeyMetadata {
         name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Old bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/old.png"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Old description"),
+        image_cid: String::from_str(&env, "bafy-old-image"),
     };
     client.initialise_key(&creator, &initial);
 
-    // Update only bio and avatar_uri, leave name unchanged
     client.update_metadata(
         &creator,
-        &None,
-        &Some(String::from_str(&env, "New bio")),
-        &Some(String::from_str(&env, "https://example.com/new.png")),
+        &String::from_str(&env, "New description"),
+        &String::from_str(&env, "bafy-old-image"),
     );
 
-    let stored = client.get_key_metadata(&creator).unwrap();
-    assert_eq!(stored.name, String::from_str(&env, "Alice"));
-    assert_eq!(stored.bio, String::from_str(&env, "New bio"));
+    let (_, topics, data) = env.events().all().last().unwrap();
+    let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
+    assert_eq!(event_name, METADATA_UPDATED_EVENT_NAME);
+    let event: MetadataUpdatedEvent = data.into_val(&env);
+    assert_eq!(event.creator_id, creator);
     assert_eq!(
-        stored.avatar_uri,
-        String::from_str(&env, "https://example.com/new.png")
+        event.description,
+        Some(String::from_str(&env, "New description"))
     );
-}
+    assert_eq!(event.image_cid, None);
 
-#[test]
-fn test_update_metadata_none_fields_unchanged() {
-    let (env, client, _admin, _treasury) = setup_test();
-    let creator = Address::generate(&env);
-    register_creator(&env, &client, &creator);
+    let stored = client.get_metadata(&creator).unwrap();
+    assert_eq!(stored.name, initial.name);
+    assert_eq!(stored.symbol, initial.symbol);
+    assert_eq!(
+        stored.description,
+        String::from_str(&env, "New description")
+    );
+    assert_eq!(stored.image_cid, String::from_str(&env, "bafy-old-image"));
 
-    let initial = KeyMetadata {
-        name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
-    };
-    client.initialise_key(&creator, &initial);
-
-    // Update with all None — should be a no-op
-    client.update_metadata(&creator, &None, &None, &None);
-
-    let stored = client.get_key_metadata(&creator).unwrap();
-    assert_eq!(stored, initial);
-}
-
-#[test]
-fn test_update_metadata_panics_on_uninitialised_key() {
-    let (env, client, _admin, _treasury) = setup_test();
-    let creator = Address::generate(&env);
-    register_creator(&env, &client, &creator);
-
-    // Metadata not initialised — should fail
-    let result = client.try_update_metadata(
+    client.update_metadata(
         &creator,
-        &Some(String::from_str(&env, "New name")),
-        &None,
-        &None,
+        &String::from_str(&env, "New description"),
+        &String::from_str(&env, "bafy-new-image"),
     );
-    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
+    let (_, _, data) = env.events().all().last().unwrap();
+    let event: MetadataUpdatedEvent = data.into_val(&env);
+    assert_eq!(event.description, None);
+    assert_eq!(
+        event.image_cid,
+        Some(String::from_str(&env, "bafy-new-image"))
+    );
+
+    let stored = client.get_metadata(&creator).unwrap();
+    assert_eq!(stored.name, initial.name);
+    assert_eq!(stored.symbol, initial.symbol);
+    assert_eq!(
+        stored.description,
+        String::from_str(&env, "New description")
+    );
+    assert_eq!(stored.image_cid, String::from_str(&env, "bafy-new-image"));
 }
 
 #[test]
-fn test_update_metadata_panics_on_name_too_long() {
+fn test_update_metadata_requires_creator_authorization() {
     let (env, client, _admin, _treasury) = setup_test();
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
-
-    let initial = KeyMetadata {
-        name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
-    };
-    client.initialise_key(&creator, &initial);
-
-    let long_name = "b".repeat((METADATA_NAME_MAX_LEN + 1) as usize);
-    let result = client.try_update_metadata(
+    client.initialise_key(
         &creator,
-        &Some(String::from_str(&env, &long_name)),
-        &None,
-        &None,
+        &KeyMetadata {
+            name: String::from_str(&env, "Alice"),
+            symbol: String::from_str(&env, "ALICE"),
+            description: String::from_str(&env, "Description"),
+            image_cid: String::from_str(&env, "bafy-image"),
+        },
     );
-    assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
+
+    env.mock_auths(&[]);
+    assert!(client
+        .try_update_metadata(
+            &creator,
+            &String::from_str(&env, "Changed"),
+            &String::from_str(&env, "bafy-changed"),
+        )
+        .is_err());
 }
 
 #[test]
-fn test_update_metadata_panics_on_bio_too_long() {
+fn test_update_metadata_rejects_uninitialized_key_and_oversized_fields() {
     let (env, client, _admin, _treasury) = setup_test();
     let creator = Address::generate(&env);
     register_creator(&env, &client, &creator);
+    assert_eq!(
+        client.try_update_metadata(
+            &creator,
+            &String::from_str(&env, "description"),
+            &String::from_str(&env, "image"),
+        ),
+        Err(Ok(ContractError::NotRegistered))
+    );
 
     let initial = KeyMetadata {
         name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
+        symbol: String::from_str(&env, "ALICE"),
+        description: String::from_str(&env, "Description"),
+        image_cid: String::from_str(&env, "bafy-image"),
     };
     client.initialise_key(&creator, &initial);
-
-    let long_bio = "c".repeat((METADATA_BIO_MAX_LEN + 1) as usize);
-    let result = client.try_update_metadata(
-        &creator,
-        &None,
-        &Some(String::from_str(&env, &long_bio)),
-        &None,
+    let long_description = "x".repeat((METADATA_DESCRIPTION_MAX_LEN + 1) as usize);
+    assert_eq!(
+        client.try_update_metadata(
+            &creator,
+            &String::from_str(&env, &long_description),
+            &String::from_str(&env, "bafy-image"),
+        ),
+        Err(Ok(ContractError::BioTooLong))
     );
-    assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
-}
-
-#[test]
-fn test_update_metadata_panics_on_avatar_uri_too_long() {
-    let (env, client, _admin, _treasury) = setup_test();
-    let creator = Address::generate(&env);
-    register_creator(&env, &client, &creator);
-
-    let initial = KeyMetadata {
-        name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
-    };
-    client.initialise_key(&creator, &initial);
-
-    let long_uri = "d".repeat((METADATA_AVATAR_URI_MAX_LEN + 1) as usize);
-    let result = client.try_update_metadata(
-        &creator,
-        &None,
-        &None,
-        &Some(String::from_str(&env, &long_uri)),
+    let long_image_cid = "x".repeat((METADATA_IMAGE_CID_MAX_LEN + 1) as usize);
+    assert_eq!(
+        client.try_update_metadata(
+            &creator,
+            &String::from_str(&env, "Description"),
+            &String::from_str(&env, &long_image_cid),
+        ),
+        Err(Ok(ContractError::BioTooLong))
     );
-    assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
-}
-
-#[test]
-fn test_update_metadata_panics_on_non_creator_caller() {
-    let (env, client, _admin, _treasury) = setup_test();
-    let creator = Address::generate(&env);
-    register_creator(&env, &client, &creator);
-
-    let initial = KeyMetadata {
-        name: String::from_str(&env, "Alice"),
-        bio: String::from_str(&env, "Bio"),
-        avatar_uri: String::from_str(&env, "https://example.com/avatar.png"),
-    };
-    client.initialise_key(&creator, &initial);
-
-    let attacker = Address::generate(&env);
-    let result = client.try_update_metadata(
-        &attacker,
-        &Some(String::from_str(&env, "Hacked")),
-        &None,
-        &None,
-    );
-    // Non-creator caller: attacker has no metadata so this returns NotRegistered
-    assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }
 
 #[test]
