@@ -332,6 +332,37 @@ pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address,
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())
 }
 
+/// Event name for a purchase settled at the fixed pre-launch auction price.
+pub const AUCTION_PURCHASE_EVENT_NAME: Symbol = symbol_short!("auc_pur");
+
+/// Stable auction purchase event payload for downstream indexers.
+///
+/// Emitted when a buy is settled at the fixed auction price during the
+/// pre-launch auction phase instead of at the bonding curve price.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AuctionPurchaseEvent {
+    /// Address of the buyer performing the purchase.
+    pub buyer: Address,
+    /// Address of the creator whose keys are being purchased.
+    pub creator_id: Address,
+    /// Number of keys bought.
+    pub quantity: u32,
+    /// Price paid for the keys (before fees).
+    pub price_paid: i128,
+    /// New supply of keys for this creator after the purchase.
+    pub new_supply: u32,
+    /// Total number of keys sold through the auction so far, including this one.
+    pub auction_sold: u32,
+    /// Ledger sequence number at the time of the purchase.
+    pub ledger: u32,
+}
+
+/// Shared auction purchase event topics tuple.
+pub fn auction_purchase_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (AUCTION_PURCHASE_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
 /// Shared peer-to-peer transfer event topics tuple.
 pub fn transfer_event_topics(creator: &Address, from: &Address) -> (Symbol, Address, Address) {
     (TRANSFER_EVENT_NAME, creator.clone(), from.clone())
