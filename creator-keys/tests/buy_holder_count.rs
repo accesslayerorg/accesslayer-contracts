@@ -50,6 +50,7 @@ fn test_buy_holder_count_behavior() {
     l.sequence_number += 1;
     env.ledger().set(l);
     // Sell first key of buyer3
+    env.ledger().with_mut(|l| l.sequence_number += 1);
     client.sell_key(&creator, &buyer3, &None);
     // buyer3 has 0 keys left, holder count decrements
     assert_eq!(client.get_key_balance(&creator, &buyer3), 0);

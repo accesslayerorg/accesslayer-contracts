@@ -15,7 +15,7 @@ use creator_keys::constants::storage;
 use creator_keys::{ContractError, TTL_MIN_EXTENSION_LEDGERS};
 use soroban_sdk::{
     testutils::{storage::Persistent as _, Address as _, Ledger},
-    Address, Env, Vec,
+    Address, Env, TryFromVal, Vec,
 };
 
 const KEY_PRICE: i128 = 100;
@@ -26,6 +26,44 @@ fn extend_contract_lifetime(env: &Env, contract_id: &Address) {
     let horizon = creator_keys::CREATOR_TTL_LEDGERS;
     env.deployer()
         .extend_ttl(contract_id.clone(), horizon, horizon);
+}
+
+/// Symbol of the `DataKey::Creator` variant, used to identify the creator
+/// profile storage key while iterating the contract's persistent map.
+fn creator_key_symbol() -> soroban_sdk::Symbol {
+    soroban_sdk::symbol_short!("Creator")
+}
+
+/// Extends every persistent key in the contract except the creator profile
+/// entry, so a far-future ledger advance drains only the entries a test
+/// actually wants to observe.
+///
+/// The test env archives contract data after ~4095 ledgers by default, so
+/// advancing by `CREATOR_TTL_LEDGERS - 100` archives every shorter-TTL key
+/// that `sell_key` reads and the sell panics with `Storage::InternalError`
+/// before it ever reaches the TTL-refresh logic under test.
+fn keep_all_persistent_keys_alive_except_creator(env: &Env, contract_id: &Address) {
+    env.as_contract(contract_id, || {
+        let all = env.storage().persistent().all();
+        for key in all.keys().iter() {
+            // `DataKey` is a `#[contracttype]` enum, so each storage key is a
+            // `Vec<Val>` whose first element is the variant symbol. `extend_ttl`
+            // can only lengthen a TTL, never shorten one, so the creator profile
+            // has to be skipped rather than reset.
+            let is_creator_key = Vec::<soroban_sdk::Val>::try_from_val(env, &key)
+                .ok()
+                .and_then(|parts| parts.get(0))
+                .and_then(|variant| soroban_sdk::Symbol::try_from_val(env, &variant).ok())
+                .is_some_and(|variant| variant == creator_key_symbol());
+            if !is_creator_key {
+                env.storage().persistent().extend_ttl(
+                    &key,
+                    creator_keys::CREATOR_TTL_LEDGERS,
+                    creator_keys::CREATOR_TTL_LEDGERS,
+                );
+            }
+        }
+    });
 }
 
 fn key_ttl(env: &Env, contract_id: &Address, key: &creator_keys::DataKey) -> u32 {
@@ -78,6 +116,7 @@ fn test_sell_bumps_price_and_balance_entry_ttl() {
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
 
     // Drain the balance and price entries below the 30-day floor.
+    keep_all_persistent_keys_alive_except_creator(&env, &contract_id);
     advance_ledger(&env, creator_keys::CREATOR_TTL_LEDGERS - 100);
 
     client.sell_key(&creator, &buyer, &None);

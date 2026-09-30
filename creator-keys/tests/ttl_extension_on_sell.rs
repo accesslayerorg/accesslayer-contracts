@@ -17,14 +17,52 @@ use creator_keys::constants::storage;
 use creator_keys::{CREATOR_TTL_LEDGERS, TTL_EXTENSION_THRESHOLD};
 use soroban_sdk::testutils::storage::Persistent;
 use soroban_sdk::testutils::Ledger;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env, TryFromVal};
 
 const KEY_PRICE: i128 = 100;
+
+/// Symbol of the `DataKey::Creator` variant, used to identify the creator
+/// profile storage key while iterating the contract's persistent map.
+fn creator_key_symbol() -> soroban_sdk::Symbol {
+    soroban_sdk::symbol_short!("Creator")
+}
 
 /// Remaining TTL, in ledgers, on the creator's persistent profile entry.
 fn creator_ttl_remaining(env: &Env, contract_id: &Address, creator: &Address) -> u32 {
     let key = storage::creator(creator);
     env.as_contract(contract_id, || env.storage().persistent().get_ttl(&key))
+}
+
+/// Extend the TTL of every persistent key in the contract except the creator
+/// profile entry under test, so the ledger advance in these tests drains only
+/// that one entry.
+///
+/// The test env archives contract data after ~4095 ledgers by default, so
+/// advancing by the creator TTL (~63k ledgers) archives every shorter-TTL key
+/// that the `sell_key` path reads and the sell panics with
+/// `Storage::InternalError` before it ever reaches the TTL-extension logic.
+fn keep_all_persistent_keys_alive_except_creator(env: &Env, contract_id: &Address) {
+    env.as_contract(contract_id, || {
+        let all = env.storage().persistent().all();
+        for key in all.keys().iter() {
+            // `DataKey` is a `#[contracttype]` enum, so each storage key is a
+            // `Vec<Val>` whose first element is the variant symbol. `extend_ttl`
+            // can only lengthen a TTL, never shorten one, so the creator profile
+            // has to be skipped rather than reset.
+            let is_creator_key = soroban_sdk::Vec::<soroban_sdk::Val>::try_from_val(env, &key)
+                .ok()
+                .and_then(|parts| parts.get(0))
+                .and_then(|variant| soroban_sdk::Symbol::try_from_val(env, &variant).ok())
+                .is_some_and(|variant| variant == creator_key_symbol());
+            if !is_creator_key {
+                env.storage().persistent().extend_ttl(
+                    &key,
+                    CREATOR_TTL_LEDGERS,
+                    CREATOR_TTL_LEDGERS,
+                );
+            }
+        }
+    });
 }
 
 /// Advance the ledger sequence by `ledgers`, draining TTL from live entries.
@@ -80,6 +118,7 @@ fn sell_restores_creator_ttl_to_the_full_window() {
 
     // Drain the TTL down to almost nothing.
     let ttl_before_advance = creator_ttl_remaining(&env, &contract_id, &creator);
+    keep_all_persistent_keys_alive_except_creator(&env, &contract_id);
     advance_ledgers(&env, ttl_before_advance.saturating_sub(1).max(1));
 
     let ttl_before_sell = creator_ttl_remaining(&env, &contract_id, &creator);
@@ -113,6 +152,7 @@ fn repeated_sells_reset_the_ttl_window_rather_than_accumulate() {
     }
 
     let ttl_initial = creator_ttl_remaining(&env, &contract_id, &creator);
+    keep_all_persistent_keys_alive_except_creator(&env, &contract_id);
     advance_ledgers(&env, ttl_initial.saturating_sub(1).max(1));
 
     client.sell_key(&creator, &holder, &None);
@@ -124,29 +164,9 @@ fn repeated_sells_reset_the_ttl_window_rather_than_accumulate() {
         CREATOR_TTL_LEDGERS,
         CREATOR_TTL_LEDGERS,
     );
-    let key_price_key = storage::KEY_PRICE;
-    let last_buy_key = storage::last_buy_ledger(&creator, &holder);
-    let created_at_key = storage::created_at_ledger(&creator);
-    env.as_contract(&contract_id, || {
-        env.storage().persistent().extend_ttl(
-            &key_price_key,
-            CREATOR_TTL_LEDGERS,
-            CREATOR_TTL_LEDGERS,
-        );
-        // These keys are barely alive after the first advance; extend them
-        // so the second sell can still read the flash-loan guard and launch
-        // penalty entries.
-        env.storage().persistent().extend_ttl(
-            &last_buy_key,
-            CREATOR_TTL_LEDGERS,
-            CREATOR_TTL_LEDGERS,
-        );
-        env.storage().persistent().extend_ttl(
-            &created_at_key,
-            CREATOR_TTL_LEDGERS,
-            CREATOR_TTL_LEDGERS,
-        );
-    });
+    // These keys are barely alive after the first advance; extend them so the
+    // second sell can still read the flash-loan guard and launch penalty entries.
+    keep_all_persistent_keys_alive_except_creator(&env, &contract_id);
 
     // Burn a chunk of the freshly granted window, then sell again.
     let elapsed = CREATOR_TTL_LEDGERS / 4;
