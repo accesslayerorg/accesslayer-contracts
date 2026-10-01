@@ -279,9 +279,7 @@ fn test_cooldown_independent_per_wallet() {
     );
 
     // wallet_b has no prior trade — must succeed freely.
-    let supply = s
-        .client
-        .buy_key(&s.creator, &wallet_b, &KEY_PRICE, &None);
+    let supply = s.client.buy_key(&s.creator, &wallet_b, &KEY_PRICE, &None);
     assert_eq!(supply, 2);
 }
 

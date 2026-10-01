@@ -5774,13 +5774,9 @@ impl CreatorKeysContract {
                 .get(&constants::storage::cooldown_duration(&creator))
                 .unwrap_or(0);
             if duration_secs > 0 {
-                if let Some(last_ts) = env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, u64>(&constants::storage::last_trade_timestamp(
-                        &creator, &buyer,
-                    ))
-                {
+                if let Some(last_ts) = env.storage().persistent().get::<DataKey, u64>(
+                    &constants::storage::last_trade_timestamp(&creator, &buyer),
+                ) {
                     let now = env.ledger().timestamp();
                     let expires_at = last_ts.saturating_add(duration_secs);
                     if now < expires_at {
@@ -6006,8 +6002,7 @@ impl CreatorKeysContract {
 
             // Update the per-wallet last-trade timestamp used by the trade
             // cooldown guard (issue #974).
-            let last_trade_key =
-                constants::storage::last_trade_timestamp(&creator, &buyer);
+            let last_trade_key = constants::storage::last_trade_timestamp(&creator, &buyer);
             env.storage()
                 .persistent()
                 .set(&last_trade_key, &env.ledger().timestamp());
@@ -6276,13 +6271,9 @@ impl CreatorKeysContract {
                 .get(&constants::storage::cooldown_duration(&creator))
                 .unwrap_or(0);
             if duration_secs > 0 {
-                if let Some(last_ts) = env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, u64>(&constants::storage::last_trade_timestamp(
-                        &creator, &buyer,
-                    ))
-                {
+                if let Some(last_ts) = env.storage().persistent().get::<DataKey, u64>(
+                    &constants::storage::last_trade_timestamp(&creator, &buyer),
+                ) {
                     let now = env.ledger().timestamp();
                     let expires_at = last_ts.saturating_add(duration_secs);
                     if now < expires_at {
@@ -6782,13 +6773,9 @@ impl CreatorKeysContract {
                 .get(&constants::storage::cooldown_duration(&creator))
                 .unwrap_or(0);
             if duration_secs > 0 {
-                if let Some(last_ts) = env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, u64>(&constants::storage::last_trade_timestamp(
-                        &creator, &seller,
-                    ))
-                {
+                if let Some(last_ts) = env.storage().persistent().get::<DataKey, u64>(
+                    &constants::storage::last_trade_timestamp(&creator, &seller),
+                ) {
                     let now = env.ledger().timestamp();
                     let expires_at = last_ts.saturating_add(duration_secs);
                     if now < expires_at {
@@ -10898,8 +10885,7 @@ impl CreatorKeysContract {
         duration_secs: u64,
     ) -> Result<(), CooldownError> {
         key_id.require_auth();
-        read_registered_creator_profile(&env, &key_id)
-            .map_err(|_| CooldownError::NotRegistered)?;
+        read_registered_creator_profile(&env, &key_id).map_err(|_| CooldownError::NotRegistered)?;
         if duration_secs > MAX_TRADE_COOLDOWN_SECS {
             return Err(CooldownError::DurationTooLong);
         }
@@ -10921,11 +10907,7 @@ impl CreatorKeysContract {
     /// - `active`: `true` when the wallet is currently within its cooldown window.
     /// - `expires_at`: Unix timestamp at which the cooldown expires
     ///   (`0` when no cooldown is active or none is configured).
-    pub fn get_cooldown_status(
-        env: Env,
-        key_id: Address,
-        wallet: Address,
-    ) -> CooldownStatus {
+    pub fn get_cooldown_status(env: Env, key_id: Address, wallet: Address) -> CooldownStatus {
         let duration_secs: u64 = env
             .storage()
             .persistent()

@@ -3753,4 +3753,3 @@ pub struct KeyRatedEvent {
 pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
     (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
 }
-}
