@@ -179,18 +179,18 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "avatar_uri"
+                        "symbol": "description"
                       },
                       "val": {
-                        "string": "ipfs://avatar"
+                        "string": "Digital artist"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "bio"
+                        "symbol": "image_cid"
                       },
                       "val": {
-                        "string": "Digital artist"
+                        "string": "QmAvatar"
                       }
                     },
                     {
@@ -199,6 +199,14 @@
                       },
                       "val": {
                         "string": "Alice"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "symbol"
+                      },
+                      "val": {
+                        "string": "ALICE"
                       }
                     }
                   ]
@@ -699,18 +707,18 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "avatar_uri"
+                        "symbol": "description"
                       },
                       "val": {
-                        "string": "ipfs://avatar"
+                        "string": "Digital artist"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "bio"
+                        "symbol": "image_cid"
                       },
                       "val": {
-                        "string": "Digital artist"
+                        "string": "QmAvatar"
                       }
                     },
                     {
@@ -720,6 +728,14 @@
                       "val": {
                         "string": "Alice"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "symbol"
+                      },
+                      "val": {
+                        "string": "ALICE"
+                      }
                     }
                   ]
                 }
@@ -727,7 +743,7 @@
             },
             "ext": "v0"
           },
-          4095
+          6311520
         ]
       ],
       [

@@ -1,8 +1,5 @@
-#![no_std]
-use soroban_sdk::{
-    contracttype, symbol_short, Address, Env, Symbol, Vec,
-};
 use crate::ContractError;
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -65,9 +62,10 @@ pub fn propose_curve_migration(
         is_executed: false,
     };
 
-    env.storage()
-        .instance()
-        .set(&EmdevelopaDataKey::CurveMigration(creator.clone()), &proposal);
+    env.storage().instance().set(
+        &EmdevelopaDataKey::CurveMigration(creator.clone()),
+        &proposal,
+    );
 
     env.events().publish(
         (CURVE_MIGRATION_PROPOSED_EVENT, creator.clone()),
@@ -138,7 +136,11 @@ pub fn subscribe_key_access(
     env.storage().instance().set(&sub_key, &sub);
 
     env.events().publish(
-        (SUBSCRIPTION_GRANTED_EVENT, creator.clone(), subscriber.clone()),
+        (
+            SUBSCRIPTION_GRANTED_EVENT,
+            creator.clone(),
+            subscriber.clone(),
+        ),
         expires_at,
     );
 
@@ -154,9 +156,9 @@ pub fn is_subscribed(
 ) -> bool {
     let sub_key = EmdevelopaDataKey::Subscription(creator.clone(), subscriber.clone());
     if let Some(sub) = env.storage().instance().get::<_, KeySubscription>(&sub_key) {
-        if sub.is_active &&
-            env.ledger().sequence() <= sub.expires_at_ledger &&
-            subscriber_balance >= sub.min_keys_required
+        if sub.is_active
+            && env.ledger().sequence() <= sub.expires_at_ledger
+            && subscriber_balance >= sub.min_keys_required
         {
             return true;
         }
@@ -165,6 +167,11 @@ pub fn is_subscribed(
 }
 
 /// #945: Execute cross-key atomic swap between two parties.
+// Eight parameters, over clippy's limit of seven. Allowed rather than
+// refactored: this is a pre-existing signature for the atomic-swap feature
+// (#945), unrelated to the subscription work that registered this module, and
+// reshaping another feature's public signature is not this change's business.
+#[allow(clippy::too_many_arguments)]
 pub fn execute_atomic_swap(
     env: &Env,
     party_a: &Address,
