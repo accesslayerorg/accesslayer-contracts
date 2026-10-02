@@ -3240,6 +3240,71 @@ pub fn escalation_config_updated_topics(admin: &Address) -> (Symbol, Address) {
     (ESCALATION_CONFIG_UPDATED_EVENT_NAME, admin.clone())
 }
 
+// ============================================================================
+// Trade cooldown violation (issue #974)
+// ============================================================================
+
+/// Event name emitted when a buy or sell is blocked by the per-wallet trade
+/// cooldown configured via `set_cooldown`.
+pub const COOLDOWN_VIOLATION_EVENT_NAME: Symbol = symbol_short!("cd_viol");
+
+/// Event name emitted when a creator updates their trade cooldown duration via
+/// `set_cooldown`.
+pub const COOLDOWN_SET_EVENT_NAME: Symbol = symbol_short!("cd_set");
+
+/// Payload for a blocked trade due to the per-wallet trade cooldown (issue #974).
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_VIOLATION_EVENT_NAME, creator_id, wallet)`
+/// - data: `CooldownViolationEvent`
+///
+/// Emitted inside `buy_keys_with_referrer` and `sell_key` when a trade is
+/// rejected because the per-wallet cooldown window has not yet elapsed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownViolationEvent {
+    /// Wallet whose trade was blocked.
+    pub wallet: Address,
+    /// Creator whose key was being traded.
+    pub creator_id: Address,
+    /// Unix timestamp at which the cooldown expires and trading resumes.
+    pub expires_at: u64,
+    /// Seconds remaining until the cooldown expires.
+    pub seconds_remaining: u64,
+}
+
+/// Shared cooldown-violation event topics tuple.
+pub fn cooldown_violation_topics(
+    creator: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        COOLDOWN_VIOLATION_EVENT_NAME,
+        creator.clone(),
+        wallet.clone(),
+    )
+}
+
+/// Payload emitted when a creator sets (or updates) their trade cooldown
+/// duration via `set_cooldown` (issue #974).
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_SET_EVENT_NAME, creator_id)`
+/// - data: `CooldownSetEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownSetEvent {
+    /// Creator whose cooldown was updated.
+    pub creator_id: Address,
+    /// New cooldown duration in seconds (`0` disables the cooldown).
+    pub duration_secs: u64,
+}
+
+/// Shared cooldown-set event topics tuple.
+pub fn cooldown_set_topics(creator: &Address) -> (Symbol, Address) {
+    (COOLDOWN_SET_EVENT_NAME, creator.clone())
+}
+
 /// Event name for configuring a graduated bonding curve with supply milestones.
 pub const GRADUATED_CURVE_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("grad_crv");
 
