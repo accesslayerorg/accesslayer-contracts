@@ -11639,14 +11639,26 @@ impl CreatorKeysContract {
 
     /// Read-only view: returns the total number of keys currently staked for
     /// `creator` across all holders.
+    ///
+    /// Two staking flows maintain separate aggregates and are summed here so
+    /// the view reflects both:
+    /// - `stake_keys_locked` / `early_unstake` / `claim_stake_reward` maintain
+    ///   `StakingRewardsState::total_staked` alongside the rewards pool.
+    /// - `stake_keys` / `unstake_keys` maintain `DataKey::TotalStaked`.
+    ///
+    /// Reading only the former made this view report `0` for keys staked
+    /// through the simple flow.
     pub fn get_total_staked(env: Env, creator: Address) -> u32 {
-        env.storage()
+        let locked_total: u32 = env
+            .storage()
             .persistent()
             .get::<DataKey, StakingRewardsState>(&constants::storage::staking_rewards_pool(
                 &creator,
             ))
             .map(|state| state.total_staked)
-            .unwrap_or(0)
+            .unwrap_or(0);
+        let simple_total: u32 = read_total_staked(&env, &creator);
+        locked_total.saturating_add(simple_total)
     }
 
     // =========================================================================
