@@ -9,8 +9,8 @@
 mod contract_test_env;
 
 use contract_test_env::{
-    register_creator_keys, register_test_creator, set_key_price_for_tests, set_test_timestamp,
-    test_env_with_auths, DEFAULT_TEST_TIMESTAMP,
+    register_creator_keys, register_test_creator, set_key_price_for_tests, set_ledger_sequence,
+    set_test_timestamp, test_env_with_auths, DEFAULT_TEST_TIMESTAMP,
 };
 use creator_keys::events::{self, COOLDOWN_VIOLATION_EVENT_NAME};
 use creator_keys::{ContractError, CooldownError, CooldownStatus, MAX_TRADE_COOLDOWN_SECS};
@@ -139,6 +139,8 @@ fn test_sell_blocked_within_cooldown_window() {
 
     // Advance time but remain inside the cooldown window.
     set_test_timestamp(&env, DEFAULT_TEST_TIMESTAMP + COOLDOWN_SECS - 1);
+    // Advance ledger to bypass flash loan guard (which checks ledger sequence).
+    set_ledger_sequence(&env, 1);
 
     // Sell within the cooldown must be rejected.
     let result = s.client.try_sell_key(&s.creator, &trader, &None);
@@ -162,6 +164,8 @@ fn test_sell_succeeds_after_cooldown_expires() {
 
     // Advance to exactly the expiry boundary.
     set_test_timestamp(&env, DEFAULT_TEST_TIMESTAMP + COOLDOWN_SECS);
+    // Advance ledger to bypass flash loan guard (which checks ledger sequence).
+    set_ledger_sequence(&env, 1);
     let supply = s.client.sell_key(&s.creator, &trader, &None);
     assert_eq!(supply, 0, "sell at cooldown boundary must succeed");
 }
