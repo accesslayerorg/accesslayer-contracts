@@ -3,7 +3,8 @@
 pub mod quote_view_errors;
 pub mod vesting;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, String, Vec,
+    contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
+    String, Vec,
 };
 
 pub mod acl_dividend_twap_gov;
@@ -195,6 +196,8 @@ pub enum ContractError {
     // --- Price impact circuit breaker (Issue #996) ---
     /// Price impact circuit breaker tripped.
     CircuitBreakerTripped = 102,
+    InvalidSignature = 103,
+    NonceAlreadyUsed = 104,
 }
 
 /// Errors raised by the staking entrypoints
@@ -1103,6 +1106,14 @@ pub mod constants {
         pub fn curve_reset_count(creator: &Address) -> DataKey {
             DataKey::CurveResetCount(creator.clone())
         }
+
+        pub fn trusted_forwarder() -> DataKey {
+            DataKey::TrustedForwarder
+        }
+
+        pub fn forwarder_nonce(wallet: &Address) -> DataKey {
+            DataKey::ForwarderNonce(wallet.clone())
+        }
     }
     fn creator_key(creator: &Address) -> DataKey {
         DataKey::Creator(creator.clone())
@@ -1934,6 +1945,8 @@ pub enum DataKey {
     VestingCliffConfig(Address, Address),
     /// Graduated bonding curve milestones for a creator.
     GraduatedCurve(Address),
+    TrustedForwarder,
+    ForwarderNonce(Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -4150,6 +4163,74 @@ fn bump_persistent_ttl(env: &Env, key: &DataKey) {
     );
 }
 
+/// Returns the trusted-forwarder nonce for `wallet`: the value its next
+/// [`CreatorKeysContract::forward_buy`] must carry.
+///
+/// Nonces start at `0` and are stored sparsely, so a wallet with no forwarded
+/// history has no entry and reads as `0`. When the entry exists its TTL is
+/// extended to the full [`CREATOR_TTL_LEDGERS`] window on every read. When it
+/// does not exist there is nothing to extend, and `extend_ttl` on a missing
+/// key would trap, so the bump is skipped; this keeps the read panic-free for
+/// every storage state.
+fn read_forwarder_nonce(env: &Env, wallet: &Address) -> u64 {
+    let key = constants::storage::forwarder_nonce(wallet);
+    match env.storage().persistent().get::<DataKey, u64>(&key) {
+        Some(nonce) => {
+            extend_key_ttl_to_full_window(env, &key);
+            nonce
+        }
+        None => 0,
+    }
+}
+
+/// Advances `wallet`'s trusted-forwarder nonce by one and extends the entry's
+/// TTL to the full [`CREATOR_TTL_LEDGERS`] window.
+///
+/// Returns [`ContractError::Overflow`] instead of wrapping if the nonce is
+/// already `u64::MAX`. Runs inside the `forward_buy` invocation, so a later
+/// failure in that call reverts the increment together with every other write.
+fn increment_forwarder_nonce(env: &Env, wallet: &Address) -> Result<u64, ContractError> {
+    let key = constants::storage::forwarder_nonce(wallet);
+    let next = read_forwarder_nonce(env, wallet)
+        .checked_add(1)
+        .ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&key, &next);
+    extend_key_ttl_to_full_window(env, &key);
+    Ok(next)
+}
+
+/// Returns the XDR encoding of the Stellar account address (`G...`) controlled
+/// by the ed25519 `public_key`:
+/// `ScVal::Address(ScAddress::Account(PublicKey::Ed25519(public_key)))`.
+///
+/// Comparing this with `buyer.to_xdr()` proves the signing key belongs to the
+/// buyer without a key registry: an account address *is* its ed25519 key.
+fn account_address_xdr(env: &Env, public_key: &BytesN<32>) -> Bytes {
+    // ScValType::Address, ScAddressType::Account, PublicKeyType::Ed25519
+    let mut xdr = Bytes::from_array(env, &[0, 0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 0]);
+    xdr.append(&Bytes::from(public_key.clone()));
+    xdr
+}
+
+/// Builds the exact bytes a buyer signs to authorise a
+/// [`CreatorKeysContract::forward_buy`]; see that function for the layout.
+fn forward_buy_message(
+    env: &Env,
+    creator: &Address,
+    buyer: &Address,
+    quantity: u32,
+    nonce: u64,
+) -> Bytes {
+    (
+        env.current_contract_address(),
+        creator.clone(),
+        buyer.clone(),
+        quantity,
+        nonce,
+    )
+        .to_xdr(env)
+}
+
 /// Extends TTL for all creator-related storage keys.
 ///
 /// This function extends the TTL of the creator's primary storage entries
@@ -6222,6 +6303,25 @@ impl CreatorKeysContract {
         referrer: Option<Address>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
+        Self::execute_buy(env, creator, buyer, payment, max_price, referrer)
+    }
+
+    /// Executes a single-key purchase for `buyer` without checking the
+    /// buyer's authorization. Not exported: only `pub fn`s in this impl are
+    /// contract entrypoints.
+    ///
+    /// Shared by [`Self::buy_key_with_referrer`], which authorizes the buyer
+    /// with `require_auth`, and [`Self::forward_buy`], which authorizes the
+    /// buyer with an ed25519 signature and a nonce. Callers MUST authorize the
+    /// buyer before calling this.
+    fn execute_buy(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        payment: i128,
+        max_price: Option<i128>,
+        referrer: Option<Address>,
+    ) -> Result<u32, ContractError> {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
@@ -16829,6 +16929,156 @@ impl CreatorKeysContract {
     /// Read-only view of total collected trading rewards for a key pair.
     pub fn get_lp_pool_rewards(env: Env, key_id: Address) -> i128 {
         lp_reward::get_pool_rewards(&env, key_id)
+    }
+
+    /// Sets the trusted forwarder address that may submit buys on behalf of users.
+    ///
+    /// Only callable by the protocol admin. The forwarder is allowed to call
+    /// [`CreatorKeysContract::forward_buy`] to execute key purchases using
+    /// pre-signed ed25519 payloads from buyers.
+    pub fn set_trusted_forwarder(
+        env: Env,
+        admin: Address,
+        forwarder: Address,
+    ) -> Result<(), ContractError> {
+        assert_is_admin(&env, &admin)?;
+        let key = constants::storage::trusted_forwarder();
+        env.storage().persistent().set(&key, &forwarder);
+        extend_key_ttl_to_full_window(&env, &key);
+        Ok(())
+    }
+
+    /// Read-only view: returns the current trusted forwarder address, if set.
+    pub fn get_trusted_forwarder(env: Env) -> Option<Address> {
+        let key = constants::storage::trusted_forwarder();
+        env.storage().persistent().get(&key)
+    }
+
+    /// Read-only view: returns the trusted-forwarder nonce for `wallet`, which
+    /// is the `nonce` its next [`Self::forward_buy`] must carry.
+    ///
+    /// Starts at `0` for wallets with no forwarded history and increases by one
+    /// after each successful `forward_buy`. Requires no authorization and never
+    /// panics: a missing entry reads as `0`. When the entry exists, its TTL is
+    /// extended to the full [`CREATOR_TTL_LEDGERS`] window; when it does not,
+    /// there is no entry to extend and nothing is written.
+    pub fn get_nonce(env: Env, wallet: Address) -> u64 {
+        read_forwarder_nonce(&env, &wallet)
+    }
+
+    /// Executes a key purchase on behalf of a buyer, callable only by the
+    /// trusted forwarder.
+    ///
+    /// The buyer authorizes the purchase off-chain by signing a message with
+    /// their ed25519 key; the forwarder submits it and pays the transaction
+    /// fee. The signature is the buyer's authorization: `buyer.require_auth()`
+    /// is not called, so no Soroban auth entry from the buyer is needed.
+    ///
+    /// # Order of checks
+    ///
+    /// 1. The caller must be the trusted forwarder (`require_auth`).
+    /// 2. `public_key` must be the key of the `buyer` account, otherwise
+    ///    [`ContractError::InvalidSignature`]. `buyer` must therefore be an
+    ///    account (`G...`) address. The signed message is then rebuilt from
+    ///    the call arguments and the signature is verified; a mismatch traps
+    ///    with a host crypto error.
+    /// 3. `nonce` must equal [`Self::get_nonce`] for `buyer`, otherwise
+    ///    [`ContractError::NonceAlreadyUsed`] (both replayed and future nonces).
+    /// 4. The buyer's nonce is incremented and its TTL extended.
+    /// 5. The purchase executes. If it fails, the whole invocation reverts,
+    ///    including the nonce increment, so the nonce can be reused.
+    ///
+    /// # Signed message
+    ///
+    /// The buyer signs (raw ed25519, no pre-hashing) the XDR encoding of the
+    /// `ScVal` vector `[contract_address, creator, buyer, quantity, nonce]`:
+    ///
+    /// ```text
+    /// 00 00 00 10            ScValType::Vec
+    /// 00 00 00 01            vector present
+    /// 00 00 00 05            5 elements
+    /// <ScVal::Address>       this contract's address
+    /// <ScVal::Address>       creator
+    /// <ScVal::Address>       buyer
+    /// 00 00 00 03  <4 bytes> ScVal::U32 quantity, big-endian
+    /// 00 00 00 05  <8 bytes> ScVal::U64 nonce, big-endian
+    /// ```
+    ///
+    /// Each `ScVal::Address` is `00 00 00 12` followed by either
+    /// `00 00 00 00  00 00 00 00  <32-byte ed25519 key>` for an account (`G...`)
+    /// or `00 00 00 01  <32-byte contract hash>` for a contract (`C...`).
+    /// With `@stellar/stellar-sdk` this is
+    /// `xdr.ScVal.scvVec([contract, creator, buyer].map(a => new Address(a).toScVal())
+    /// .concat([xdr.ScVal.scvU32(quantity), xdr.ScVal.scvU64(new xdr.Uint64(nonce))])).toXDR()`.
+    pub fn forward_buy(
+        env: Env,
+        creator: Address,
+        buyer: Address,
+        public_key: BytesN<32>,
+        quantity: u32,
+        nonce: u64,
+        signature: BytesN<64>,
+    ) -> Result<(), ContractError> {
+        // Only the trusted forwarder may call this function.
+        let forwarder_key = constants::storage::trusted_forwarder();
+        let forwarder: Address = env
+            .storage()
+            .persistent()
+            .get(&forwarder_key)
+            .ok_or(ContractError::Unauthorized)?;
+        forwarder.require_auth();
+
+        // Only the buyer's own key can authorize a purchase for the buyer;
+        // otherwise anyone could sign with their own key and act as any buyer.
+        if buyer.clone().to_xdr(&env) != account_address_xdr(&env, &public_key) {
+            return Err(ContractError::InvalidSignature);
+        }
+
+        // The signature binds the buyer's consent to this deployment, creator,
+        // buyer, quantity and nonce.
+        let msg = forward_buy_message(&env, &creator, &buyer, quantity, nonce);
+        env.crypto().ed25519_verify(&public_key, &msg, &signature);
+
+        // Replay protection: only the wallet's current nonce is accepted, and it
+        // is consumed before any other state changes (checks-effects-interactions).
+        if nonce != read_forwarder_nonce(&env, &buyer) {
+            return Err(ContractError::NonceAlreadyUsed);
+        }
+        increment_forwarder_nonce(&env, &buyer)?;
+
+        // Resolve the per-key price from the bonding curve and compute
+        // total payment for the requested quantity.
+        let per_key_price =
+            resolve_buy_quote_price(&env, &creator)?.ok_or(ContractError::KeyPriceNotSet)?;
+        let payment = per_key_price
+            .checked_mul(i128::from(quantity))
+            .ok_or(ContractError::Overflow)?;
+        let _price = Self::execute_buy(
+            env.clone(),
+            creator.clone(),
+            buyer.clone(),
+            payment,
+            None,
+            None,
+        )?;
+
+        // Emit a forwarded-buy event for downstream indexers.
+        env.events().publish(
+            (
+                events::FORWARDED_BUY_EVENT_NAME,
+                forwarder.clone(),
+                buyer.clone(),
+            ),
+            events::ForwardedBuyEvent {
+                forwarder,
+                buyer,
+                creator_id: creator,
+                quantity,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
     }
 }
 

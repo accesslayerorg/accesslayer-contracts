@@ -161,6 +161,9 @@ pub const BLACKLIST_REMOVED_EVENT_NAME: Symbol = symbol_short!("blk_rem");
 /// Event name for the protocol-wide buy deadline ledger being set or cleared.
 pub const GLOBAL_DEADLINE_SET_EVENT_NAME: Symbol = symbol_short!("dl_set");
 
+/// Event name for a forwarded buy submitted by the trusted forwarder.
+pub const FORWARDED_BUY_EVENT_NAME: Symbol = symbol_short!("fwd_buy");
+
 /// Event name for creator registration.
 pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
 
@@ -292,6 +295,22 @@ pub struct KeysBoughtEvent {
     /// Total supply of keys for this creator after the purchase.
     pub new_supply: u32,
     /// Ledger sequence number at the time of the purchase.
+    pub ledger: u32,
+}
+
+/// Stable forwarded-buy event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ForwardedBuyEvent {
+    /// Address of the trusted forwarder that submitted the transaction.
+    pub forwarder: Address,
+    /// Address of the buyer on whose behalf the purchase was made.
+    pub buyer: Address,
+    /// Address of the creator whose keys were purchased.
+    pub creator_id: Address,
+    /// Number of keys purchased.
+    pub quantity: u32,
+    /// Ledger sequence number at the time of the forwarded purchase.
     pub ledger: u32,
 }
 
