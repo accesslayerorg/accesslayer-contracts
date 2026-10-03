@@ -41,6 +41,28 @@ pub enum DataKey {
 | `TreasuryAddress`              | Global             | `Address`        | Protocol treasury address for fee routing                  |
 | `AdminAddress`                 | Global             | `Address`        | Protocol admin address for configuration                   |
 | `ProtocolFeeRecipient`         | Global             | `Address`        | Protocol fee recipient address                             |
+| `PendingUpgradeWasm`           | Global             | `BytesN<32>`     | WASM hash staged for the next timelocked upgrade           |
+| `LastAppliedWasm`              | Global             | `BytesN<32>`     | WASM hash applied by the most recent timelocked upgrade    |
+| `PreviousWasm`                 | Global             | `BytesN<32>`     | WASM hash in effect immediately before `LastAppliedWasm`   |
+| `UpgradeApprovalVote(Address, u32)` | Per-action    | `bool`           | One admin's multi-sig approval vote for upgrade `action_id` |
+
+### Timelocked Upgrade Storage-Key Notes
+
+| Field | Storage Key | Read Ownership | Write Ownership |
+| ----- | ----------- | -------------- | --------------- |
+| Live logic build | `DataKey::LastAppliedWasm` (`constants::storage::LAST_APPLIED_WASM`) | `get_logic_address` | `execute_action` (admin-auth, timelock elapsed, threshold met) |
+| Staged upgrade target | `DataKey::PendingUpgradeWasm` (`constants::storage::PENDING_UPGRADE_WASM`) | `get_upgrade_target` | `upgrade` stages it; `execute_action` or `cancel_action` clears it |
+| Prior logic build | `DataKey::PreviousWasm` (`constants::storage::PREVIOUS_WASM`) | `get_previous_wasm` | `execute_action` (admin-auth, timelock elapsed, threshold met) |
+| Upgrade approvals | `DataKey::UpgradeApprovalVote` (`constants::storage::upgrade_approval_vote`) | `get_upgrade_approvals` | `approve_upgrade` sets, `approve_upgrade`; `execute_action` and `cancel_action` clear |
+
+**Invariants**:
+
+- `PendingUpgradeWasm` is present only while an `Upgrade` action is queued. It must be cleared on both execution and cancellation, so a stale hash can never be applied by a later action.
+- `LastAppliedWasm` only changes through `execute_action`. There is deliberately no ungated setter and no rollback entrypoint — an incident is reversed by proposing a fresh timelocked upgrade back to `get_previous_wasm`.
+- `UpgradeApprovalVote` keys are scoped by `action_id` and cleared on execution and cancellation, so a vote can never be inherited by a subsequent upgrade.
+- `PreviousWasm` is only overwritten once a second upgrade has been applied; it is `None` before that.
+
+**Storage layout / backward compatibility**: all four keys are additive `DataKey` variants holding values that no existing key reads. Deploys that omit this change are unaffected, and a contract upgraded from an earlier build keeps every pre-existing key untouched — `execute_action` swaps only WASM code, never storage. No migration step is required in either direction.
 
 ### Fee Configuration Storage-Key Notes
 

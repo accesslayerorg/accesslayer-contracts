@@ -2,6 +2,7 @@
 //! Minimal factory that deploys `creator-keys` contract instances and keeps a
 //! registry of the deployed addresses.
 
+use creator_keys::{CreatorKeysContractClient, CurvePreset, RegisterCreatorParams};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
     Symbol, Vec,
@@ -16,6 +17,25 @@ pub enum FactoryError {
     AlreadyInitialised = 1,
     NotInitialised = 2,
     Unauthorized = 3,
+    InvalidConfig = 4,
+    InitialisationFailed = 5,
+}
+
+/// Configuration applied atomically to a newly deployed creator key.
+///
+/// The factory keeps deployment and creator registration in one transaction so
+/// callers never receive an uninitialised key address. `creator` must authorize
+/// the call; an admin may still use the legacy `deploy_key` entrypoint for
+/// deployments that are initialized by a separate transaction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyDeploymentConfig {
+    pub creator: Address,
+    pub handle: soroban_sdk::String,
+    pub max_supply: Option<u32>,
+    pub max_keys_per_wallet: Option<u32>,
+    /// Curve preset: 0 = flat, 1 = linear, 2 = quadratic.
+    pub curve_preset: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -135,6 +155,86 @@ impl CreatorKeysFactory {
             KeyDeployedEvent {
                 key: key.clone(),
                 creator,
+            },
+        );
+        Ok(key)
+    }
+
+    /// Deploy and initialize a creator key in one transaction.
+    pub fn deploy_key_with_config(
+        env: Env,
+        caller: Address,
+        salt: BytesN<32>,
+        config: KeyDeploymentConfig,
+    ) -> Result<Address, FactoryError> {
+        caller.require_auth();
+        if caller != config.creator {
+            return Err(FactoryError::Unauthorized);
+        }
+        if config.handle.is_empty() || config.handle.len() > 64 {
+            return Err(FactoryError::InvalidConfig);
+        }
+        if config.max_supply == Some(0) || config.max_keys_per_wallet == Some(0) {
+            return Err(FactoryError::InvalidConfig);
+        }
+        if config.curve_preset > 2 {
+            return Err(FactoryError::InvalidConfig);
+        }
+
+        let allowed = env
+            .storage()
+            .instance()
+            .get(&DataKey::Allowed(caller.clone()))
+            .unwrap_or(false);
+        if caller != read_admin(&env)? && !allowed {
+            return Err(FactoryError::Unauthorized);
+        }
+        let wasm_hash: BytesN<32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::WasmHash)
+            .ok_or(FactoryError::NotInitialised)?;
+        let key = env
+            .deployer()
+            .with_current_contract(salt)
+            .deploy_v2(wasm_hash, ());
+
+        let key_client = CreatorKeysContractClient::new(&env, &key);
+        let curve_preset = match config.curve_preset {
+            0 => CurvePreset::Flat,
+            1 => CurvePreset::Linear,
+            _ => CurvePreset::Quadratic,
+        };
+        key_client
+            .try_register_creator(
+                &RegisterCreatorParams {
+                    creator: config.creator.clone(),
+                    handle: config.handle,
+                },
+                &None,
+                &config.max_supply,
+                &config.max_keys_per_wallet,
+                &Some(curve_preset),
+                &None,
+                &None,
+            )
+            .map_err(|_| FactoryError::InitialisationFailed)?
+            .map_err(|_| FactoryError::InitialisationFailed)?;
+
+        let mut registry = Self::get_registry(env.clone());
+        registry.push_back(key.clone());
+        env.storage().instance().set(&DataKey::Registry, &registry);
+        let mut creator_keys = Self::get_keys_by_creator(env.clone(), config.creator.clone());
+        creator_keys.push_back(key.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::CreatorKeys(config.creator.clone()), &creator_keys);
+        write_registry_count(&env, registry.len());
+        env.events().publish(
+            (KEY_DEPLOYED_EVENT_NAME, config.creator.clone()),
+            KeyDeployedEvent {
+                key: key.clone(),
+                creator: config.creator,
             },
         );
         Ok(key)

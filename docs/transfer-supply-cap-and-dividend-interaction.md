@@ -8,7 +8,12 @@ For the authorization model and fee behavior of `transfer_keys`, see [key-transf
 
 ## Supply Cap Interaction with `transfer_keys`
 
-**The supply cap does not apply to `transfer_keys`.** The cap is enforced only in `buy_key`.
+**The supply cap does not apply to `transfer_keys`.** The cap is enforced only in
+the buy entrypoints: `buy_key` / `buy_key_with_referrer` revert with
+`SupplyCapExceeded` once supply has reached the cap, while
+`buy_keys` / `buy_keys_with_referrer` stop filling at the cap and return the
+partial quantity. The fill that lands exactly on the cap emits
+`SupplyCapReached` once (`cap_reach`). A cap of `0` means uncapped.
 
 ### Why
 

@@ -55,8 +55,9 @@ fn init_metadata(env: &Env, client: &CreatorKeysContractClient, creator: &Addres
         creator,
         &KeyMetadata {
             name: String::from_str(env, "MyKey"),
-            bio: String::from_str(env, "A test key"),
-            avatar_uri: String::from_str(env, "https://img.example.com/key.png"),
+            symbol: String::from_str(env, "MYKEY"),
+            description: String::from_str(env, "A test key"),
+            image_cid: String::from_str(env, "bafykeyimage"),
         },
     );
 }
@@ -173,31 +174,39 @@ fn update_metadata_emits_event_on_change() {
     // Should succeed and (implicitly) emit event.
     client.update_metadata(
         &creator,
-        &Some(String::from_str(&env, "NewName")),
-        &None,
-        &None,
+        &String::from_str(&env, "New description"),
+        &String::from_str(&env, "bafy-new-image"),
     );
 
     let stored = client.get_key_metadata(&creator).unwrap();
-    assert_eq!(stored.name, String::from_str(&env, "NewName"));
-    assert_eq!(stored.bio, String::from_str(&env, "A test key")); // unchanged
+    assert_eq!(stored.name, String::from_str(&env, "MyKey"));
+    assert_eq!(stored.symbol, String::from_str(&env, "MYKEY"));
+    assert_eq!(
+        stored.description,
+        String::from_str(&env, "New description")
+    );
+    assert_eq!(stored.image_cid, String::from_str(&env, "bafy-new-image"));
 }
 
 #[test]
-fn update_metadata_none_fields_leave_data_intact() {
+fn update_metadata_unchanged_values_leave_data_intact() {
     let (env, client, _admin) = setup();
     let creator = Address::generate(&env);
     register(&env, &client, &creator);
     init_metadata(&env, &client, &creator);
 
-    client.update_metadata(&creator, &None, &None, &None);
+    client.update_metadata(
+        &creator,
+        &String::from_str(&env, "A test key"),
+        &String::from_str(&env, "bafykeyimage"),
+    );
 
     let stored = client.get_key_metadata(&creator).unwrap();
     assert_eq!(stored.name, String::from_str(&env, "MyKey"));
 }
 
 #[test]
-fn update_metadata_non_creator_rejected() {
+fn update_metadata_unknown_key_rejected() {
     let (env, client, _admin) = setup();
     let creator = Address::generate(&env);
     let attacker = Address::generate(&env);
@@ -207,9 +216,8 @@ fn update_metadata_non_creator_rejected() {
     // Attacker has no metadata, so returns NotRegistered.
     let result = client.try_update_metadata(
         &attacker,
-        &Some(String::from_str(&env, "Hacked")),
-        &None,
-        &None,
+        &String::from_str(&env, "Hacked"),
+        &String::from_str(&env, "bafy-hacked"),
     );
     assert_eq!(result, Err(Ok(ContractError::NotRegistered)));
 }

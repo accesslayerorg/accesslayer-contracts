@@ -22,8 +22,9 @@ fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address) {
 fn metadata(env: &Env) -> KeyMetadata {
     KeyMetadata {
         name: String::from_str(env, "Alice Key"),
-        bio: String::from_str(env, "bio"),
-        avatar_uri: String::from_str(env, "ipfs://avatar"),
+        symbol: String::from_str(env, "ALICE"),
+        description: String::from_str(env, "bio"),
+        image_cid: String::from_str(env, "QmAvatar"),
     }
 }
 
@@ -63,6 +64,7 @@ fn test_standard_registration_initialises_key_config() {
     assert_eq!(client.get_buy_cooldown(&creator), 12);
     assert!(!client.is_auction_pending(&creator));
     assert_eq!(client.get_key_metadata(&creator), Some(metadata(&env)));
+    assert_eq!(client.get_metadata(&creator), Some(metadata(&env)));
 
     assert_eq!(events.len(), 1);
     let event = events.get(0).unwrap();
@@ -140,4 +142,41 @@ fn test_duplicate_registration_is_rejected() {
         &false,
     );
     assert_eq!(result, Err(Ok(ContractError::AlreadyRegistered)));
+}
+
+#[test]
+fn test_deployment_enforces_name_and_symbol_length_limits() {
+    let env = test_env_with_auths();
+    let (client, admin) = setup(&env);
+    let creator = Address::generate(&env);
+    let mut key_metadata = metadata(&env);
+    key_metadata.name = String::from_str(&env, &"n".repeat(65));
+
+    assert_eq!(
+        client.try_register_key(
+            &admin,
+            &creator,
+            &String::from_str(&env, "alice"),
+            &key_metadata,
+            &CurvePreset::Linear,
+            &0,
+            &false,
+        ),
+        Err(Ok(ContractError::NameTooLong))
+    );
+
+    key_metadata.name = String::from_str(&env, "Alice Key");
+    key_metadata.symbol = String::from_str(&env, &"s".repeat(13));
+    assert_eq!(
+        client.try_register_key(
+            &admin,
+            &creator,
+            &String::from_str(&env, "alice"),
+            &key_metadata,
+            &CurvePreset::Linear,
+            &0,
+            &false,
+        ),
+        Err(Ok(ContractError::NameTooLong))
+    );
 }

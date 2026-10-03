@@ -28,8 +28,9 @@ const KEY_PRICE: i128 = 100;
 fn metadata(env: &Env) -> KeyMetadata {
     KeyMetadata {
         name: String::from_str(env, "Alice Key"),
-        bio: String::from_str(env, "bio"),
-        avatar_uri: String::from_str(env, "ipfs://avatar"),
+        symbol: String::from_str(env, "ALICE"),
+        description: String::from_str(env, "bio"),
+        image_cid: String::from_str(env, "QmAvatar"),
     }
 }
 

@@ -179,18 +179,18 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "avatar_uri"
+                        "symbol": "description"
                       },
                       "val": {
-                        "string": "uri"
+                        "string": "bio"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "bio"
+                        "symbol": "image_cid"
                       },
                       "val": {
-                        "string": "bio"
+                        "string": "QmImage"
                       }
                     },
                     {
@@ -199,6 +199,14 @@
                       },
                       "val": {
                         "string": "name"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "symbol"
+                      },
+                      "val": {
+                        "string": "KEY"
                       }
                     }
                   ]
@@ -699,18 +707,18 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "avatar_uri"
+                        "symbol": "description"
                       },
                       "val": {
-                        "string": "uri"
+                        "string": "bio"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "bio"
+                        "symbol": "image_cid"
                       },
                       "val": {
-                        "string": "bio"
+                        "string": "QmImage"
                       }
                     },
                     {
@@ -720,6 +728,14 @@
                       "val": {
                         "string": "name"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "symbol"
+                      },
+                      "val": {
+                        "string": "KEY"
+                      }
                     }
                   ]
                 }
@@ -727,7 +743,7 @@
             },
             "ext": "v0"
           },
-          4095
+          6311520
         ]
       ],
       [

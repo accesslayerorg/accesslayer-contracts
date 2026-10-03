@@ -458,7 +458,7 @@ fn test_register_creator_with_max_supply() {
 }
 
 #[test]
-fn test_register_creator_max_supply_zero_reverts() {
+fn test_register_creator_max_supply_zero_is_unlimited() {
     let env = Env::default();
     env.mock_all_auths();
     let contract_id = env.register(CreatorKeysContract, ());
@@ -466,10 +466,12 @@ fn test_register_creator_max_supply_zero_reverts() {
     let creator = Address::generate(&env);
     let handle = String::from_str(&env, "alice");
 
-    let result = client.try_register_creator(
+    // #997: a cap of 0 means unlimited, so registration succeeds and no cap
+    // storage is written for the key.
+    client.register_creator(
         &crate::RegisterCreatorParams {
             creator: creator.clone(),
-            handle: handle.clone(),
+            handle,
         },
         &None,
         &Some(0),
@@ -478,7 +480,11 @@ fn test_register_creator_max_supply_zero_reverts() {
         &None,
         &None,
     );
-    assert_eq!(result, Err(Ok(ContractError::NotPositiveAmount)));
+
+    assert_eq!(client.get_max_supply(&creator), None);
+    let info = client.get_supply_info(&creator);
+    assert_eq!(info.cap, 0);
+    assert_eq!(info.remaining, u32::MAX);
 }
 
 #[test]
