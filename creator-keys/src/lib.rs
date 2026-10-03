@@ -13958,6 +13958,243 @@ impl CreatorKeysContract {
     /// has sufficient liquid balance (excluding frozen and staked keys) for all orders.
     /// Each sell is processed sequentially using the bonding curve logic.
     /// If any single order fails, the entire batch reverts atomically.
+    pub fn batch_sell_v2(
+        env: Env,
+        seller: Address,
+        orders: soroban_sdk::Vec<(Address, u32, Option<i128>)>,
+    ) -> Result<soroban_sdk::Vec<BatchSellOrderResult>, ContractError> {
+        seller.require_auth();
+        assert_global_trading_not_halted(&env)?;
+        assert_not_paused(&env)?;
+        assert_not_blacklisted(&env, &seller)?;
+
+        if orders.is_empty() || orders.len() > MAX_BATCH_SELL_SIZE as u32 {
+            return Err(ContractError::BatchSizeExceeded);
+        }
+
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
+
+        let mut results = soroban_sdk::Vec::new(&env);
+        let mut event_order_tuples = soroban_sdk::Vec::new(&env);
+        let mut total_proceeds: i128 = 0;
+
+        for order in orders.iter() {
+            let (creator, quantity, min_proceeds) = order;
+            if quantity == 0 {
+                return Err(ContractError::NotPositiveAmount);
+            }
+            if env
+                .storage()
+                .persistent()
+                .has(&constants::storage::deprecated_key(&creator))
+            {
+                return Err(ContractError::KeyDeprecated);
+            }
+
+            assert_position_not_frozen(&env, &creator, &seller)?;
+            let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+
+            let mut order_proceeds: i128 = 0;
+            let mut i = 0u32;
+            while i < quantity {
+                let sell_supply = profile
+                    .supply
+                    .checked_sub(1)
+                    .ok_or(ContractError::SellUnderflow)?;
+                let curve_price =
+                    compute_bonding_curve_price(&env, &creator, base_price, sell_supply)?;
+                let price = apply_spread(&env, &creator, curve_price)?;
+
+                let balance_key = constants::storage::holder_balance_key(&creator, &seller);
+                let current_balance: u32 =
+                    env.storage().persistent().get(&balance_key).unwrap_or(0);
+                if current_balance == 0 {
+                    return Err(ContractError::InsufficientBalance);
+                }
+
+                let staked_balance_key = constants::storage::staked_balance(&creator, &seller);
+                let staked_balance: u32 = env
+                    .storage()
+                    .persistent()
+                    .get(&staked_balance_key)
+                    .unwrap_or(0);
+                let liquid_balance = current_balance
+                    .saturating_sub(staked_balance)
+                    .saturating_sub(read_self_frozen_balance(&env, &creator, &seller));
+                if liquid_balance == 0 {
+                    return Err(ContractError::InsufficientBalance);
+                }
+
+                assert_flash_loan_guard(&env, &creator, &seller)?;
+                if let Some(lockup_secs) = read_lockup_duration_secs(&env) {
+                    let last_buy_key = constants::storage::last_buy_timestamp(&creator, &seller);
+                    if let Some(last_buy_ts) = env
+                        .storage()
+                        .persistent()
+                        .get::<DataKey, u64>(&last_buy_key)
+                    {
+                        let now = env.ledger().timestamp();
+                        let unlock_at = last_buy_ts
+                            .checked_add(lockup_secs)
+                            .ok_or(ContractError::Overflow)?;
+                        if now < unlock_at {
+                            env.events().publish(
+                                events::lockup_blocked_topics(&creator, &seller),
+                                events::LockupBlockedEvent {
+                                    creator_id: creator.clone(),
+                                    seller: seller.clone(),
+                                    last_buy_timestamp: last_buy_ts,
+                                    unlock_at,
+                                    current_timestamp: now,
+                                },
+                            );
+                            return Err(ContractError::AllocationLocked);
+                        }
+                    }
+                }
+
+                assert_sell_proceeds_slippage(&env, &creator, price, min_proceeds)?;
+
+                settle_holder_dividends(&env, &creator, &seller, current_balance)?;
+                let new_balance = current_balance
+                    .checked_sub(1)
+                    .ok_or(ContractError::SellUnderflow)?;
+                profile.supply = sell_supply;
+
+                if new_balance == 0 {
+                    profile.holder_count = profile
+                        .holder_count
+                        .checked_sub(1)
+                        .ok_or(ContractError::SellUnderflow)?;
+                }
+
+                let key = constants::storage::creator(&creator);
+                env.storage().persistent().set(&key, &profile);
+                write_creator_supply(&env, &creator, profile.supply);
+                if new_balance == 0 {
+                    env.storage().persistent().remove(&balance_key);
+                    env.storage()
+                        .persistent()
+                        .remove(&constants::storage::last_buy_timestamp(&creator, &seller));
+                } else {
+                    env.storage().persistent().set(&balance_key, &new_balance);
+                    extend_key_ttl_to_full_window(&env, &balance_key);
+                }
+
+                let gross_proceeds = compute_sell_proceeds(&env, price)?;
+                let (proceeds, tax_amount, _pool_balance_after) =
+                    Self::collect_sell_tax(&env, &creator, gross_proceeds)?;
+                if tax_amount > 0 {
+                    let pool: Address = env
+                        .storage()
+                        .persistent()
+                        .get(&constants::storage::BUYBACK_POOL_ADDRESS)
+                        .unwrap_or_else(|| zero_address(&env));
+                    env.events().publish(
+                        events::sell_tax_collected_topics(&creator, &seller),
+                        events::SellTaxCollectedEvent {
+                            creator: creator.clone(),
+                            seller: seller.clone(),
+                            amount: tax_amount,
+                            pool,
+                            tax_bps: Self::get_sell_tax_bps(env.clone(), creator.clone()),
+                            gross_proceeds,
+                            net_proceeds: proceeds,
+                            pool_balance: _pool_balance_after,
+                            ledger: env.ledger().sequence(),
+                        },
+                    );
+                }
+
+                if let Some(created_at) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, u32>(&constants::storage::created_at_ledger(&creator))
+                {
+                    let current_ledger = env.ledger().sequence();
+                    if current_ledger.checked_sub(created_at).unwrap_or(u32::MAX)
+                        < crate::LAUNCH_PENALTY_WINDOW_LEDGERS
+                    {
+                        let penalty_bps: u32 = env
+                            .storage()
+                            .persistent()
+                            .get::<DataKey, u32>(&constants::storage::launch_penalty_bps(&creator))
+                            .unwrap_or(crate::DEFAULT_LAUNCH_PENALTY_BPS);
+                        let capped_bps = penalty_bps.min(crate::MAX_LAUNCH_PENALTY_BPS);
+                        if capped_bps > 0 {
+                            let penalty_amount =
+                                crate::fee::apply_percentage_fee(proceeds, capped_bps).unwrap_or(0);
+                            if penalty_amount > 0 {
+                                credit_creator_fee_balance(&env, &creator, penalty_amount)?;
+                                env.events().publish(
+                                    events::launch_penalty_applied_topics(&creator, &seller),
+                                    events::LaunchPenaltyAppliedEvent {
+                                        creator_id: creator.clone(),
+                                        seller: seller.clone(),
+                                        penalty_bps: capped_bps,
+                                        penalty_amount,
+                                        ledger: env.ledger().sequence(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+
+                accrue_sell_trade_fees(&env, &creator, price)?;
+                order_proceeds = order_proceeds
+                    .checked_add(proceeds)
+                    .ok_or(ContractError::Overflow)?;
+
+                i += 1;
+            }
+
+            extend_creator_ttl(&env, &creator);
+
+            let sell_event_data = events::KeysSoldEvent {
+                seller: seller.clone(),
+                creator_id: creator.clone(),
+                quantity,
+                proceeds: order_proceeds,
+                new_supply: profile.supply,
+                ledger: env.ledger().sequence(),
+            };
+
+            env.events().publish(
+                (events::SELL_EVENT_NAME, creator.clone(), seller.clone()),
+                sell_event_data,
+            );
+
+            total_proceeds = total_proceeds
+                .checked_add(order_proceeds)
+                .ok_or(ContractError::Overflow)?;
+            event_order_tuples.push_back((creator.clone(), quantity, order_proceeds));
+
+            results.push_back(BatchSellOrderResult {
+                key_id: creator,
+                quantity,
+                proceeds: order_proceeds,
+            });
+        }
+
+        env.events().publish(
+            events::batch_sell_completed_topics(&seller),
+            events::BatchSellCompletedEvent {
+                seller: seller.clone(),
+                orders: event_order_tuples,
+                total_proceeds,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(results)
+    }
+
     pub fn batch_sell(
         env: Env,
         seller: Address,
