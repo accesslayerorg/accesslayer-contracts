@@ -9,11 +9,10 @@
 //! 5. `KeyDeprecated` event includes reason and successor_key_id.
 
 use creator_keys::{
-    events, ContractError, CreatorKeysContract, CreatorKeysContractClient,
-    DeprecationStatus, RegisterCreatorParams,
+    events, ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
 };
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     Address, Env, IntoVal, String,
 };
 
@@ -126,10 +125,46 @@ fn test_sell_still_permitted_after_deprecation() {
         &None,
     );
 
+    // Advance past the flash-loan guard window (a buy and sell in the same
+    // ledger are otherwise rejected independently of deprecation).
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number += 1;
+    env.ledger().set(ledger);
+
     // Sell should succeed even after deprecation.
-    let result = client.try_sell_key(&creator, &holder, &0_i128, &None);
+    let result = client.try_sell_key(&creator, &holder, &None);
     assert!(result.is_ok(), "sell should succeed on deprecated key");
     assert_eq!(client.get_key_balance(&creator, &holder), 0);
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Transfer still permitted post-deprecation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_transfer_still_permitted_after_deprecation() {
+    let (env, client, _admin) = setup();
+    let creator = register_creator(&env, &client, "carol973b");
+    let holder = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    buy_one(&client, &creator, &holder);
+    assert_eq!(client.get_key_balance(&creator, &holder), 1);
+
+    client.deprecate_key(
+        &creator,
+        &creator,
+        &100_i128,
+        &100_i128,
+        &String::from_str(&env, "sunsetting"),
+        &None,
+    );
+
+    // Transfer should succeed even after deprecation.
+    let result = client.try_transfer_keys(&creator, &holder, &recipient, &1_u32);
+    assert!(result.is_ok(), "transfer should succeed on deprecated key");
+    assert_eq!(client.get_key_balance(&creator, &holder), 0);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +190,11 @@ fn test_get_deprecation_status_returns_reason_and_successor() {
 
     let reason_str = String::from_str(&env, "upgrade to v2");
 
+    // Pin the ledger sequence so the recorded deprecation timestamp is non-zero.
+    let mut ledger = env.ledger().get();
+    ledger.sequence_number = 42;
+    env.ledger().set(ledger);
+
     client.deprecate_key(
         &creator,
         &creator,
@@ -168,7 +208,7 @@ fn test_get_deprecation_status_returns_reason_and_successor() {
     assert!(status.is_deprecated);
     assert_eq!(status.reason, reason_str);
     assert_eq!(status.successor_key_id, Some(successor));
-    assert!(status.deprecated_at_ledger > 0);
+    assert_eq!(status.deprecated_at_ledger, 42);
 }
 
 #[test]

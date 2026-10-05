@@ -6604,10 +6604,7 @@ impl CreatorKeysContract {
     ///
     /// Always succeeds — if the key is not deprecated, returns a
     /// `DeprecationStatus` with `is_deprecated = false` and zeroed fields.
-    pub fn get_deprecation_status(
-        env: Env,
-        creator: Address,
-    ) -> DeprecationStatus {
+    pub fn get_deprecation_status(env: Env, creator: Address) -> DeprecationStatus {
         let is_deprecated = env
             .storage()
             .persistent()

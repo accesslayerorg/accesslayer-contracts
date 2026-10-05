@@ -62,7 +62,14 @@ fn buy(client: &CreatorKeysContractClient, creator: &Address, buyer: &Address, n
 
 fn deprecate(env: &Env, client: &CreatorKeysContractClient, creator: &Address) {
     let supply = client.get_creator_supply(creator) as i128;
-    client.deprecate_key(creator, creator, &BUYBACK_PRICE, &(supply * BUYBACK_PRICE), &soroban_sdk::String::from_str(env, "deprecated"), &None);
+    client.deprecate_key(
+        creator,
+        creator,
+        &BUYBACK_PRICE,
+        &(supply * BUYBACK_PRICE),
+        &soroban_sdk::String::from_str(env, "deprecated"),
+        &None,
+    );
 }
 
 // ---------------------------------------------------------------------------
