@@ -43,7 +43,8 @@ use crate::{
     CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient, VaultAllocation,
 };
 use soroban_sdk::{
-    contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
+    contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, String, Symbol,
+    Vec,
 };
 
 /// Event name for protocol trade fee collected on a buy or sell.
@@ -52,25 +53,60 @@ pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
 /// Stable fee collection event payload for downstream indexers.
 ///
 /// Event shape:
-/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury)`
+/// - topics: `(FEE_COLLECTED_EVENT_NAME, treasury, trade_id)`
 /// - data: `FeeCollectedEvent`
 ///
 /// Emitted on every buy and sell once the protocol trade fee is configured,
-/// carrying the deducted amount and the treasury address that received it.
+/// carrying the trade identifier, the gross amount, the deducted fee, and the
+/// treasury address that received it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct FeeCollectedEvent {
     /// Treasury address that received the fee.
     pub treasury: Address,
-    /// Fee amount deducted from the trade.
+    /// Monotonic trade counter for the fee collection event.
+    pub trade_id: u64,
+    /// Gross trade amount before the protocol deduction.
     pub amount: i128,
+    /// Fee amount deducted from the trade.
+    pub fee: i128,
     /// Ledger sequence number at the time of the trade.
     pub ledger: u32,
 }
 
-/// Shared fee collected event topics tuple.
-pub fn fee_collected_topics(treasury: &Address) -> (Symbol, Address) {
-    (FEE_COLLECTED_EVENT_NAME, treasury.clone())
+/// Shared fee collected event topics tuple including the trade identifier.
+pub fn fee_collected_topics_with_trade_id(
+    treasury: &Address,
+    trade_id: u64,
+) -> (Symbol, Address, u64) {
+    (FEE_COLLECTED_EVENT_NAME, treasury.clone(), trade_id)
+}
+
+/// Event name for LP allocation sent to liquidity pool.
+pub const LP_ALLOCATION_SENT_EVENT_NAME: Symbol = symbol_short!("lp_alloc");
+
+/// Stable LP allocation sent event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(LP_ALLOCATION_SENT_EVENT_NAME, lp_contract)`
+/// - data: `LpAllocationSentEvent`
+///
+/// Emitted on each buy when LP routing is configured, carrying the amount
+/// forwarded to the LP contract and the LP contract address.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LpAllocationSentEvent {
+    /// LP contract address that received the allocation.
+    pub lp_contract: Address,
+    /// Amount forwarded to the LP contract.
+    pub amount: i128,
+    /// Ledger sequence number at the time of the allocation.
+    pub ledger: u32,
+}
+
+/// Shared LP allocation sent event topics tuple.
+pub fn lp_allocation_sent_topics(lp_contract: &Address) -> (Symbol, Address) {
+    (LP_ALLOCATION_SENT_EVENT_NAME, lp_contract.clone())
 }
 
 /// Event name for a sell rejected by the anti-flash-trade lockup window.
@@ -124,6 +160,9 @@ pub const BLACKLIST_REMOVED_EVENT_NAME: Symbol = symbol_short!("blk_rem");
 
 /// Event name for the protocol-wide buy deadline ledger being set or cleared.
 pub const GLOBAL_DEADLINE_SET_EVENT_NAME: Symbol = symbol_short!("dl_set");
+
+/// Event name for a forwarded buy submitted by the trusted forwarder.
+pub const FORWARDED_BUY_EVENT_NAME: Symbol = symbol_short!("fwd_buy");
 
 /// Event name for creator registration.
 pub const REGISTER_EVENT_NAME: Symbol = symbol_short!("register");
@@ -256,6 +295,22 @@ pub struct KeysBoughtEvent {
     /// Total supply of keys for this creator after the purchase.
     pub new_supply: u32,
     /// Ledger sequence number at the time of the purchase.
+    pub ledger: u32,
+}
+
+/// Stable forwarded-buy event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ForwardedBuyEvent {
+    /// Address of the trusted forwarder that submitted the transaction.
+    pub forwarder: Address,
+    /// Address of the buyer on whose behalf the purchase was made.
+    pub buyer: Address,
+    /// Address of the creator whose keys were purchased.
+    pub creator_id: Address,
+    /// Number of keys purchased.
+    pub quantity: u32,
+    /// Ledger sequence number at the time of the forwarded purchase.
     pub ledger: u32,
 }
 
@@ -993,6 +1048,28 @@ pub fn keys_claimed_topics(creator: &Address, beneficiary: &Address) -> (Symbol,
     )
 }
 
+pub const VESTING_CLIFF_CLAIMED_EVENT_NAME: Symbol = symbol_short!("vc_claim");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VestingCliffClaimedEvent {
+    pub creator_id: Address,
+    pub beneficiary: Address,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+pub fn vesting_cliff_claimed_topics(
+    creator: &Address,
+    beneficiary: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        VESTING_CLIFF_CLAIMED_EVENT_NAME,
+        creator.clone(),
+        beneficiary.clone(),
+    )
+}
+
 // --- Timelock events ---
 
 /// Event name for config change proposed.
@@ -1059,6 +1136,7 @@ pub const ADDRESS_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_add");
 pub const ADDRESS_REMOVED_EVENT_NAME: Symbol = symbol_short!("wl_rem");
 pub const HOLDING_CAP_UPDATED_EVENT_NAME: Symbol = symbol_short!("hold_cap");
 pub const WHITELIST_UPDATED_EVENT_NAME: Symbol = symbol_short!("wl_upd");
+pub const EARLY_ACCESS_MODE_CHANGED_EVENT_NAME: Symbol = symbol_short!("ea_mode");
 pub const REFERRAL_REGISTERED_EVENT_NAME: Symbol = symbol_short!("ref_reg");
 pub const REFERRAL_REWARD_ALLOCATED_EVENT_NAME: Symbol = symbol_short!("ref_rwd");
 pub const REFERRAL_REWARDS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("ref_clm");
@@ -1086,6 +1164,7 @@ pub struct SelfFreezeEvent {
 pub struct CircuitBreakerTriggeredEvent {
     pub pre_price: i128,
     pub post_price: i128,
+    pub actual_bps: u32,
 }
 
 pub fn circuit_breaker_triggered_topics() -> Symbol {
@@ -1184,6 +1263,18 @@ pub struct WhitelistUpdatedEvent {
 
 pub fn whitelist_updated_topics(creator: &Address) -> (Symbol, Address) {
     (WHITELIST_UPDATED_EVENT_NAME, creator.clone())
+}
+
+/// Emitted when a creator toggles early-access mode.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EarlyAccessModeChangedEvent {
+    pub creator: Address,
+    pub enabled: bool,
+}
+
+pub fn early_access_mode_changed_topics(creator: &Address) -> (Symbol, Address) {
+    (EARLY_ACCESS_MODE_CHANGED_EVENT_NAME, creator.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2198,6 +2289,10 @@ pub struct KeyDeprecatedEvent {
     pub circulating_supply: u32,
     /// Total XLM escrowed (`circulating_supply * buyback_price_per_key`).
     pub total_escrow: i128,
+    /// Human-readable reason supplied by the creator (#973).
+    pub reason: String,
+    /// Optional successor key address (#973). `None` when not designated.
+    pub successor_key_id: Option<Address>,
     /// Ledger sequence number at the time of deprecation.
     pub ledger: u32,
 }
@@ -2651,6 +2746,75 @@ pub fn action_cancelled_topics(action_id: u32) -> (Symbol, u32) {
 }
 
 // ============================================================================
+// Feature: timelocked contract upgrade — LogicUpgraded / UpgradeApproved
+// ============================================================================
+
+/// Event name emitted when a timelocked upgrade swaps the contract's logic build.
+///
+/// Emitted alongside (never instead of) `UpgradeExecutedEvent`, so indexers
+/// already tracking the legacy `upgraded` event keep working unchanged.
+pub const LOGIC_UPGRADED_EVENT_NAME: Symbol = symbol_short!("logic_upg");
+
+/// Stable payload describing a completed timelocked logic upgrade.
+///
+/// Carries both the outgoing and incoming logic identity, which is the whole
+/// point of the event: an operator can diff the pair to confirm which build is
+/// live and, if it misbehaved, which build to propose a rollback to.
+///
+/// Event shape:
+/// - topics: `(LOGIC_UPGRADED_EVENT_NAME, action_id)`
+/// - data: `LogicUpgradedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LogicUpgradedEvent {
+    /// Timelocked action that carried out the swap.
+    pub action_id: u32,
+    /// Logic (WASM) hash in effect before the upgrade. `None` on the first
+    /// recorded upgrade, when no prior hash has been retained yet.
+    pub old_wasm_hash: Option<BytesN<32>>,
+    /// Logic (WASM) hash now in effect.
+    pub new_wasm_hash: BytesN<32>,
+    pub old_version: u32,
+    pub new_version: u32,
+    /// Ledger timestamp (seconds) at which the swap was applied.
+    pub executed_at: u64,
+}
+
+/// Shared logic-upgraded event topics tuple.
+pub fn logic_upgraded_topics(action_id: u32) -> (Symbol, u32) {
+    (LOGIC_UPGRADED_EVENT_NAME, action_id)
+}
+
+/// Event name emitted when one member of the multi-sig admin set approves a
+/// pending timelocked upgrade.
+pub const UPGRADE_APPROVED_EVENT_NAME: Symbol = symbol_short!("upg_appr");
+
+/// Stable payload for a single multi-sig approval of a pending upgrade.
+///
+/// Event shape:
+/// - topics: `(UPGRADE_APPROVED_EVENT_NAME, action_id)`
+/// - data: `UpgradeApprovedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct UpgradeApprovedEvent {
+    /// Timelocked action being approved.
+    pub action_id: u32,
+    /// Admin that cast this approval.
+    pub admin: Address,
+    /// Total distinct approvals recorded so far, including this one.
+    pub approvals: u32,
+    /// Distinct approvals required before the upgrade may execute.
+    pub threshold: u32,
+    /// Ledger timestamp (seconds) of the approval.
+    pub approved_at: u64,
+}
+
+/// Shared upgrade-approved event topics tuple.
+pub fn upgrade_approved_topics(action_id: u32) -> (Symbol, u32) {
+    (UPGRADE_APPROVED_EVENT_NAME, action_id)
+}
+
+// ============================================================================
 // Feature: holder_count tracking — HolderCountChanged event
 // ============================================================================
 
@@ -3100,6 +3264,91 @@ pub fn escalation_config_updated_topics(admin: &Address) -> (Symbol, Address) {
 }
 
 // ============================================================================
+// Trade cooldown violation (issue #974)
+// ============================================================================
+
+/// Event name emitted when a buy or sell is blocked by the per-wallet trade
+/// cooldown configured via `set_cooldown`.
+pub const COOLDOWN_VIOLATION_EVENT_NAME: Symbol = symbol_short!("cd_viol");
+
+/// Event name emitted when a creator updates their trade cooldown duration via
+/// `set_cooldown`.
+pub const COOLDOWN_SET_EVENT_NAME: Symbol = symbol_short!("cd_set");
+
+/// Payload for a blocked trade due to the per-wallet trade cooldown (issue #974).
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_VIOLATION_EVENT_NAME, creator_id, wallet)`
+/// - data: `CooldownViolationEvent`
+///
+/// Emitted inside `buy_keys_with_referrer` and `sell_key` when a trade is
+/// rejected because the per-wallet cooldown window has not yet elapsed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownViolationEvent {
+    /// Wallet whose trade was blocked.
+    pub wallet: Address,
+    /// Creator whose key was being traded.
+    pub creator_id: Address,
+    /// Unix timestamp at which the cooldown expires and trading resumes.
+    pub expires_at: u64,
+    /// Seconds remaining until the cooldown expires.
+    pub seconds_remaining: u64,
+}
+
+/// Shared cooldown-violation event topics tuple.
+pub fn cooldown_violation_topics(
+    creator: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        COOLDOWN_VIOLATION_EVENT_NAME,
+        creator.clone(),
+        wallet.clone(),
+    )
+}
+
+/// Payload emitted when a creator sets (or updates) their trade cooldown
+/// duration via `set_cooldown` (issue #974).
+///
+/// Event shape:
+/// - topics: `(COOLDOWN_SET_EVENT_NAME, creator_id)`
+/// - data: `CooldownSetEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CooldownSetEvent {
+    /// Creator whose cooldown was updated.
+    pub creator_id: Address,
+    /// New cooldown duration in seconds (`0` disables the cooldown).
+    pub duration_secs: u64,
+}
+
+/// Shared cooldown-set event topics tuple.
+pub fn cooldown_set_topics(creator: &Address) -> (Symbol, Address) {
+    (COOLDOWN_SET_EVENT_NAME, creator.clone())
+}
+
+/// Event name for configuring a graduated bonding curve with supply milestones.
+pub const GRADUATED_CURVE_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("grad_crv");
+
+/// Stable graduated curve configured event payload for downstream indexers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GraduatedCurveConfiguredEvent {
+    /// Creator whose curve was configured.
+    pub creator: Address,
+    /// All milestone `(supply_threshold, exponent)` pairs.
+    pub milestones: Vec<(u32, u32)>,
+    /// Ledger sequence at the time of configuration.
+    pub ledger: u32,
+}
+
+/// Shared graduated curve configured event topics tuple.
+pub fn graduated_curve_configured_topics(creator: &Address) -> (Symbol, Address) {
+    (GRADUATED_CURVE_CONFIGURED_EVENT_NAME, creator.clone())
+}
+
+// ============================================================================
 // Feature: leaderboard snapshot — top holder rankings (issue #924)
 // ============================================================================
 
@@ -3197,6 +3446,110 @@ pub struct LeaderboardConfigUpdatedEvent {
 /// Shared leaderboard-config-updated event topics tuple.
 pub fn leaderboard_config_updated_topics(admin: &Address) -> (Symbol, Address) {
     (LEADERBOARD_CONFIG_UPDATED_EVENT_NAME, admin.clone())
+}
+
+// --- Emergency platform pause events (#1000) ---
+
+/// Event name emitted when the platform-wide emergency halt activates.
+pub const PLATFORM_PAUSED_EVENT_NAME: Symbol = symbol_short!("plat_pau");
+
+/// Event name emitted when a platform resume is queued behind the 24h timelock.
+pub const PLATFORM_RESUME_QUEUED_EVENT_NAME: Symbol = symbol_short!("plat_rq");
+
+/// Event name emitted when the platform-wide emergency halt is lifted.
+pub const PLATFORM_RESUMED_EVENT_NAME: Symbol = symbol_short!("plat_res");
+
+/// Event name emitted when a per-key emergency pause override is set or cleared.
+pub const KEY_PAUSE_OVERRIDE_EVENT_NAME: Symbol = symbol_short!("key_pau");
+
+/// Stable field order for [`PlatformPausedEvent`].
+pub const PLATFORM_PAUSED_EVENT_DATA_FIELDS: [&str; 2] = ["actor", "timestamp"];
+
+/// Stable field order for [`PlatformResumeQueuedEvent`].
+pub const PLATFORM_RESUME_QUEUED_EVENT_DATA_FIELDS: [&str; 2] = ["actor", "executable_at"];
+
+/// Stable field order for [`PlatformResumedEvent`].
+pub const PLATFORM_RESUMED_EVENT_DATA_FIELDS: [&str; 2] = ["actor", "timestamp"];
+
+/// Stable field order for [`KeyPauseOverrideEvent`].
+pub const KEY_PAUSE_OVERRIDE_EVENT_DATA_FIELDS: [&str; 3] = ["key_id", "paused", "actor"];
+
+/// Stable platform-paused event payload.
+///
+/// Event shape:
+/// - topics: `(PLATFORM_PAUSED_EVENT_NAME, actor)`
+/// - data: `PlatformPausedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PlatformPausedEvent {
+    /// First signer of the multisig call.
+    pub actor: Address,
+    /// Ledger timestamp at which the halt took effect.
+    pub timestamp: u64,
+}
+
+/// Stable platform-resume-queued event payload.
+///
+/// Event shape:
+/// - topics: `(PLATFORM_RESUME_QUEUED_EVENT_NAME, actor)`
+/// - data: `PlatformResumeQueuedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PlatformResumeQueuedEvent {
+    /// First signer of the multisig call.
+    pub actor: Address,
+    /// Ledger timestamp from which `resume_platform` may execute.
+    pub executable_at: u64,
+}
+
+/// Stable platform-resumed event payload.
+///
+/// Event shape:
+/// - topics: `(PLATFORM_RESUMED_EVENT_NAME, actor)`
+/// - data: `PlatformResumedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PlatformResumedEvent {
+    /// First signer of the multisig call.
+    pub actor: Address,
+    /// Ledger timestamp at which the halt was lifted.
+    pub timestamp: u64,
+}
+
+/// Stable key-pause-override event payload.
+///
+/// Event shape:
+/// - topics: `(KEY_PAUSE_OVERRIDE_EVENT_NAME, key_id)`
+/// - data: `KeyPauseOverrideEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyPauseOverrideEvent {
+    /// Key whose override changed.
+    pub key_id: Address,
+    /// `true` when the key was paused, `false` when the override was cleared.
+    pub paused: bool,
+    /// First signer of the multisig call.
+    pub actor: Address,
+}
+
+/// Shared platform-paused event topics tuple.
+pub fn platform_paused_topics(actor: &Address) -> (Symbol, Address) {
+    (PLATFORM_PAUSED_EVENT_NAME, actor.clone())
+}
+
+/// Shared platform-resume-queued event topics tuple.
+pub fn platform_resume_queued_topics(actor: &Address) -> (Symbol, Address) {
+    (PLATFORM_RESUME_QUEUED_EVENT_NAME, actor.clone())
+}
+
+/// Shared platform-resumed event topics tuple.
+pub fn platform_resumed_topics(actor: &Address) -> (Symbol, Address) {
+    (PLATFORM_RESUMED_EVENT_NAME, actor.clone())
+}
+
+/// Shared key-pause-override event topics tuple.
+pub fn key_pause_override_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_PAUSE_OVERRIDE_EVENT_NAME, key_id.clone())
 }
 
 // --- Vault rebalancing ---

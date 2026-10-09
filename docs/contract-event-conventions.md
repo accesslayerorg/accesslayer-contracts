@@ -82,5 +82,38 @@ Notes for indexers:
   its escalation budget ran out reports `quorum_reached == false` together with
   `finalized_by_exhaustion == true`.
 
+### Events Added Alongside the Timelocked Logic Upgrade
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `upg_appr` | `(Symbol("upg_appr"), action_id)` | `admin`, `action_id`, `approvals`, `threshold` | `struct UpgradeApprovedEvent` |
+| `logic_upg` | `(Symbol("logic_upg"), action_id)` | `action_id`, `admin`, `old_wasm_hash`, `new_wasm_hash`, `previous_wasm_hash`, `applied_at_ledger` | `struct LogicUpgradedEvent` |
+
+Notes for indexers:
+
+- Topic index 1 is the timelock `action_id` (a `u32`), **not** an `Address`. These
+  two events are the only ones in the contract whose secondary topic is not an
+  address, so indexers that assume `Address` at index 1 must special-case them.
+- `old_wasm_hash` and `previous_wasm_hash` are both absent on a first upgrade
+  (`Option::None`), since neither a prior build nor a rollback target exists yet.
+- `logic_upg` is emitted **in addition to** the pre-existing
+  `UpgradeExecutedEvent` when a timelocked upgrade applies, so existing
+  consumers of the older event keep working. `LogicUpgradedEvent` is the
+  hash-specific, indexer-facing event and is the one to prefer.
+- Because the upgrade swaps code via `update_current_contract_wasm`, `logic_upg`
+  is emitted by the **new** build at the same contract address; there is no
+  separate logic-contract address to follow.
+### Emergency Platform Pause Events (#1000)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `plat_pau` | `(Symbol("plat_pau"), actor)` | `actor`, `timestamp` | `struct PlatformPausedEvent` |
+| `plat_rq` | `(Symbol("plat_rq"), actor)` | `actor`, `executable_at` | `struct PlatformResumeQueuedEvent` |
+| `plat_res` | `(Symbol("plat_res"), actor)` | `actor`, `timestamp` | `struct PlatformResumedEvent` |
+| `key_pau` | `(Symbol("key_pau"), key_id)` | `key_id`, `paused`, `actor` | `struct KeyPauseOverrideEvent` |
+
+`actor` is the first signer of the multisig call. `timestamp` and
+`executable_at` are ledger timestamps in seconds, not ledger sequence numbers.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.

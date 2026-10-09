@@ -44,14 +44,14 @@ fn setup(env: &Env) -> Setup<'_> {
     }
 }
 
-/// Collects `(treasury, amount)` pairs from fee collection events in the log.
-fn collected_fees(env: &Env) -> Vec<(Address, i128)> {
+/// Collects fee collection payloads from the log.
+fn fee_events(env: &Env) -> Vec<events::FeeCollectedEvent> {
     let mut found = Vec::new(env);
     for (_, topics, data) in env.events().all().iter() {
         let name: Symbol = topics.get(0).unwrap().into_val(env);
         if name == FEE_COLLECTED_EVENT_NAME {
             let payload: events::FeeCollectedEvent = data.into_val(env);
-            found.push_back((payload.treasury, payload.amount));
+            found.push_back(payload);
         }
     }
     found
@@ -73,7 +73,7 @@ fn test_buy_routes_one_percent_to_treasury_and_remainder_to_creator() {
 
     // Capture events immediately after the trade — view calls below will
     // flush the Soroban test-env event buffer.
-    let fees = collected_fees(&env);
+    let fees = fee_events(&env);
 
     assert_eq!(
         s.client.get_treasury_balance(),
@@ -87,7 +87,12 @@ fn test_buy_routes_one_percent_to_treasury_and_remainder_to_creator() {
     );
 
     assert_eq!(fees.len(), 1, "exactly one fee_collected event per trade");
-    assert_eq!(fees.get(0).unwrap(), (s.treasury.clone(), 1));
+    let fee = fees.get(0).unwrap();
+    assert_eq!(fee.treasury, s.treasury);
+    assert_eq!(fee.trade_id, 1);
+    assert_eq!(fee.amount, 100);
+    assert_eq!(fee.fee, 1);
+    assert_eq!(fee.ledger, env.ledger().sequence());
 }
 
 #[test]
@@ -122,7 +127,7 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
             }) == Some(true)
         })
         .collect();
-    let fees = collected_fees(&env);
+    let fees = fee_events(&env);
 
     assert_eq!(
         s.client.get_treasury_balance(),
@@ -131,6 +136,16 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
     );
 
     assert_eq!(sell_events.len(), 1, "exactly one sell event expected");
+    let fee = fees
+        .iter()
+        .find(|entry| entry.treasury == s.treasury)
+        .unwrap();
+    assert_eq!(fee.trade_id, 2, "trade ids increment across trades");
+    assert_eq!(
+        fee.amount, 100,
+        "the event should record the gross trade amount"
+    );
+    assert_eq!(fee.fee, 1, "the event should record the deducted fee");
     let (_, _, data) = &sell_events[0];
     let payload: events::KeysSoldEvent = data.into_val(&env);
     // With CREATOR_BPS=10_000 the full net goes to the creator, so the
@@ -145,7 +160,8 @@ fn test_sell_routes_one_percent_to_treasury_and_remainder_to_seller() {
         "a fee_collected event must be emitted on the sell"
     );
     assert!(
-        fees.iter().any(|fee| fee.0 == s.treasury && fee.1 == 1),
+        fees.iter()
+            .any(|fee| fee.treasury == s.treasury && fee.fee == 1),
         "the sell's fee_collected event must carry the treasury and 1 stroop"
     );
 }
@@ -211,7 +227,7 @@ fn test_zero_bps_transfers_full_amount_with_no_treasury_call() {
         "the creator receives the full amount at 0 bps"
     );
     assert!(
-        collected_fees(&env).is_empty(),
+        fee_events(&env).is_empty(),
         "no fee_collected event may be emitted at 0 bps"
     );
 }
@@ -234,5 +250,5 @@ fn test_dormant_when_not_configured() {
         KEY_PRICE,
         "without the trade fee the full amount flows to the creator"
     );
-    assert!(collected_fees(&env).is_empty());
+    assert!(fee_events(&env).is_empty());
 }

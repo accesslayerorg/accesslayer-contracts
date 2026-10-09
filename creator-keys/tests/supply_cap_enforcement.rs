@@ -31,7 +31,7 @@ const KEY_PRICE: i128 = 1_000;
 fn metadata(env: &Env) -> KeyMetadata {
     KeyMetadata {
         name: String::from_str(env, "Capped Key"),
-        symbol: String::from_str(env, "CAPPED"),
+        symbol: String::from_str(env, "CAP"),
         description: String::from_str(env, "supply cap test key"),
         image_cid: String::from_str(env, "ipfs://avatar"),
     }

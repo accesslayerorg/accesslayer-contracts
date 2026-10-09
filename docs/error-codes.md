@@ -46,6 +46,16 @@ Defined in [`creator-keys/src/lib.rs`](../creator-keys/src/lib.rs#L50-L83) as `p
 | `32` | `WhitelistTooLarge` | Whitelist configuration address count exceeds maximum limit | Triggered in [`validate_whitelist_config`](../creator-keys/src/lib.rs#L637) when address count `> MAX_WHITELIST_SIZE`. |
 | `33` | `AirdropRecipientLimitExceeded` | Airdrop recipient list length exceeds max limit per transaction | Triggered in [`airdrop_keys`](../creator-keys/src/lib.rs#L1730) when `recipients.len() > MAX_AIRDROP_RECIPIENT_LIMIT`. |
 | `40` | `DisplayNameEmpty` | Creator display handle is blank (empty string or ASCII whitespace only) | Triggered in [`validate_creator_handle`](../creator-keys/src/lib.rs) before the length and character checks when the handle contains no non-whitespace bytes. |
+| `97` | `UpgradeApprovalThresholdNotMet` | A timelocked upgrade was executed without enough distinct admin approvals | Triggered in [`apply_timelocked_upgrade`](../creator-keys/src/lib.rs) when the approval count is below `GLOBAL_PAUSE_THRESHOLD` (2). |
+| `98` | `InvalidUpgradePayload` | A `TimelockChangeType::Upgrade` payload is not a 32-byte WASM hash | Triggered in [`decode_upgrade_payload`](../creator-keys/src/lib.rs) when the payload does not convert to `BytesN<32>`. |
+| `99` | `ContractFrozen` | A timelocked upgrade was attempted while the protocol is frozen | Triggered in [`assert_upgrade_not_frozen`](../creator-keys/src/lib.rs) during a normal pause, or during a global pause with fewer than the required approvals. |
+| `100` | `InvalidChangeType` | The supplied timelocked action is not of the change type the caller requires | Triggered in [`approve_upgrade`](../creator-keys/src/lib.rs) when the action is not a `TimelockChangeType::Upgrade`. |
+
+**Backward compatibility for 97-100**: these four codes are appended after the
+previously highest code (`96`, `TargetWeightsNotNormalized`). No existing variant
+was renumbered, reordered, or reused, so previously deployed clients that decode
+`ContractError` numerically keep working unchanged. Codes 47 and 48 remain
+intentionally unassigned.
 
 ---
 
