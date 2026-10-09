@@ -121,15 +121,14 @@ pub enum ContractError {
     InvalidRecipient = 69,
     /// The creator attempted to raise the holder cap in `update_holder_cap`;
     /// the cap can only ever be tightened below its currently stored value.
-    CapCannotIncrease = 70,
+    CapCannotIncrease = 102,
     /// `update_holder_cap` was called with a cap below the minimum of
     /// `HOLDER_CAP_MIN_BPS` (100 bps / 1%).
-    CapTooLow = 71,
+    CapTooLow = 103,
     /// `update_holder_cap` was called before a holder cap was configured via
     /// `set_holder_cap`, so there is no cap to tighten.
-    HolderCapNotSet = 72,
+    HolderCapNotSet = 104,
     /// Emitted when a `batch_sell` call contains fewer than 1 or more than 5 orders.
-    BatchSizeExceeded = 73,
     BatchSizeExceeded = 70,
     /// The requested holder snapshot does not exist.
     SnapshotNotFound = 71,
@@ -839,10 +838,6 @@ pub mod constants {
             DataKey::VestingClaimed(creator.clone(), beneficiary.clone())
         }
 
-        pub fn quorum_bps(creator: &Address) -> DataKey {
-            DataKey::QuorumBps(creator.clone())
-        }
-
         pub fn holder_cap_bps(creator: &Address) -> DataKey {
             DataKey::HolderCapBps(creator.clone())
         }
@@ -852,6 +847,8 @@ pub mod constants {
         /// held a key for this creator.
         pub fn holder_registry(creator: &Address) -> DataKey {
             DataKey::HolderRegistry(creator.clone())
+        }
+
         pub const MAX_HOLDING_BOUND: DataKey = DataKey::MaxHoldingBound;
 
         pub fn referrer_of(referee: &Address) -> DataKey {
