@@ -873,6 +873,13 @@ pub mod constants {
             DataKey::HolderCapBps(creator.clone())
         }
 
+        /// Storage key for the append-only holder registry of `creator`
+        /// (i.e. the key_id): a `Vec<Address>` of every wallet that has ever
+        /// held a key for this creator.
+        pub fn holder_registry(creator: &Address) -> DataKey {
+            DataKey::HolderRegistry(creator.clone())
+        }
+
         pub const MAX_HOLDING_BOUND: DataKey = DataKey::MaxHoldingBound;
 
         pub const LP_CONTRACT_ADDRESS: DataKey = DataKey::LpContractAddress;
@@ -1785,6 +1792,12 @@ pub enum DataKey {
     GlobalPauseVote(Address),
     GlobalResumeVote(Address),
     SelfFrozenBalance(Address, Address),
+    /// Append-only holder registry for a key (`creator` is the key_id):
+    /// a `Vec<Address>` of every wallet that has ever held a key for this
+    /// creator. Addresses are appended on first acquisition and never
+    /// removed, so the list is historical accuracy that snapshot and
+    /// airdrop entrypoints can iterate.
+    HolderRegistry(Address),
     /// Per-creator staking position. Keyed `(creator, holder, stake_id)`.
     StakePosition(Address, Address, u32),
     /// Per-creator staking rewards pool and cross-holder staked-key total.
@@ -4190,6 +4203,48 @@ pub fn extend_key_ttl_to_full_window<K: soroban_sdk::IntoVal<Env, soroban_sdk::V
         .extend_ttl(key, CREATOR_TTL_LEDGERS, CREATOR_TTL_LEDGERS);
 }
 
+/// Appends `holder` to the registry for `creator` (the key_id) if it is not
+/// already present.
+///
+/// The holder registry is an append-only `Vec<Address>` of every wallet that
+/// has ever held a key for a creator. Addresses are appended on first
+/// acquisition and never removed, even when the holder's balance later
+/// reaches zero, preserving historical accuracy for snapshot and airdrop
+/// entrypoints. Duplicate appends for the same wallet are no-ops.
+///
+/// Call this in every code path that transitions a holder's balance from 0 to
+/// non-zero (buy, airdrop, transfer-in, claim_locked_allocation, vesting
+/// claim, batch buy).
+fn record_holder_in_registry(env: &Env, creator: &Address, holder: &Address) {
+    let reg_key = constants::storage::holder_registry(creator);
+    let existing: Option<Vec<Address>> = env.storage().persistent().get(&reg_key);
+    let mut registry = existing.unwrap_or_else(|| Vec::new(env));
+    let already_registered = registry.contains(holder);
+    if !already_registered {
+        registry.push_back(holder.clone());
+        env.storage().persistent().set(&reg_key, &registry);
+    }
+    // Bump the TTL on every registry write (and read via the calling path) so
+    // actively used history never expires. The entry is guaranteed to exist at
+    // this point: either it was already stored, or the line above just wrote it.
+    extend_key_ttl_to_full_window(env, &reg_key);
+}
+
+/// Reads the append-only holder registry `Vec<Address>` for `creator` (the
+/// key_id) and bumps the entry's TTL.
+///
+/// Returns an empty `Vec` when no wallet has ever held a key for this creator.
+fn read_holder_registry(env: &Env, creator: &Address) -> Vec<Address> {
+    let reg_key = constants::storage::holder_registry(creator);
+    let stored: Option<Vec<Address>> = env.storage().persistent().get(&reg_key);
+    // Bump the TTL of the registry entry on every read. `extend_ttl` errors out
+    // on a missing key, so only extend when the entry was actually stored.
+    if stored.is_some() {
+        extend_key_ttl_to_full_window(env, &reg_key);
+    }
+    stored.unwrap_or_else(|| Vec::new(env))
+}
+
 /// Extends the TTL of a persistent storage entry to at least
 /// [`TTL_MIN_EXTENSION_LEDGERS`] (~30 days) from the current ledger.
 ///
@@ -6443,6 +6498,13 @@ impl CreatorKeysContract {
             .map(|config| profile.supply < config.auction_supply)
             .unwrap_or(false);
 
+        // Circuit breaker threshold, stored as a percentage (default 30%).
+        let threshold_pct: u32 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::CIRCUIT_BREAKER_THRESHOLD)
+            .unwrap_or(30);
+
         let price = if in_auction {
             // Auction-phase buys settle at the fixed auction price. The
             // circuit breaker only guards bonding-curve price movement, so
@@ -6461,11 +6523,7 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
             let post_price = compute_bonding_curve_price(&env, &creator, base_price, post_supply)?;
-            let threshold_pct: u32 = env
-                .storage()
-                .persistent()
-                .get(&constants::storage::CIRCUIT_BREAKER_THRESHOLD)
-                .unwrap_or(30);
+
             if pre_price > 0 && post_price > pre_price {
                 let price_change = (post_price - pre_price) as u128;
                 let pre_price_u128 = pre_price as u128;
@@ -6599,6 +6657,7 @@ impl CreatorKeysContract {
                 .holder_count
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
+            record_holder_in_registry(&env, &creator, &buyer);
         }
 
         // Persist holder_count before write_creator_supply reads the profile.
@@ -7586,6 +7645,7 @@ impl CreatorKeysContract {
                     .holder_count
                     .checked_add(1)
                     .ok_or(ContractError::Overflow)?;
+                record_holder_in_registry(&env, &creator, &entry.address);
             }
             let new_balance = current_balance
                 .checked_add(entry.amount)
@@ -8251,6 +8311,37 @@ impl CreatorKeysContract {
             key_count,
             creator_exists,
         }
+    }
+
+    /// Read-only view: returns whether `holder` has ever held a key for `creator`.
+    ///
+    /// Once a wallet acquires any key for a creator, the registry entry persists
+    /// permanently even after the holder sells all their keys. Returns `false`
+    /// for unregistered creators. Bumps the TTL of the registry entry on every
+    /// read.
+    pub fn has_ever_held(env: Env, creator: Address, holder: Address) -> bool {
+        read_holder_registry(&env, &creator).contains(&holder)
+    }
+
+    /// Read-only view: returns the full append-only holder registry for a key.
+    ///
+    /// Returns the `Vec<Address>` of every wallet that has ever held a key for
+    /// `creator` (the key_id). Addresses are never removed, so the list is
+    /// historical accuracy that snapshot and airdrop entrypoints can iterate.
+    /// Returns an empty `Vec` when no wallet has ever held a key for this
+    /// creator. Bumps the TTL of the registry entry on every read.
+    pub fn get_holder_registry(env: Env, creator: Address) -> Vec<Address> {
+        read_holder_registry(&env, &creator)
+    }
+
+    /// Read-only view: returns the total number of distinct wallets that have
+    /// ever held a key for `creator`.
+    ///
+    /// This count is monotonically increasing — it never decrements when
+    /// holders sell. Returns `0` for unregistered creators. Derived from the
+    /// length of the append-only registry and bumps its TTL on every read.
+    pub fn get_historical_holder_count(env: Env, creator: Address) -> u32 {
+        read_holder_registry(&env, &creator).len()
     }
 
     pub fn get_creator(env: Env, creator: Address) -> Result<CreatorProfile, ContractError> {
@@ -10897,6 +10988,7 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
             let profile_key = constants::storage::creator(&creator);
             env.storage().persistent().set(&profile_key, &profile);
+            record_holder_in_registry(&env, &creator, &creator);
         }
 
         env.events().publish(
@@ -11416,6 +11508,7 @@ impl CreatorKeysContract {
                 .holder_count
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
+            record_holder_in_registry(&env, &creator, &to);
         }
 
         // Write updated profile (holder_count changes).
@@ -12932,6 +13025,7 @@ impl CreatorKeysContract {
                 .ok_or(ContractError::Overflow)?;
             let profile_key = constants::storage::creator(&creator);
             env.storage().persistent().set(&profile_key, &profile);
+            record_holder_in_registry(&env, &creator, &beneficiary);
         }
 
         env.events().publish(
@@ -14100,6 +14194,7 @@ impl CreatorKeysContract {
                         .holder_count
                         .checked_add(1)
                         .ok_or(ContractError::Overflow)?;
+                    record_holder_in_registry(&env, &creator, &buyer);
                 }
 
                 let key = constants::storage::creator(&creator);
