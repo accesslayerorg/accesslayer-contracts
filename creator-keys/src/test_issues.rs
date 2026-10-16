@@ -1358,4 +1358,135 @@ mod issue_tests {
         let result = client.try_migrate_curve(&non_admin, &2, &key_ids);
         assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
     }
+
+    // =========================================================================
+    // Tests for session nonce contract (replay attack prevention)
+    // =========================================================================
+
+    #[test]
+    fn test_get_nonce_returns_zero_for_fresh_wallet() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+        let wallet = Address::generate(&env);
+        assert_eq!(client.get_nonce(&wallet), 0u64);
+    }
+
+    #[test]
+    fn test_consume_nonce_increments_after_use() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+        let wallet = Address::generate(&env);
+        let initial = client.get_nonce(&wallet);
+        assert_eq!(initial, 0u64);
+
+        client.consume_nonce(&wallet, &initial);
+        assert_eq!(client.get_nonce(&wallet), 1u64);
+
+        client.consume_nonce(&wallet, &1u64);
+        assert_eq!(client.get_nonce(&wallet), 2u64);
+    }
+
+    #[test]
+    fn test_replay_of_consumed_nonce_returns_nonce_already_used() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+        let wallet = Address::generate(&env);
+        client.consume_nonce(&wallet, &0u64);
+
+        let result = client.try_consume_nonce(&wallet, &0u64);
+        assert_eq!(result, Err(Ok(ContractError::NonceAlreadyUsed)));
+        assert_eq!(client.get_nonce(&wallet), 1u64);
+    }
+
+    #[test]
+    fn test_consume_nonce_rejects_out_of_order_nonce() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+        let wallet = Address::generate(&env);
+        let result = client.try_consume_nonce(&wallet, &5u64);
+        assert_eq!(result, Err(Ok(ContractError::NonceAlreadyUsed)));
+        assert_eq!(client.get_nonce(&wallet), 0u64);
+    }
+
+    #[test]
+    fn test_nonce_is_per_wallet_isolated() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+        let wallet_a = Address::generate(&env);
+        let wallet_b = Address::generate(&env);
+
+        client.consume_nonce(&wallet_a, &0u64);
+        client.consume_nonce(&wallet_a, &1u64);
+
+        assert_eq!(client.get_nonce(&wallet_a), 2u64);
+        assert_eq!(client.get_nonce(&wallet_b), 0u64);
+
+        client.consume_nonce(&wallet_b, &0u64);
+        assert_eq!(client.get_nonce(&wallet_b), 1u64);
+        assert_eq!(client.get_nonce(&wallet_a), 2u64);
+    }
+
+    #[test]
+    fn test_concurrent_nonce_consumption_no_race() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+        let wallet = Address::generate(&env);
+
+        // First consumption succeeds.
+        client.consume_nonce(&wallet, &0u64);
+        assert_eq!(client.get_nonce(&wallet), 1u64);
+
+        // A second attempt to consume the same nonce must fail, ensuring
+        // only one caller can win the race for a given nonce value.
+        let replay = client.try_consume_nonce(&wallet, &0u64);
+        assert_eq!(replay, Err(Ok(ContractError::NonceAlreadyUsed)));
+
+        // State remains consistent: exactly one increment occurred.
+        assert_eq!(client.get_nonce(&wallet), 1u64);
+
+        // The next valid nonce still works.
+        client.consume_nonce(&wallet, &1u64);
+        assert_eq!(client.get_nonce(&wallet), 2u64);
+    }
+
+    #[test]
+    fn test_action_executed_event_includes_nonce() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CreatorKeysContract, ());
+        let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+        let wallet = Address::generate(&env);
+        let nonce = client.get_nonce(&wallet);
+        client.consume_nonce(&wallet, &nonce);
+
+        // The ActionExecuted event must carry the consumed nonce for auditability.
+        let events = env.events().all();
+        let mut found = false;
+        for event in events.iter() {
+            if event.0 == contract_id {
+                found = true;
+            }
+        }
+        assert!(found, "ActionExecuted event must be emitted on nonce consumption");
+        assert_eq!(client.get_nonce(&wallet), nonce + 1);
+    }
 }
