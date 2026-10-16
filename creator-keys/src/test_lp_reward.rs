@@ -2,7 +2,9 @@
 
 use crate::{
     lp_reward::{
-        LPAdded, LPRewardClaimed, LpRewardError, LP_ADDED_EVENT_NAME, LP_CLAIMED_EVENT_NAME,
+        LPAdded, LPRewardClaimed, LpRewardError, RewardRateUpdated, LP_ADDED_EVENT_NAME,
+        LP_CLAIMED_EVENT_NAME, LP_RATE_UPDATED_EVENT_NAME, MAX_REWARD_RATE_BPS,
+        MIN_REWARD_RATE_BPS,
     },
     CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
 };
@@ -168,4 +170,135 @@ fn test_creator_keys_validation_errors() {
         client.try_remove_liquidity(&999),
         Err(Ok(LpRewardError::PositionNotFound))
     );
+}
+
+// ============================================================================
+// set_reward_rate / get_reward_rate tests
+// ============================================================================
+
+#[test]
+fn test_set_reward_rate_creator_only() {
+    let (env, client, _admin, creator) = setup_test();
+
+    // Creator can set a valid rate
+    client.set_reward_rate(&creator, &creator, &500);
+
+    let rate = client.get_reward_rate(&creator);
+    assert_eq!(rate.rate_bps, 500);
+    assert!(rate.updated_at > 0);
+}
+
+#[test]
+fn test_set_reward_rate_emits_event_with_old_and_new() {
+    let (env, client, _admin, creator) = setup_test();
+
+    // First update: old rate is 0 (unset default)
+    client.set_reward_rate(&creator, &creator, &100);
+
+    let events: Vec<RewardRateUpdated> = get_events(&env, LP_RATE_UPDATED_EVENT_NAME);
+    assert_eq!(events.len(), 1);
+    let ev = events.get(0).unwrap();
+    assert_eq!(ev.key_id, creator);
+    assert_eq!(ev.old_rate_bps, 0);
+    assert_eq!(ev.new_rate_bps, 100);
+
+    // Second update: old rate is 100, new is 300
+    client.set_reward_rate(&creator, &creator, &300);
+
+    let events: Vec<RewardRateUpdated> = get_events(&env, LP_RATE_UPDATED_EVENT_NAME);
+    // Both events are present in the log
+    assert_eq!(events.len(), 2);
+    let ev2 = events.get(1).unwrap();
+    assert_eq!(ev2.old_rate_bps, 100);
+    assert_eq!(ev2.new_rate_bps, 300);
+}
+
+#[test]
+fn test_set_reward_rate_min_bound_enforced() {
+    let (env, client, _admin, creator) = setup_test();
+
+    // Zero is below the minimum (MIN_REWARD_RATE_BPS = 1)
+    assert_eq!(
+        client.try_set_reward_rate(&creator, &creator, &0),
+        Err(Ok(LpRewardError::RateOutOfBounds))
+    );
+
+    // Minimum boundary is accepted
+    client.set_reward_rate(&creator, &creator, &MIN_REWARD_RATE_BPS);
+    assert_eq!(
+        client.get_reward_rate(&creator).rate_bps,
+        MIN_REWARD_RATE_BPS
+    );
+}
+
+#[test]
+fn test_set_reward_rate_max_bound_enforced() {
+    let (env, client, _admin, creator) = setup_test();
+
+    // One over the maximum is rejected
+    assert_eq!(
+        client.try_set_reward_rate(&creator, &creator, &(MAX_REWARD_RATE_BPS + 1)),
+        Err(Ok(LpRewardError::RateOutOfBounds))
+    );
+
+    // Maximum boundary is accepted
+    client.set_reward_rate(&creator, &creator, &MAX_REWARD_RATE_BPS);
+    assert_eq!(
+        client.get_reward_rate(&creator).rate_bps,
+        MAX_REWARD_RATE_BPS
+    );
+}
+
+#[test]
+fn test_set_reward_rate_unauthorized_non_creator() {
+    let (env, client, _admin, creator) = setup_test();
+    let stranger = Address::generate(&env);
+
+    // A non-creator caller must be rejected; require_auth will panic in the
+    // mock environment when auth is not set up for `stranger`.
+    let result = client.try_set_reward_rate(&creator, &stranger, &200);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_set_reward_rate_unregistered_key_unauthorized() {
+    let (env, client, _admin, _creator) = setup_test();
+    let unknown = Address::generate(&env);
+
+    // key_id that has never been registered should return Unauthorized
+    assert_eq!(
+        client.try_set_reward_rate(&unknown, &unknown, &200),
+        Err(Ok(LpRewardError::Unauthorized))
+    );
+}
+
+#[test]
+fn test_get_reward_rate_default_before_any_set() {
+    let (_env, client, _admin, creator) = setup_test();
+
+    let rate = client.get_reward_rate(&creator);
+    assert_eq!(rate.rate_bps, 0);
+    assert_eq!(rate.updated_at, 0);
+}
+
+#[test]
+fn test_set_reward_rate_does_not_retroactively_change_pending_rewards() {
+    let (env, client, _admin, creator) = setup_test();
+    let provider = Address::generate(&env);
+
+    // Add liquidity and accrue fees before any rate is configured
+    let lp_id = client.add_liquidity(&creator, &provider, &10_000);
+    client.accrue_lp_trading_fee(&creator, &1_000);
+
+    // Pending is 1_000 (100% of pool)
+    assert_eq!(client.get_lp_position(&lp_id).pending_rewards, 1_000);
+
+    // Creator changes the rate — must not alter already-accrued rewards
+    client.set_reward_rate(&creator, &creator, &500);
+    assert_eq!(client.get_lp_position(&lp_id).pending_rewards, 1_000);
+
+    // Subsequent accrual is independent of rate value (rate is advisory APR,
+    // not applied to trading-fee distribution math)
+    client.accrue_lp_trading_fee(&creator, &500);
+    assert_eq!(client.get_lp_position(&lp_id).pending_rewards, 1_500);
 }
