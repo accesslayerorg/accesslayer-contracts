@@ -1252,6 +1252,35 @@ pub fn holding_cap_updated_topics(creator: &Address) -> (Symbol, Address) {
     (HOLDING_CAP_UPDATED_EVENT_NAME, creator.clone())
 }
 
+/// Event name emitted when a creator tightens their per-wallet percentage
+/// holding cap (`holder_cap_bps`) via `update_holder_cap`.
+///
+/// The cap can only be reduced, never increased beyond the value stored at
+/// launch.
+pub const HOLDER_CAP_UPDATED_EVENT_NAME: Symbol = symbol_short!("hcap_upd");
+
+/// Payload emitted when a creator updates their per-wallet percentage holding
+/// cap via `update_holder_cap`.
+///
+/// Event shape:
+/// - topics: `(HOLDER_CAP_UPDATED_EVENT_NAME, key_id)`
+/// - data: `HolderCapUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct HolderCapUpdatedEvent {
+    /// Creator (key) whose holder cap was updated.
+    pub key_id: Address,
+    /// Previous holder cap in basis points.
+    pub old_cap_bps: u32,
+    /// New holder cap in basis points.
+    pub new_cap_bps: u32,
+}
+
+/// Shared holder-cap-updated event topics tuple.
+pub fn holder_cap_updated_topics(key_id: &Address) -> (Symbol, Address) {
+    (HOLDER_CAP_UPDATED_EVENT_NAME, key_id.clone())
+}
+
 /// Emitted on every early-access whitelist add (`allowed = true`) and remove.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]

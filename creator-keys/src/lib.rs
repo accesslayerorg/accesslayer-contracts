@@ -198,6 +198,11 @@ pub enum ContractError {
     CircuitBreakerTripped = 102,
     InvalidSignature = 103,
     NonceAlreadyUsed = 104,
+    /// The requested holder cap is above the currently stored cap; the cap can
+    /// only be tightened (reduced), never raised above the value set at launch.
+    CapCannotIncrease = 105,
+    /// The requested holder cap is below the minimum of 100 bps (1% of supply).
+    CapTooLow = 106,
 }
 
 /// Errors raised by the staking entrypoints
@@ -11035,6 +11040,59 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::holder_cap_bps(&creator))
+    }
+
+    /// Tightens the maximum share of the supply a single wallet may hold for
+    /// this creator's keys.
+    ///
+    /// Only callable by the key creator. The cap can only be reduced, never
+    /// raised above the value stored at launch. `new_cap_bps` must lie between
+    /// [`HOLDER_CAP_MIN_BPS`] (1%) and the *currently stored* cap, otherwise
+    /// [`ContractError::CapTooLow`] or [`ContractError::CapCannotIncrease`] is
+    /// returned. A caller that is not the key creator returns
+    /// [`ContractError::Unauthorized`].
+    ///
+    /// On success `holderCapBps` is updated in persistent storage with a TTL
+    /// bump and a [`events::HOLDER_CAP_UPDATED_EVENT_NAME`] event is emitted
+    /// carrying `key_id`, `old_cap_bps`, and `new_cap_bps`.
+    pub fn update_holder_cap(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+        new_cap_bps: u32,
+    ) -> Result<(), ContractError> {
+        caller.require_auth();
+        if caller != key_id {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let key = constants::storage::holder_cap_bps(&key_id);
+        let current_cap: u32 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::InvalidHolderCap)?;
+
+        if new_cap_bps < HOLDER_CAP_MIN_BPS {
+            return Err(ContractError::CapTooLow);
+        }
+        if new_cap_bps > current_cap {
+            return Err(ContractError::CapCannotIncrease);
+        }
+
+        let old_cap_bps = current_cap;
+        env.storage().persistent().set(&key, &new_cap_bps);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        env.events().publish(
+            events::holder_cap_updated_topics(&key_id),
+            events::HolderCapUpdatedEvent {
+                key_id: key_id.clone(),
+                old_cap_bps,
+                new_cap_bps,
+            },
+        );
+        Ok(())
     }
 
     /// Sets the per-wallet buy cooldown for a creator's keys.
