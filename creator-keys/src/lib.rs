@@ -198,15 +198,16 @@ pub enum ContractError {
     CircuitBreakerTripped = 102,
     InvalidSignature = 103,
     NonceAlreadyUsed = 104,
-    // --- Liquidity depth oracle (Issue #1035) ---
-    /// The supplied price-impact tolerance exceeds the maximum allowed
-    /// (`fee::BPS_MAX` = 10 000 bps / 100 %).
-    InvalidImpactTolerance = 105,
+    // --- Holder cap (Issue #862) ---
     /// The requested holder cap is above the currently stored cap; the cap can
     /// only be tightened (reduced), never raised above the value set at launch.
     CapCannotIncrease = 105,
     /// The requested holder cap is below the minimum of 100 bps (1% of supply).
     CapTooLow = 106,
+    // --- Liquidity depth oracle (Issue #1035) ---
+    /// The supplied price-impact tolerance exceeds the maximum allowed
+    /// (`fee::BPS_MAX` = 10 000 bps / 100 %).
+    InvalidImpactTolerance = 107,
 }
 
 /// Errors raised by the staking entrypoints
