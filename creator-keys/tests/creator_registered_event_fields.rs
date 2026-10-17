@@ -10,7 +10,9 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, set_ledger_sequence, test_env_with_auths};
+use contract_test_env::{
+    assert_event, register_creator_keys, set_ledger_sequence, test_env_with_auths,
+};
 use creator_keys::events;
 use soroban_sdk::{
     testutils::{Address as _, Events},
@@ -158,7 +160,7 @@ fn test_creator_registered_event_registered_at_ledger_matches_current_ledger() {
 #[test]
 fn test_creator_registered_event_all_four_fields_present_in_one_registration() {
     let env = test_env_with_auths();
-    let (client, _) = register_creator_keys(&env);
+    let (client, contract_id) = register_creator_keys(&env);
 
     let ledger_seq: u32 = 100;
     set_ledger_sequence(&env, ledger_seq);
@@ -167,25 +169,18 @@ fn test_creator_registered_event_all_four_fields_present_in_one_registration() {
     let handle_str = "frank";
     register_creator(&client, &env, &creator, handle_str);
 
-    let payload = last_registration_event(&env);
+    let expected = events::CreatorRegisteredEvent {
+        creator: creator.clone(),
+        handle: String::from_str(&env, handle_str),
+        supply: 0,
+        holder_count: 0,
+        creator_bps: 0,
+        protocol_bps: 0,
+        fee_recipient: creator,
+        registered_at_ledger: ledger_seq,
+    };
 
-    assert_eq!(
-        payload.creator, creator,
-        "creator (creator_wallet) field mismatch"
-    );
-    assert_eq!(
-        payload.handle,
-        String::from_str(&env, handle_str),
-        "handle (display_name) field mismatch"
-    );
-    assert_eq!(
-        payload.fee_recipient, creator,
-        "fee_recipient field mismatch — must default to creator wallet"
-    );
-    assert_eq!(
-        payload.registered_at_ledger, ledger_seq,
-        "registered_at_ledger field mismatch"
-    );
+    assert_event(&env, &contract_id, events::REGISTER_EVENT_NAME, &expected);
 }
 
 // ── AC2: no event emitted on failed registration (duplicate wallet) ───────────

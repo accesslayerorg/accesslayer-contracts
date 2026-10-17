@@ -12,8 +12,8 @@
 
 use creator_keys::{constants, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, Env, IntoVal, String, Val,
+    testutils::{Address as _, Events, Ledger},
+    Address, Env, IntoVal, String, Symbol, TryFromVal, Val,
 };
 use std::string::String as StdString;
 
@@ -186,6 +186,56 @@ where
     assert!(
         !env.storage().persistent().has(key),
         "storage key is unexpectedly present: {key:?}"
+    );
+}
+
+/// Asserts that a contract event matching `contract_id` and `topic` was emitted,
+/// and that its payload fields match `expected_fields`.
+///
+/// Filters the environment's event log for events emitted by `contract_id` where the
+/// canonical event topic (index 0) equals `topic`. If no matching event is found, or if
+/// the event payload does not equal `expected_fields`, panics with a detailed, descriptive message.
+///
+/// # Panics
+/// - If no event from `contract_id` with `topic` is found in the log.
+/// - If the event payload cannot be deserialized into `T`.
+/// - If the deserialized payload does not equal `expected_fields`.
+pub fn assert_event<T>(env: &Env, contract_id: &Address, topic: Symbol, expected_fields: &T)
+where
+    T: TryFromVal<Env, Val> + PartialEq + core::fmt::Debug,
+{
+    let matching_event = env.events().all().iter().rev().find(|(c, topics, _)| {
+        c == contract_id
+            && topics
+                .get(0)
+                .and_then(|v| Symbol::try_from_val(env, &v).ok())
+                .map(|s| s == topic)
+                .unwrap_or(false)
+    });
+
+    let (_, _, data) = match matching_event {
+        Some(e) => e,
+        None => panic!(
+            "assert_event failed: no matching event found for contract {:?} and topic {:?}.\nExpected fields: {:#?}",
+            contract_id, topic, expected_fields
+        ),
+    };
+
+    let actual: T = match T::try_from_val(env, &data) {
+        Ok(val) => val,
+        Err(_) => panic!(
+            "assert_event failed: could not deserialize event data for contract {:?} and topic {:?}.\nExpected fields: {:#?}",
+            contract_id, topic, expected_fields
+        ),
+    };
+
+    assert_eq!(
+        &actual,
+        expected_fields,
+        "assert_event failed: event field mismatch for topic {:?}.\nExpected: {:#?}\nActual:   {:#?}",
+        topic,
+        expected_fields,
+        actual
     );
 }
 

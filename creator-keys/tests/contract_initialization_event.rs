@@ -6,7 +6,7 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, test_env_with_auths};
+use contract_test_env::{assert_event, register_creator_keys, test_env_with_auths};
 use creator_keys::events;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
@@ -16,7 +16,7 @@ use soroban_sdk::{
 #[test]
 fn test_initialization_event_emitted_on_first_set_fee_config() {
     let env = test_env_with_auths();
-    let (client, _) = register_creator_keys(&env);
+    let (client, contract_id) = register_creator_keys(&env);
 
     let admin = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -31,34 +31,18 @@ fn test_initialization_event_emitted_on_first_set_fee_config() {
     env.events().all();
     client.set_fee_config(&admin, &9000u32, &1000u32);
 
-    let event_log = env.events().all();
-    let (_, _, data) = event_log
-        .iter()
-        .find(|(_, topics, _)| {
-            topics
-                .get(events::TOPIC_EVENT_NAME_INDEX)
-                .map(|v| {
-                    let name: Symbol = v.into_val(&env);
-                    name == events::CONTRACT_INITIALIZED_EVENT_NAME
-                })
-                .unwrap_or(false)
-        })
-        .expect("initialization event must be emitted on first set_fee_config");
+    let expected = events::ContractInitializedEvent {
+        admin,
+        protocol_fee_bps: 1000u32,
+        protocol_fee_recipient: recipient,
+        initialized_at_ledger: test_ledger,
+    };
 
-    let payload: events::ContractInitializedEvent = data.into_val(&env);
-
-    assert_eq!(payload.admin, admin, "admin field must match caller");
-    assert_eq!(
-        payload.protocol_fee_bps, 1000u32,
-        "protocol_fee_bps must match"
-    );
-    assert_eq!(
-        payload.protocol_fee_recipient, recipient,
-        "protocol_fee_recipient must match stored recipient"
-    );
-    assert_eq!(
-        payload.initialized_at_ledger, test_ledger,
-        "initialized_at_ledger must match current ledger"
+    assert_event(
+        &env,
+        &contract_id,
+        events::CONTRACT_INITIALIZED_EVENT_NAME,
+        &expected,
     );
 }
 
