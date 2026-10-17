@@ -193,6 +193,9 @@ pub const DELEGATION_SET_EVENT_NAME: Symbol = symbol_short!("dlg_set");
 
 /// Event name for delegation revoked.
 pub const DELEGATION_REVOKED_EVENT_NAME: Symbol = symbol_short!("dlg_rev");
+
+/// Event name for a performance bond being forfeited to the protocol treasury.
+pub const BOND_FORFEITED_EVENT_NAME: Symbol = symbol_short!("bond_forf");
 /// Topic index for the event name in common event topic tuples.
 pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
 
@@ -201,6 +204,35 @@ pub const TOPIC_CREATOR_INDEX: u32 = 1;
 
 /// Topic index for the buyer/seller/actor address in common event topic tuples.
 pub const TOPIC_BUYER_INDEX: u32 = 2;
+
+/// Stable field order for bond forfeited event payloads.
+pub const BOND_FORFEITED_DATA_FIELDS: [&str; 4] = ["key_id", "reason", "amount", "ledger"];
+
+/// Stable bond forfeited event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(BOND_FORFEITED_EVENT_NAME, key_id)`
+/// - data: `BondForfeitedEvent`
+///
+/// Emitted when an admin forfeits a creator's performance bond, routing the
+/// deposited amount to the protocol treasury.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct BondForfeitedEvent {
+    /// Creator key whose bond was forfeited.
+    pub key_id: Address,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Bond amount routed to the protocol treasury.
+    pub amount: i128,
+    /// Ledger sequence number at the time of forfeiture.
+    pub ledger: u32,
+}
+
+/// Shared bond forfeited event topics tuple.
+pub fn bond_forfeited_topics(key_id: &Address) -> (Symbol, Address) {
+    (BOND_FORFEITED_EVENT_NAME, key_id.clone())
+}
 
 /// Stable field order for registration event payloads.
 pub const REGISTER_EVENT_DATA_FIELDS: [&str; 8] = [
