@@ -205,10 +205,6 @@ pub enum ContractError {
     CapCannotIncrease = 105,
     /// The requested holder cap is below the minimum of 100 bps (1% of supply).
     CapTooLow = 106,
-    // --- Liquidity depth oracle (Issue #1035) ---
-    /// The supplied price-impact tolerance exceeds the maximum allowed
-    /// (`fee::BPS_MAX` = 10 000 bps / 100 %).
-    InvalidImpactTolerance = 107,
     // --- Price alerts (Issue #1030) ---
     /// The wallet already holds
     /// [`price_alerts::MAX_ACTIVE_ALERTS_PER_WALLET`] active price alerts.
@@ -218,6 +214,10 @@ pub enum ContractError {
     KeyAlertLimitReached = 108,
     /// No active price alert with the given id belongs to the wallet.
     AlertNotFound = 109,
+    // --- Liquidity depth oracle (Issue #1035) ---
+    /// The supplied price-impact tolerance exceeds the maximum allowed
+    /// (`fee::BPS_MAX` = 10 000 bps / 100 %).
+    InvalidImpactTolerance = 110,
 }
 
 /// Errors raised by the staking entrypoints
