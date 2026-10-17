@@ -3994,3 +3994,63 @@ pub struct KeyRatedEvent {
 pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
     (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
 }
+
+// ============================================================================
+// Social metadata extension (issue #social-metadata)
+// ============================================================================
+
+/// Event name emitted on every social metadata update.
+pub const SOCIAL_METADATA_UPDATED_EVENT_NAME: Symbol = symbol_short!("soc_upd");
+
+/// Maximum number of characters allowed in a creator display name.
+pub const MAX_DISPLAY_NAME_LEN: u32 = 50;
+
+/// Optional social links attached to a creator's key.
+///
+/// Each field is `None` when the creator has not provided that link.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SocialLinks {
+    pub twitter: Option<String>,
+    pub website: Option<String>,
+    pub discord: Option<String>,
+}
+
+/// Full social metadata record for a creator key.
+///
+/// Stored separately from the core key contract so upgrades remain independent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SocialMetadata {
+    pub display_name: String,
+    pub bio: String,
+    pub avatar_cid: String,
+    pub links: SocialLinks,
+}
+
+/// Stable social-metadata-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(SOCIAL_METADATA_UPDATED_EVENT_NAME, key_id)`
+/// - data: `SocialMetadataUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SocialMetadataUpdatedEvent {
+    /// Creator key whose social metadata was updated.
+    pub key_id: Address,
+    /// Updated display name.
+    pub display_name: String,
+    /// Updated bio.
+    pub bio: String,
+    /// Updated avatar CID.
+    pub avatar_cid: String,
+    /// Updated social links.
+    pub links: SocialLinks,
+    /// Ledger sequence number at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared social-metadata-updated event topics tuple.
+pub fn social_metadata_updated_topics(key_id: &Address) -> (Symbol, Address) {
+    (SOCIAL_METADATA_UPDATED_EVENT_NAME, key_id.clone())
+}
