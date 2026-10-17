@@ -1678,6 +1678,19 @@ pub enum CurvePreset {
     Flat = 2,
 }
 
+/// Direction of a slippage-protected bonding-curve swap.
+///
+/// Consumed by [`CreatorKeysContract::swap`] and
+/// [`CreatorKeysContract::get_price_impact`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SwapDirection {
+    /// Purchase `amount` keys, walking the curve up from the current supply.
+    Buy = 0,
+    /// Sell `amount` keys, walking the curve down from the current supply.
+    Sell = 1,
+}
+
 /// Archive partition strategy for retention management.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -3817,6 +3830,70 @@ fn assert_sell_proceeds_slippage(
         );
     }
     Ok(())
+}
+
+/// Computes the bonding-curve spot price before and after a swap of `amount`
+/// keys in `direction`, together with the impact between them in basis points.
+///
+/// The pre-swap price is the current spot price at the live supply. The
+/// post-swap price is the spot price the curve would report once the whole
+/// trade has moved supply: `supply + amount` for a buy, `supply - amount`
+/// for a sell. Impact is the absolute relative move between the two prices,
+/// scaled by 10 000 (see [`compute_slippage_bps`]).
+///
+/// Returns `(pre_price, post_price, impact_bps)`.
+///
+/// # Errors
+///
+/// - [`ContractError::KeyPriceNotSet`] if no base key price is configured.
+/// - [`ContractError::NotRegistered`] if the creator is not registered.
+/// - [`ContractError::InsufficientSupply`] for a sell larger than the live supply.
+/// - [`ContractError::Overflow`] on arithmetic overflow or a zero pre-swap price.
+fn compute_swap_price_impact(
+    env: &Env,
+    creator: &Address,
+    amount: u32,
+    direction: SwapDirection,
+) -> Result<(i128, i128, u32), ContractError> {
+    let base_price: i128 = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::KEY_PRICE)
+        .ok_or(ContractError::KeyPriceNotSet)?;
+
+    let profile = read_registered_creator_profile(env, creator)?;
+    let supply = profile.supply;
+
+    let post_supply = match direction {
+        SwapDirection::Buy => supply.checked_add(amount).ok_or(ContractError::Overflow)?,
+        SwapDirection::Sell => supply
+            .checked_sub(amount)
+            .ok_or(ContractError::InsufficientSupply)?,
+    };
+
+    let pre_price = compute_bonding_curve_price(env, creator, base_price, supply)?;
+    let post_price = compute_bonding_curve_price(env, creator, base_price, post_supply)?;
+    let impact_bps = compute_slippage_bps(pre_price, post_price)?;
+    Ok((pre_price, post_price, impact_bps))
+}
+
+/// Sums the bonding-curve price of each key a `amount`-key buy would mint,
+/// walking the curve from `start_supply` upwards. This is the exact budget
+/// [`CreatorKeysContract::buy_keys`] needs to fill the whole order.
+fn compute_swap_buy_cost(
+    env: &Env,
+    creator: &Address,
+    base_price: i128,
+    start_supply: u32,
+    amount: u32,
+) -> Result<i128, ContractError> {
+    let mut total: i128 = 0;
+    for i in 0..amount {
+        let supply = start_supply.checked_add(i).ok_or(ContractError::Overflow)?;
+        let price = compute_bonding_curve_price(env, creator, base_price, supply)?;
+        total = total.checked_add(price).ok_or(ContractError::Overflow)?;
+    }
+    Ok(total)
 }
 
 fn accrue_sell_trade_fees(env: &Env, creator: &Address, price: i128) -> Result<(), ContractError> {
@@ -10649,6 +10726,135 @@ impl CreatorKeysContract {
 
         let (creator_fee, protocol_fee) = Self::compute_fees_for_payment(env.clone(), price)?;
         checked_format_quote_response(price, creator_fee, protocol_fee, false)
+    }
+
+    /// Read-only view: returns the bonding-curve price impact, in basis points,
+    /// of swapping `amount` keys in `direction` against the current supply.
+    ///
+    /// The impact is the absolute relative move of the curve's spot price
+    /// caused by the whole trade: the spot price at the live supply versus the
+    /// spot price once supply has shifted by `amount`. On a flat curve the
+    /// impact is always `0`; on a rising curve a buy moves the price up and a
+    /// sell moves it down. Use this view to derive a `max_slippage_bps` bound
+    /// before calling [`Self::swap`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::KeyPriceNotSet`] if no base key price is configured.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::InsufficientSupply`] for a sell larger than the live supply.
+    /// - [`ContractError::Overflow`] on arithmetic overflow.
+    pub fn get_price_impact(
+        env: Env,
+        creator: Address,
+        amount: u32,
+        direction: SwapDirection,
+    ) -> Result<u32, ContractError> {
+        let (_, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
+        Ok(impact_bps)
+    }
+
+    /// Executes a slippage-protected swap of `amount` keys in `direction`
+    /// against the creator's bonding curve.
+    ///
+    /// The pre-swap spot price and the post-swap spot price are both computed
+    /// before any state is committed. When `max_slippage_bps` is non-zero and
+    /// the resulting price impact exceeds it, the call reverts with
+    /// [`ContractError::SlippageExceeded`] after emitting a
+    /// [`events::SwapSlippageExceededEvent`] carrying the actual and maximum
+    /// basis-point values. A `max_slippage_bps` of `0` skips the check
+    /// entirely, letting advanced callers opt out of the guard. An impact
+    /// exactly equal to the tolerance is accepted; only a strictly larger
+    /// impact reverts.
+    ///
+    /// A buy fills completely or not at all: the exact curve cost of the whole
+    /// order is pre-computed and used as the payment budget for
+    /// [`Self::buy_keys`], and a partial fill caused by a per-creator cap
+    /// reverts with [`ContractError::SupplyCapExceeded`]. A sell is executed
+    /// through [`Self::batch_sell`] with a single order, so it inherits that
+    /// path's pre-flight balance checks, flash-loan guard, launch penalty and
+    /// the [`MAX_BATCH_SELL_SIZE`] ceiling on `amount`.
+    ///
+    /// Returns the gross curve cost paid for a buy, or the net seller proceeds
+    /// reported by the batch-sell path for a sell.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotPositiveAmount`] if `amount` is zero.
+    /// - [`ContractError::SlippageExceeded`] if the impact breaches
+    ///   `max_slippage_bps` (and the bound is non-zero).
+    /// - [`ContractError::KeyPriceNotSet`] if no base key price is configured.
+    /// - [`ContractError::NotRegistered`] if the creator is not registered.
+    /// - [`ContractError::InsufficientSupply`] for a sell larger than the live supply.
+    /// - [`ContractError::SupplyCapExceeded`] if a cap stopped the buy short of `amount`.
+    /// - [`ContractError::BatchSizeExceeded`] for a sell of more than
+    ///   [`MAX_BATCH_SELL_SIZE`] keys.
+    /// - Errors from the underlying buy/sell paths (pause, blacklist, balance,
+    ///   cooldown, circuit breaker, …) propagate unchanged.
+    pub fn swap(
+        env: Env,
+        creator: Address,
+        trader: Address,
+        amount: u32,
+        direction: SwapDirection,
+        max_slippage_bps: u32,
+    ) -> Result<i128, ContractError> {
+        if amount == 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        // Record the pre-swap price and compute the post-swap price before any
+        // state is committed, so a breach reverts without side effects.
+        let (_, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
+
+        // A zero tolerance skips the check entirely for advanced callers.
+        if max_slippage_bps > 0 && impact_bps > max_slippage_bps {
+            env.events().publish(
+                events::swap_slippage_exceeded_topics(&creator),
+                events::SwapSlippageExceededEvent {
+                    creator_id: creator.clone(),
+                    actual_bps: impact_bps,
+                    max_bps: max_slippage_bps,
+                    ledger: env.ledger().sequence(),
+                },
+            );
+            return Err(ContractError::SlippageExceeded);
+        }
+
+        match direction {
+            SwapDirection::Buy => {
+                let base_price: i128 = env
+                    .storage()
+                    .persistent()
+                    .get(&constants::storage::KEY_PRICE)
+                    .ok_or(ContractError::KeyPriceNotSet)?;
+                let profile = read_registered_creator_profile(&env, &creator)?;
+                let start_supply = profile.supply;
+
+                let cost = compute_swap_buy_cost(&env, &creator, base_price, start_supply, amount)?;
+                let new_supply =
+                    Self::buy_keys(env.clone(), creator.clone(), trader, amount, cost, None)?;
+                let expected_supply = start_supply
+                    .checked_add(amount)
+                    .ok_or(ContractError::Overflow)?;
+                // A per-creator cap can break the fill short inside buy_keys;
+                // surface a hard error so the whole swap reverts atomically.
+                if new_supply != expected_supply {
+                    return Err(ContractError::SupplyCapExceeded);
+                }
+                Ok(cost)
+            }
+            SwapDirection::Sell => {
+                // batch_sell authorizes the seller once at its own frame, which
+                // avoids Soroban's one-`require_auth`-per-address-per-invocation
+                // limit that a loop of sell_key calls would trip on.
+                let mut orders = Vec::new(&env);
+                orders.push_back((creator.clone(), amount));
+                let results = Self::batch_sell(env.clone(), trader, orders)?;
+                let order = results.get(0).ok_or(ContractError::InsufficientSupply)?;
+                Ok(order.proceeds)
+            }
+        }
     }
 
     /// Deposits `amount` as a dividend for all current key holders of `creator`.

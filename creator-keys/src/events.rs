@@ -2549,6 +2549,35 @@ pub fn slippage_check_passed_topics(creator: &Address) -> (Symbol, Address) {
     (SLIPPAGE_CHECK_PASSED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for a bonding-curve swap rejected by its price-impact guard.
+pub const SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME: Symbol = symbol_short!("swap_slp");
+
+/// Emitted when a bonding-curve `swap` is rejected because the computed
+/// price impact exceeds the caller's `max_slippage_bps` tolerance. The
+/// payload carries both the actual impact and the requested ceiling so
+/// clients and indexers can surface the exact breach magnitude.
+///
+/// Event shape:
+/// - topics: `(SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator)`
+/// - data: `SwapSlippageExceededEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SwapSlippageExceededEvent {
+    /// Creator whose bonding curve was being swapped against.
+    pub creator_id: Address,
+    /// Computed price impact of the rejected swap, in basis points.
+    pub actual_bps: u32,
+    /// Caller-supplied slippage ceiling that the impact breached.
+    pub max_bps: u32,
+    /// Ledger sequence at which the breach was detected.
+    pub ledger: u32,
+}
+
+/// Shared swap-slippage-exceeded event topics tuple.
+pub fn swap_slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
+    (SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
+}
+
 // --- Max buy quantity per transaction (#828) ---
 
 /// Event name emitted when the creator updates the max buy quantity per transaction.

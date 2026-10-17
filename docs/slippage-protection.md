@@ -10,6 +10,10 @@ When submitting a buy, supply a maximum acceptable total price. The contract eva
 
 When submitting a sell, supply a minimum acceptable proceeds value. The contract rejects the operation with `SlippageExceeded` when the current proceeds are lower than that bound. A bound equal to the quoted proceeds is accepted.
 
+## Bonding curve swap protection
+
+`swap` accepts a `max_slippage_bps` tolerance alongside `amount` and a buy/sell `direction`. The contract computes the curve's spot price before and after the whole trade and reverts with `SlippageExceeded` when the impact in basis points is strictly above the tolerance; an impact exactly at the tolerance is accepted. The breach emits a `SwapSlippageExceeded` event carrying both the actual and maximum bps values. Passing `0` skips the check entirely for advanced callers. The `get_price_impact(amount, direction)` view returns the same bps impact without executing anything, so clients can derive a tolerance before building the transaction.
+
 ## Client workflow
 
 1. Read a fresh quote immediately before building the transaction.
