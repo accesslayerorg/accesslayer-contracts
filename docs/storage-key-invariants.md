@@ -38,6 +38,7 @@ pub enum DataKey {
 | `FeeConfig`                    | Global             | `FeeConfig`      | Stores protocol-wide fee split configuration               |
 | `KeyPrice`                     | Global             | `i128`           | Stores the fixed price for all keys across all creators    |
 | `KeyBalance(Address, Address)` | Per-creator-holder | `u32`            | Stores how many keys a holder owns for a specific creator  |
+| `HolderRegistry(Address)`      | Per-creator        | `Vec<Address>`   | Append-only list of wallets that have held keys for a creator |
 | `TreasuryAddress`              | Global             | `Address`        | Protocol treasury address for fee routing                  |
 | `AdminAddress`                 | Global             | `Address`        | Protocol admin address for configuration                   |
 | `ProtocolFeeRecipient`         | Global             | `Address`        | Protocol fee recipient address                             |
@@ -73,6 +74,26 @@ pub enum DataKey {
 
 `set_fee_config` uses the shared `fee::assert_valid_fee_bps` guard to keep key writes aligned with the current constants (`BPS_MAX = 10_000`, `PROTOCOL_BPS_MAX = 5_000`) before persisting the config.
 
+### Price Alert Storage-Key Notes
+
+Price alerts (issue #1030) use their own `PriceAlertDataKey` enum in [`creator-keys/src/price_alerts.rs`](../creator-keys/src/price_alerts.rs), like the other feature modules. All entries are persistent and extended to the full `CREATOR_TTL_LEDGERS` window on write.
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| Active alerts on a key | `PriceAlertDataKey::KeyAlerts(key_id)` | `Vec<PriceAlert>` | every buy and sell on `key_id`, `get_alerts`, `register_alert`, `cancel_alert` | `register_alert` appends; a crossing buy/sell or `cancel_alert` removes |
+| A wallet's alert references | `PriceAlertDataKey::WalletAlerts(wallet)` | `Vec<PriceAlertRef>` | `get_alerts`, `register_alert`, `cancel_alert` | `register_alert`, `cancel_alert` (wallet-auth) |
+| Last issued alert id | `PriceAlertDataKey::NextAlertId` | `u64` | `register_alert` | `register_alert` |
+
+**Invariants**:
+
+- `KeyAlerts(key_id)` is the single source of truth for whether an alert is active. An alert is active if and only if it is in that vector. The entry is removed once it is empty, and holds at most `MAX_ACTIVE_ALERTS_PER_KEY` (16) alerts.
+- A buy or sell reads only `KeyAlerts` for the key it traded, and writes it only if an alert fired. Firing does **not** touch `WalletAlerts`, so a trade's alert cost stays at one ledger entry however many wallets it fires for.
+- `WalletAlerts(wallet)` may therefore reference alerts that have already fired. `get_alerts` resolves each reference against `KeyAlerts` and drops the stale ones; `register_alert` and `cancel_alert` rewrite the entry with only active references. Its length never exceeds `MAX_ACTIVE_ALERTS_PER_WALLET` (10).
+- Alert ids are never reused. A fired or cancelled id can never become active again.
+- A trade that reads `KeyAlerts` extends its TTL, so a key that keeps trading keeps its alerts live.
+
+**Storage layout / backward compatibility**: the keys are new and additive. No existing key is read or changed, so no migration is needed in either direction.
+
 ## Storage Invariants
 
 These invariants must hold true after every contract operation:
@@ -107,6 +128,21 @@ These invariants must hold true after every contract operation:
 - When selling a key, decrement both `profile.supply` and `KeyBalance(creator, seller)`
 - When processing a creator buyback, decrement both `profile.supply` and `KeyBalance(creator, creator)` by the burned amount
 - Never modify supply without updating the corresponding balance
+
+### Holder registry invariants
+
+`HolderRegistry(creator)` is an append-only list of addresses that have received
+keys through purchases, transfers, airdrops, or claimed allocations. Every
+balance-credit path adds the recipient only if they are not already present.
+Selling or transferring all keys out never removes an address. The registry
+uses persistent storage and its TTL is extended to the full creator TTL window
+on every read of an existing entry and every write.
+
+The storage key is additive, so no migration is required for existing state.
+Soroban storage cannot enumerate the full set of historical `KeyBalance`
+holders on upgrade; consequently, the registry tracks holders from their first
+successful balance credit after this version is deployed and does not backfill
+pre-upgrade history.
 
 **Invariant**: For any registered creator, `profile.holder_count == count of non-zero KeyBalance(creator, *)`.
 

@@ -1281,6 +1281,140 @@ pub fn holder_cap_updated_topics(key_id: &Address) -> (Symbol, Address) {
     (HOLDER_CAP_UPDATED_EVENT_NAME, key_id.clone())
 }
 
+// --- Price alerts (#1030) ---
+
+/// Event name emitted when a wallet registers a price alert via `register_alert`.
+pub const PRICE_ALERT_REGISTERED_EVENT_NAME: Symbol = symbol_short!("alert_reg");
+
+/// Stable price-alert-registered event field order for downstream indexers.
+pub const PRICE_ALERT_REGISTERED_EVENT_DATA_FIELDS: [&str; 6] = [
+    "wallet",
+    "key_id",
+    "alert_id",
+    "direction",
+    "target_price",
+    "ledger",
+];
+
+/// Payload emitted when a wallet registers a price alert.
+///
+/// Event shape:
+/// - topics: `(PRICE_ALERT_REGISTERED_EVENT_NAME, key_id, wallet)`
+/// - data: `PriceAlertRegisteredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceAlertRegisteredEvent {
+    /// Wallet that registered the alert.
+    pub wallet: Address,
+    /// Key whose spot price is watched.
+    pub key_id: Address,
+    /// Id assigned to the alert.
+    pub alert_id: u64,
+    /// Crossing direction that fires the alert.
+    pub direction: crate::price_alerts::AlertDirection,
+    /// Spot price threshold.
+    pub target_price: i128,
+    /// Ledger in which the alert was registered.
+    pub ledger: u32,
+}
+
+/// Shared price-alert-registered event topics tuple.
+pub fn price_alert_registered_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        PRICE_ALERT_REGISTERED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
+/// Event name emitted when a buy or sell moves a key's spot price across a
+/// registered alert's target. Each alert emits it at most once: the alert is
+/// deactivated in the same call.
+pub const PRICE_ALERT_TRIGGERED_EVENT_NAME: Symbol = symbol_short!("alert_trg");
+
+/// Stable price-alert-triggered event field order for downstream indexers.
+pub const PRICE_ALERT_TRIGGERED_EVENT_DATA_FIELDS: [&str; 7] = [
+    "wallet",
+    "key_id",
+    "alert_id",
+    "direction",
+    "target_price",
+    "new_price",
+    "ledger",
+];
+
+/// Payload emitted when a price alert fires.
+///
+/// Event shape:
+/// - topics: `(PRICE_ALERT_TRIGGERED_EVENT_NAME, key_id, wallet)`
+/// - data: `PriceAlertTriggeredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceAlertTriggeredEvent {
+    /// Wallet that registered the alert.
+    pub wallet: Address,
+    /// Key whose spot price crossed the target.
+    pub key_id: Address,
+    /// Id of the alert that fired.
+    pub alert_id: u64,
+    /// Crossing direction of the alert.
+    pub direction: crate::price_alerts::AlertDirection,
+    /// The alert's spot price threshold.
+    pub target_price: i128,
+    /// Spot price after the trade that crossed the target.
+    pub new_price: i128,
+    /// Ledger of the trade that fired the alert.
+    pub ledger: u32,
+}
+
+/// Shared price-alert-triggered event topics tuple.
+pub fn price_alert_triggered_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        PRICE_ALERT_TRIGGERED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
+/// Event name emitted when a wallet cancels a price alert via `cancel_alert`.
+pub const PRICE_ALERT_CANCELLED_EVENT_NAME: Symbol = symbol_short!("alert_cxl");
+
+/// Payload emitted when a wallet cancels a price alert.
+///
+/// Event shape:
+/// - topics: `(PRICE_ALERT_CANCELLED_EVENT_NAME, key_id, wallet)`
+/// - data: `PriceAlertCancelledEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceAlertCancelledEvent {
+    /// Wallet that cancelled the alert.
+    pub wallet: Address,
+    /// Key the alert watched.
+    pub key_id: Address,
+    /// Id of the cancelled alert.
+    pub alert_id: u64,
+    /// Ledger in which the alert was cancelled.
+    pub ledger: u32,
+}
+
+/// Shared price-alert-cancelled event topics tuple.
+pub fn price_alert_cancelled_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        PRICE_ALERT_CANCELLED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
 /// Emitted on every early-access whitelist add (`allowed = true`) and remove.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -2971,6 +3105,61 @@ pub struct SnapshotPrunedEvent {
 /// Shared snapshot-pruned event topics tuple.
 pub fn snapshot_pruned_topics(creator_id: &Address) -> (Symbol, Address) {
     (SNAPSHOT_PRUNED_EVENT_NAME, creator_id.clone())
+}
+
+// ============================================================================
+// Feature: governance voting weight snapshot contract
+// ============================================================================
+
+/// Event name emitted when a governance voting weight snapshot is taken.
+pub const GOVERNANCE_SNAPSHOT_TAKEN_EVENT_NAME: Symbol = symbol_short!("gov_snap");
+
+/// Stable governance-snapshot-taken event payload.
+///
+/// Event shape:
+/// - topics: `(GOVERNANCE_SNAPSHOT_TAKEN_EVENT_NAME, proposal_id)`
+/// - data: `GovernanceSnapshotTakenEvent`
+///
+/// Emitted automatically when a governance proposal is created, recording the
+/// block height at which all holder balances were captured. Downstream indexers
+/// use `snapshot_ledger` to correlate voting weights with the proposal's
+/// creation block.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GovernanceSnapshotTakenEvent {
+    /// Monotonic governance proposal identifier.
+    pub proposal_id: u32,
+    /// Ledger sequence at which the snapshot was taken.
+    pub snapshot_ledger: u32,
+    /// Number of holder balances recorded in the snapshot.
+    pub total_holders: u32,
+}
+
+/// Shared governance-snapshot-taken event topics tuple.
+pub fn governance_snapshot_taken_topics(proposal_id: u32) -> (Symbol, u32) {
+    (GOVERNANCE_SNAPSHOT_TAKEN_EVENT_NAME, proposal_id)
+}
+
+/// Event name emitted when a governance snapshot is pruned after resolution.
+pub const GOVERNANCE_SNAPSHOT_PRUNED_EVENT_NAME: Symbol = symbol_short!("gov_sprn");
+
+/// Stable governance-snapshot-pruned event payload.
+///
+/// Event shape:
+/// - topics: `(GOVERNANCE_SNAPSHOT_PRUNED_EVENT_NAME, proposal_id)`
+/// - data: `GovernanceSnapshotPrunedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GovernanceSnapshotPrunedEvent {
+    /// Proposal whose snapshot was pruned.
+    pub proposal_id: u32,
+    /// Ledger in which the pruning happened.
+    pub ledger: u32,
+}
+
+/// Shared governance-snapshot-pruned event topics tuple.
+pub fn governance_snapshot_pruned_topics(proposal_id: u32) -> (Symbol, u32) {
+    (GOVERNANCE_SNAPSHOT_PRUNED_EVENT_NAME, proposal_id)
 }
 
 // ============================================================================

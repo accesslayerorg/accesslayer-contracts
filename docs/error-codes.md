@@ -57,6 +57,18 @@ was renumbered, reordered, or reused, so previously deployed clients that decode
 `ContractError` numerically keep working unchanged. Codes 47 and 48 remain
 intentionally unassigned.
 
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `107` | `WalletAlertLimitReached` | The wallet already holds the maximum number of active price alerts | Triggered in [`price_alerts::register_alert`](../creator-keys/src/price_alerts.rs) when the wallet has `MAX_ACTIVE_ALERTS_PER_WALLET` (10) active alerts across all keys. Alerts that have fired or been cancelled do not count. |
+| `108` | `KeyAlertLimitReached` | The key already has the maximum number of active price alerts | Triggered in [`price_alerts::register_alert`](../creator-keys/src/price_alerts.rs) when the key has `MAX_ACTIVE_ALERTS_PER_KEY` (16) active alerts from any wallets. |
+| `109` | `AlertNotFound` | No active price alert with that id belongs to the wallet | Triggered in [`price_alerts::cancel_alert`](../creator-keys/src/price_alerts.rs) when the id never existed, belongs to another wallet, or the alert has already fired or been cancelled. |
+
+**Backward compatibility for 107-109**: these price-alert codes (issue #1030)
+are appended after the previously highest code (`106`, `CapTooLow`). No existing
+variant was renumbered, reordered, or reused. `register_alert` reports an
+unregistered key with `NotRegistered` (2) and a non-positive target price with
+`NotPositiveAmount` (6).
+
 ---
 
 ## `PollError` Reference (Governance Polls)

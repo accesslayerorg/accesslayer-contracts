@@ -115,5 +115,28 @@ Notes for indexers:
 `actor` is the first signer of the multisig call. `timestamp` and
 `executable_at` are ledger timestamps in seconds, not ledger sequence numbers.
 
+### Price Alert Events (#1030)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `alert_reg` | `(Symbol("alert_reg"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `direction`, `target_price`, `ledger` | `struct PriceAlertRegisteredEvent` |
+| `alert_trg` | `(Symbol("alert_trg"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `direction`, `target_price`, `new_price`, `ledger` | `struct PriceAlertTriggeredEvent` |
+| `alert_cxl` | `(Symbol("alert_cxl"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `ledger` | `struct PriceAlertCancelledEvent` |
+
+Notes for indexers:
+
+- `alert_trg` is emitted from inside a buy or sell (`buy_key`, `buy_keys`,
+  `buy_key_with_referrer`, `forward_buy`, `sell_key`, `batch_buy`,
+  `batch_buy_v2`, `batch_sell`, `batch_sell_v2`, `reinvest_dividend`), after
+  that trade's own `buy` / `sell` event. One trade can emit several, one per
+  alert it fires, in registration order.
+- Each `alert_id` produces at most one `alert_trg` or one `alert_cxl`, never
+  both and never twice. After either event the alert is gone.
+- `new_price` is the key's bonding-curve spot price after the trade (the price
+  of the next key at the new supply), in the same raw `i128` units as the key
+  price. It is not the price paid for the trade.
+- `direction` is the `AlertDirection` enum, encoded as a `u32`: `0` = `Above`,
+  `1` = `Below`.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
