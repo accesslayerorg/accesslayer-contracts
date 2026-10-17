@@ -221,3 +221,85 @@ fn test_buy_slippage_boundary_exact_cost_and_exceeded_by_one_stroop() {
     // 3. Assert no state is mutated when the guard panics
     before.assert_unchanged(&after);
 }
+
+#[test]
+fn test_buy_max_slippage_bps_exceeded_reverts() {
+    let env = test_env_with_auths();
+    let (client, _contract_id) = register_creator_keys(&env);
+    let admin = contract_test_env::set_pricing_and_fees(&env, &client, KEY_PRICE, 9000, 1000);
+    let creator = register_test_creator(&env, &client, "alice_slope");
+    client.set_curve_slope(&admin, &100);
+
+    let buyer1 = Address::generate(&env);
+    let buy_quote = client.get_buy_quote(&creator);
+    client.buy_key(&creator, &buyer1, &buy_quote.total_amount, &None);
+
+    let buyer2 = Address::generate(&env);
+    let next_quote = client.get_buy_quote(&creator);
+    let result = client.try_buy_key_with_slippage(
+        &creator,
+        &buyer2,
+        &next_quote.total_amount,
+        &None,
+        &Some(1),
+    );
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+}
+
+#[test]
+fn test_buy_max_slippage_bps_within_tolerance_succeeds() {
+    let env = test_env_with_auths();
+    let (client, _, creator, buyer) = setup_buy(&env);
+    let buy_quote = client.get_buy_quote(&creator);
+
+    let supply = client.buy_key_with_slippage(
+        &creator,
+        &buyer,
+        &buy_quote.total_amount,
+        &None,
+        &Some(10_000),
+    );
+    assert_eq!(supply, 1);
+}
+
+#[test]
+fn test_buy_max_slippage_bps_omitted_or_zero_skips_check() {
+    let env = test_env_with_auths();
+    let (client, _, creator, buyer1) = setup_buy(&env);
+    let buy_quote = client.get_buy_quote(&creator);
+
+    let supply1 =
+        client.buy_key_with_slippage(&creator, &buyer1, &buy_quote.total_amount, &None, &None);
+    assert_eq!(supply1, 1);
+
+    let buyer2 = Address::generate(&env);
+    let supply2 =
+        client.buy_key_with_slippage(&creator, &buyer2, &buy_quote.total_amount, &None, &Some(0));
+    assert_eq!(supply2, 2);
+}
+
+#[test]
+fn test_sell_max_slippage_bps_exceeded_reverts() {
+    let env = test_env_with_auths();
+    let (client, _, creator, holder) = setup_sell(&env);
+
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+
+    let result = client.try_sell_key_with_slippage(&creator, &holder, &None, &Some(1));
+    assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
+}
+
+#[test]
+fn test_sell_max_slippage_bps_within_tolerance_succeeds() {
+    let env = test_env_with_auths();
+    let (client, _, creator, holder) = setup_sell(&env);
+
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+
+    let supply = client.sell_key_with_slippage(&creator, &holder, &None, &Some(10_000));
+    assert_eq!(supply, 0);
+}
