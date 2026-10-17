@@ -213,6 +213,10 @@ pub enum ContractError {
     KeyAlertLimitReached = 108,
     /// No active price alert with the given id belongs to the wallet.
     AlertNotFound = 109,
+    /// Trading is suspended for this key by an emergency freeze.
+    KeyFrozen = 110,
+    /// A key freeze expiry must be later than the current ledger timestamp.
+    InvalidFreezeExpiry = 111,
 }
 
 /// Errors raised by the staking entrypoints
@@ -12933,6 +12937,32 @@ impl CreatorKeysContract {
     /// Read-only view: whether `key_id` has an active emergency pause override.
     pub fn is_key_paused(env: Env, key_id: Address) -> bool {
         emergency_pause::is_key_paused(&env, &key_id)
+    }
+
+    /// Freezes buy and sell activity for `key_id` immediately.
+    ///
+    /// Only the protocol admin may call this. `reason` is returned by
+    /// `get_freeze_status`; an optional `expiry_timestamp` automatically
+    /// disables the freeze once the ledger timestamp reaches it.
+    pub fn freeze_key(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        reason: Option<String>,
+        expiry_timestamp: Option<u64>,
+    ) -> Result<(), ContractError> {
+        emergency_pause::freeze_key(&env, &admin, &key_id, &reason, &expiry_timestamp)
+    }
+
+    /// Clears an active key freeze before its expiry. Only the protocol admin
+    /// may call this.
+    pub fn unfreeze_key(env: Env, admin: Address, key_id: Address) -> Result<(), ContractError> {
+        emergency_pause::unfreeze_key(&env, &admin, &key_id)
+    }
+
+    /// Returns whether a key is frozen and, while active, its reason and expiry.
+    pub fn get_freeze_status(env: Env, key_id: Address) -> emergency_pause::KeyFreezeStatus {
+        emergency_pause::get_freeze_status(&env, &key_id)
     }
 
     // =========================================================================

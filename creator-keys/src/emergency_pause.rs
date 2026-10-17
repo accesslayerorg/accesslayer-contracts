@@ -12,7 +12,7 @@ use crate::events::{
     PlatformResumedEvent,
 };
 use crate::{read_global_pause_admins, ContractError, GLOBAL_PAUSE_THRESHOLD};
-use soroban_sdk::{contracterror, contracttype, Address, Env, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, Env, String, Vec};
 
 /// Timelock delay between queueing and executing a platform resume (24 hours).
 pub const PLATFORM_RESUME_DELAY_SECS: u64 = 86_400;
@@ -54,6 +54,17 @@ pub enum EmergencyPauseDataKey {
     ResumeEta,
     /// Per-key emergency pause override.
     KeyPaused(Address),
+    /// Emergency trading freeze and its optional metadata.
+    KeyFreeze(Address),
+}
+
+/// Stored freeze details and the public status returned to callers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyFreezeStatus {
+    pub frozen: bool,
+    pub reason: Option<String>,
+    pub expiry_timestamp: Option<u64>,
 }
 
 /// Validates that `signers` are distinct members of the global-pause admin set,
@@ -110,7 +121,68 @@ pub fn assert_trading_allowed(env: &Env, key_id: &Address) -> Result<(), Contrac
     if is_platform_paused(env) || is_key_paused(env, key_id) {
         return Err(ContractError::GlobalTradingHalted);
     }
+    if get_freeze_status(env, key_id).frozen {
+        return Err(ContractError::KeyFrozen);
+    }
     Ok(())
+}
+
+/// Freezes trading for one key. Only the protocol admin may call this. An
+/// omitted expiry keeps the freeze active until `unfreeze_key` is called.
+pub fn freeze_key(
+    env: &Env,
+    admin: &Address,
+    key_id: &Address,
+    reason: &Option<String>,
+    expiry_timestamp: &Option<u64>,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    crate::assert_is_admin(env, admin)?;
+    if expiry_timestamp.is_some_and(|expiry| expiry <= env.ledger().timestamp()) {
+        return Err(ContractError::InvalidFreezeExpiry);
+    }
+    let status = KeyFreezeStatus {
+        frozen: true,
+        reason: reason.clone(),
+        expiry_timestamp: expiry_timestamp.clone(),
+    };
+    env.storage()
+        .persistent()
+        .set(&EmergencyPauseDataKey::KeyFreeze(key_id.clone()), &status);
+    Ok(())
+}
+
+/// Removes a key freeze before its expiry. Only the protocol admin may call.
+pub fn unfreeze_key(env: &Env, admin: &Address, key_id: &Address) -> Result<(), ContractError> {
+    admin.require_auth();
+    crate::assert_is_admin(env, admin)?;
+    env.storage()
+        .persistent()
+        .remove(&EmergencyPauseDataKey::KeyFreeze(key_id.clone()));
+    Ok(())
+}
+
+/// Returns the live freeze status. Expired freezes are treated as cleared
+/// immediately, without requiring a separate transaction to clean storage.
+pub fn get_freeze_status(env: &Env, key_id: &Address) -> KeyFreezeStatus {
+    let stored: Option<KeyFreezeStatus> = env
+        .storage()
+        .persistent()
+        .get(&EmergencyPauseDataKey::KeyFreeze(key_id.clone()));
+    match stored {
+        Some(status)
+            if status
+                .expiry_timestamp
+                .is_none_or(|expiry| env.ledger().timestamp() < expiry) =>
+        {
+            status
+        }
+        _ => KeyFreezeStatus {
+            frozen: false,
+            reason: None,
+            expiry_timestamp: None,
+        },
+    }
 }
 
 /// Halts all buys and sells across every key, effective immediately.
