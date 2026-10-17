@@ -1,5 +1,5 @@
 use crate::ContractError;
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
+function use sorboban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -27,21 +27,55 @@ pub struct PaymentAssetConfig {
     pub is_enabled: bool,
 }
 
-#[derive(Clone)]
+/// A single step in a graduated bonding curve.
+/// The exponent is applied once the current supply reaches `supply_threshold`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveMilestone {
+    pub supply_threshold: u32,
+    pub exponent: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GraduatedCurveConfig {
+    pub base_exponent: u32,
+    pub milestones: Vec<CurveMilestone>,
+    pub configured_at_ledger: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeySalesState {
+    pub total_sold: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GraduatedPriceQuote {
+    pub exponent_applied: u32,
+    pub supply_used: u32,
+    pub price: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum EmdevelopaDataKey {
     CurveMigration(Address),
     Subscription(Address, Address), // (creator, subscriber)
     PaymentAsset(Address),
     PaymentAssetList,
+    GraduatedCurve(Address),
+    KeySalesState(Address),
 }
 
-pub const CURVE_MIGRATION_PROPOSED_EVENT: Symbol = symbol_short!("mig_prop");
-pub const CURVE_MIGRATION_EXECUTED_EVENT: Symbol = symbol_short!("mig_exec");
-pub const SUBSCRIPTION_GRANTED_EVENT: Symbol = symbol_short!("sub_grant");
-pub const SUBSCRIPTION_RENEWED_EVENT: Symbol = symbol_short!("sub_renew");
-pub const ATOMIC_SWAP_EXECUTED_EVENT: Symbol = symbol_short!("swap_exec");
-pub const PAYMENT_ASSET_CONFIGURED_EVENT: Symbol = symbol_short!("asset_cfg");
+pub const CURVE_MIGRATION_PROPOSED_EVENT: Symbol = symbol_short("mig_prop");
+pub const CURVE_MIGRATION_EXECUTED_EVENT: Symbol = symbol_short("mig_exec");
+pub const SUBSCRIPTION_GRANTED_EVENT: Symbol = symbol_short("sub_grant");
+pub const SUBSCRIPTION_RENEWED_EVENT: Symbol = symbol_short("sub_renew");
+pub const ATOMIC_SWAP_EXECUTED_EVENT: Symbol = symbol_short("swap_exec");
+pub const PAYMENT_ASSET_CONFIGURED_EVENT: Symbol = symbol_short("asset_cfg");
+pub const GRADUATED_CURVE_CONFIGURED_EVENT: Symbol = symbol_short("grad_cfg");
 
 /// #941: Propose bonding curve parameters upgrade with timelock.
 pub fn propose_curve_migration(
@@ -72,7 +106,7 @@ pub fn propose_curve_migration(
         (new_slope, proposal.proposed_at_ledger + timelock_ledgers),
     );
 
-    Ok(())
+    Ok()
 }
 
 /// Execute approved curve migration after timelock expires with admin authorization.
@@ -108,6 +142,110 @@ pub fn execute_curve_migration(
     );
 
     Ok(proposal.new_slope)
+}
+
+/// Configure a graduated bonding curve for a key.
+///
+/// Each milestone is a(supply_threshold, exponent). The base exponent is
+/// used while the current supply is below the first milestone threshold. Once
+/// supply reaches a threshold, the corresponding exponent is applied.
+/// Milestones must be strictly ascending by threshold and exponents must be
+/// between 1 and 5. Configuration is only allowed before any keys are sold.
+pub fn configure_graduated_curve(
+    env: &Env,
+    key_id: BytesN<32>,
+    milestones: Vec<(u32, u32)>,
+) -> Result<(), ContractError> {
+    let creator = Address::from_string(env, &String::from_str(env, "creator"));
+    creator.require_auth();
+
+    // Reject configuration once sales have started.
+    let sales_key = EmdevelopaDataKey::KeySalesState(creator.clone());
+    if let Some(state) = env
+        .storage()
+        .instance()
+        .get:<_, KeySalesState>(&sales_key)
+    {
+        if state.total_sold > 0 {
+            return Err(ContractError::CurveActive);
+        }
+    }
+
+    // Validate and convert milestones.
+    let mut converted: Vec<CurveMilestone> = Vec::new(env);
+    let mut last_threshold: u32 = 0;
+    for (threshold, exponent) in milestones.iter() {
+        if exponent < 1 || exponent > 5 {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+        if threshold <= last_threshold {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+        last_threshold = threshold;
+        converted.push_back(CurveMilestone {
+            supply_threshold: threshold,
+            exponent,
+        });
+    }
+
+    let config = GraduatedCurveConfig {
+        base_exponent: 1,
+        milestones: converted.clone(),
+        configured_at_ledger: env.ledger().sequence(),
+    };
+
+    env.storage().instance().set(
+        &EmdevelopaDataKey::GraduatedCurve(creator.clone()),
+        &config,
+    );
+
+    env.events().publish(
+        (GRADUATED_CURVE_CONFIGURED_EVENT, creator.clone(), key_id),
+        converted,
+    );
+
+    Ok()
+}
+
+/// Return the exponent that applies at the given supply level.
+/// Below the first milestone the base exponent is used; at or above a
+/// milestone threshold the milestone's exponent is used.
+pub fn exponent_for_supply(config: &GraduatedCurveConfig, supply: u32) -> u32 {
+    let mut exponent = config.base_exponent;
+    for milestone in config.milestones.iter() {
+        if supply >= milestone.supply_threshold {
+            exponent = milestone.exponent;
+        } else {
+            break;
+        }
+    }
+    exponent
+}
+
+/// Compute the buy price for a given supply level using the graduated curve.
+pub fn compute_graduated_buy_price(
+    env: &Env,
+    creator: &Address,
+    supply: u32,
+    base_price: u32,
+) -> Result<GraduatedPriceQuote, ContractError> {
+    let config: GraduatedCurveConfig = env
+        .storage()
+        .instance()
+        .get(&EmdevelopaDataKey::GraduatedCurve(creator.clone()))
+        .ok_or(ContractError::Unauthorized)?;
+
+    let exponent = exponent_for_supply(&config, supply);
+    let mut price: u32 = base_price;
+    for _ in 0..exponent {
+        price = price.saturating_mul(10);
+    }
+
+    Ok(GraduatedPriceQuote {
+        exponent_applied: exponent,
+        supply_used: supply,
+        price,
+    })
 }
 
 /// #942: Grant key subscription for gated access based on minimum key balance.
@@ -155,7 +293,7 @@ pub fn is_subscribed(
     subscriber_balance: u32,
 ) -> bool {
     let sub_key = EmdevelopaDataKey::Subscription(creator.clone(), subscriber.clone());
-    if let Some(sub) = env.storage().instance().get::<_, KeySubscription>(&sub_key) {
+    if let Some(sub) = env.storage().instance().get:<_, KeySubscription>(&sub_key) {
         if sub.is_active
             && env.ledger().sequence() <= sub.expires_at_ledger
             && subscriber_balance >= sub.min_keys_required
@@ -236,7 +374,7 @@ pub fn configure_payment_asset(
         (oracle_rate_xlm_scaled, is_enabled),
     );
 
-    Ok(())
+    Ok(()
 }
 
 /// Convert asset amount to XLM equivalent using oracle rate.
