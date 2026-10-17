@@ -138,5 +138,18 @@ Notes for indexers:
 - `direction` is the `AlertDirection` enum, encoded as a `u32`: `0` = `Above`,
   `1` = `Below`.
 
+### Referral Tier Upgrade Events (#1034)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `tier_upg` | `(Symbol("tier_upg"), referrer)` | `referrer`, `old_tier`, `new_tier`, `volume`, `reward_rate_bps` | `struct ReferralTierUpgraded` |
+
+Notes for indexers:
+
+- `tier_upg` is emitted when a referrer's cumulative referred trade volume crosses a tier threshold.
+- Tiers are ratchet-only (`Bronze` = 0, `Silver` = 1, `Gold` = 2) and never downgrade regardless of subsequent volume drops.
+- `reward_rate_bps` reports the new reward rate in basis points (10,000 bps = 100%).
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
+

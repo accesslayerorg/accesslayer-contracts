@@ -1140,6 +1140,7 @@ pub const EARLY_ACCESS_MODE_CHANGED_EVENT_NAME: Symbol = symbol_short!("ea_mode"
 pub const REFERRAL_REGISTERED_EVENT_NAME: Symbol = symbol_short!("ref_reg");
 pub const REFERRAL_REWARD_ALLOCATED_EVENT_NAME: Symbol = symbol_short!("ref_rwd");
 pub const REFERRAL_REWARDS_CLAIMED_EVENT_NAME: Symbol = symbol_short!("ref_clm");
+pub const REFERRAL_TIER_UPGRADED_EVENT_NAME: Symbol = symbol_short!("tier_upg");
 pub const KEYS_BURNED_EVENT_NAME: Symbol = symbol_short!("burned");
 pub const SELF_FREEZE_APPLIED_EVENT_NAME: Symbol = symbol_short!("sf_add");
 pub const SELF_FREEZE_LIFTED_EVENT_NAME: Symbol = symbol_short!("sf_del");
@@ -1472,6 +1473,20 @@ pub struct ReferralRewardsClaimedEvent {
 
 pub fn referral_rewards_claimed_topics() -> Symbol {
     REFERRAL_REWARDS_CLAIMED_EVENT_NAME
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralTierUpgradedEvent {
+    pub referrer: Address,
+    pub old_tier: u32,
+    pub new_tier: u32,
+    pub volume: i128,
+    pub reward_rate_bps: u32,
+}
+
+pub fn referral_tier_upgraded_topics(referrer: &Address) -> (Symbol, Address) {
+    (REFERRAL_TIER_UPGRADED_EVENT_NAME, referrer.clone())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
