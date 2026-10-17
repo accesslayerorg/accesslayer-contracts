@@ -3994,3 +3994,85 @@ pub struct KeyRatedEvent {
 pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
     (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
 }
+
+// ============================================================================
+// Feature: volume-based fee discount tiers for high-volume traders
+// ============================================================================
+
+/// Event name emitted when a wallet's volume discount tier changes.
+pub const VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("vdt_chg");
+
+/// Stable field order for volume discount tier changed payloads.
+pub const VOLUME_DISCOUNT_TIER_CHANGED_DATA_FIELDS: [&str; 6] = [
+    "wallet",
+    "old_tier",
+    "new_tier",
+    "old_discount_bps",
+    "new_discount_bps",
+    "ledger",
+];
+
+/// Stable volume-discount-tier-changed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME, wallet)`
+/// - data: `VolumeDiscountTierChangedEvent`
+///
+/// Emitted whenever a wallet's 30-day rolling trading volume crosses a
+/// configured tier threshold, either upward (discount increases) or downward
+/// (volume ages out of the rolling window and the discount decreases).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VolumeDiscountTierChangedEvent {
+    /// Wallet whose discount tier changed.
+    pub wallet: Address,
+    /// Tier index before the transition (`0` = no discount / bronze baseline).
+    pub old_tier: u32,
+    /// Tier index after the transition.
+    pub new_tier: u32,
+    /// Discount in basis points before the transition.
+    pub old_discount_bps: u32,
+    /// Discount in basis points after the transition.
+    pub new_discount_bps: u32,
+    /// Ledger sequence number at the time of the transition.
+    pub ledger: u32,
+}
+
+/// Shared volume-discount-tier-changed event topics tuple.
+pub fn volume_discount_tier_changed_topics(wallet: &Address) -> (Symbol, Address) {
+    (VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME, wallet.clone())
+}
+
+/// Event name emitted when the admin updates the volume discount tier config.
+pub const VOLUME_DISCOUNT_CONFIG_UPDATED_EVENT_NAME: Symbol = symbol_short!("vdt_cfg");
+
+/// Stable volume-discount-config-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(VOLUME_DISCOUNT_CONFIG_UPDATED_EVENT_NAME, admin)`
+/// - data: `VolumeDiscountConfigUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VolumeDiscountConfigUpdatedEvent {
+    /// Admin that applied the change.
+    pub admin: Address,
+    /// Bronze tier threshold in stroops.
+    pub bronze_threshold: i128,
+    /// Silver tier threshold in stroops.
+    pub silver_threshold: i128,
+    /// Gold tier threshold in stroops.
+    pub gold_threshold: i128,
+    /// Bronze discount in basis points.
+    pub bronze_discount_bps: u32,
+    /// Silver discount in basis points.
+    pub silver_discount_bps: u32,
+    /// Gold discount in basis points.
+    pub gold_discount_bps: u32,
+    /// Ledger in which the change was recorded.
+    pub ledger: u32,
+}
+
+/// Shared volume-discount-config-updated event topics tuple.
+pub fn volume_discount_config_updated_topics(admin: &Address) -> (Symbol, Address) {
+    (VOLUME_DISCOUNT_CONFIG_UPDATED_EVENT_NAME, admin.clone())
+}
