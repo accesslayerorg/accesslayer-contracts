@@ -62,7 +62,7 @@ distinguishable from other key types.
 | `HolderDividendCheckpoint(Address, Address)` | Per-creator-holder (composite) | `i128` | `settle_holder_dividends`, `claim_dividend`, `batch_claim_dividend` | `compute_claimable_dividend` |
 | `HolderDividendPending(Address, Address)` | Per-creator-holder (composite) | `i128` | `settle_holder_dividends`, `claim_dividend`, `batch_claim_dividend` | `compute_claimable_dividend`, `get_claimable_dividend` |
 | `LockedAllocation(Address)` | Per-creator | `LockedAllocation { amount, unlock_ledger, claimed }` | `register_creator` (initial write), `claim_locked_allocation` (marks claimed) | `get_locked_allocation`, `claim_locked_allocation` |
-| `MaxSupply(Address)` | Per-creator | `u32` | `register_creator` (optional, if a cap is supplied) | `buy_key`, `airdrop_keys` (cap enforcement), `get_max_supply` |
+| `MaxSupply(Address)` | Per-creator | `u32` | `register_creator` (optional), `set_supply_cap`, `set_max_supply` | `buy_key`, `airdrop_keys` (cap enforcement), `get_max_supply`, `get_supply_info` |
 | `CurveSlope` | Global | `i128` | `set_curve_slope` (admin) | `read_curve_slope`, `compute_bonding_curve_price`, `get_curve_slope` |
 | `CurvePreset(Address)` | Per-creator | `CurvePreset` (`Linear` \| `Quadratic` \| `Flat`) | `register_creator` (always set; defaults to `Linear` if not specified — presets are immutable after registration) | `compute_bonding_curve_price`, `get_curve_preset` |
 | `TreasuryBalance` | Global | `i128` | `credit_treasury_balance`, `withdraw_treasury` (admin) | `read_treasury_balance`, `get_treasury_balance` |

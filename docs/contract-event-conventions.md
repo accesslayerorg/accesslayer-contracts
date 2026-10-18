@@ -150,6 +150,16 @@ Notes for indexers:
 - Tiers are ratchet-only (`Bronze` = 0, `Silver` = 1, `Gold` = 2) and never downgrade regardless of subsequent volume drops.
 - `reward_rate_bps` reports the new reward rate in basis points (10,000 bps = 100%).
 
+### Supply Cap Events (#1099)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `cap_set` | `(Symbol("cap_set"), creator_id)` | `creator_id`, `cap` | `struct SupplyCapSetEvent` |
+| `max_sup` | `(Symbol("max_sup"), creator_id)` | `creator_id`, `old_max_supply`, `new_max_supply` | `struct MaxSupplyUpdatedEvent` |
+| `cap_reach` | `(Symbol("cap_reach"), creator_id)` | `creator_id`, `new_supply`, `cap`, `ledger` | `struct SupplyCapReachedEvent` |
+
+`max_sup` is emitted only when the creator lowers an already-configured cap. Initial caps continue to use `cap_set`; raising or removing a cap is rejected. A blocked buy returns the stable `SupplyCapExceeded` contract error code. Clients can query `get_supply_info` for the current supply and cap because Soroban contract errors carry numeric codes rather than dynamic payload fields.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
 
