@@ -318,3 +318,67 @@ fn test_cooldown_independent_per_creator() {
     let supply_b = client.buy_key(&creator_b, &buyer, &KEY_PRICE, &None);
     assert_eq!(supply_b, 2);
 }
+
+// -- get_cooldown_remaining ----------------------------------------------
+
+/// AC: `get_cooldown_remaining` returns `duration_secs` immediately after a
+/// trade, `duration/2` at the midpoint, and `0` once the window has elapsed.
+#[test]
+fn test_get_cooldown_remaining_tracks_window() {
+    let env = test_env_with_auths();
+    let s = setup_with_cooldown(&env, COOLDOWN_SECS);
+
+    // No trades yet ? 0.
+    assert_eq!(s.client.get_cooldown_remaining(&s.creator, &s.creator), 0);
+
+    let buyer = Address::generate(&env);
+    s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
+
+    // Immediately after the buy ? full window remaining.
+    assert_eq!(
+        s.client.get_cooldown_remaining(&s.creator, &buyer),
+        COOLDOWN_SECS
+    );
+
+    // Halfway through the window.
+    set_test_timestamp(&env, DEFAULT_TEST_TIMESTAMP + COOLDOWN_SECS / 2);
+    assert_eq!(
+        s.client.get_cooldown_remaining(&s.creator, &buyer),
+        COOLDOWN_SECS / 2
+    );
+
+    // Past the window ? 0.
+    set_test_timestamp(&env, DEFAULT_TEST_TIMESTAMP + COOLDOWN_SECS + 1);
+    assert_eq!(s.client.get_cooldown_remaining(&s.creator, &buyer), 0);
+}
+
+/// AC: `get_cooldown_remaining` returns `0` when no cooldown is configured,
+/// even after a trade.
+#[test]
+fn test_get_cooldown_remaining_zero_when_unconfigured() {
+    let env = test_env_with_auths();
+    let s = setup_with_cooldown(&env, 0);
+
+    let buyer = Address::generate(&env);
+    s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
+
+    assert_eq!(s.client.get_cooldown_remaining(&s.creator, &buyer), 0);
+}
+
+/// AC: `get_cooldown_remaining` is per-wallet; one wallet's remaining time
+/// does not affect another's.
+#[test]
+fn test_get_cooldown_remaining_is_per_wallet() {
+    let env = test_env_with_auths();
+    let s = setup_with_cooldown(&env, COOLDOWN_SECS);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    s.client.buy_key(&s.creator, &alice, &KEY_PRICE, &None);
+
+    assert_eq!(
+        s.client.get_cooldown_remaining(&s.creator, &alice),
+        COOLDOWN_SECS
+    );
+    assert_eq!(s.client.get_cooldown_remaining(&s.creator, &bob), 0);
+}
