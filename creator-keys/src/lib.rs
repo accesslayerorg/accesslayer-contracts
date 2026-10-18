@@ -11241,6 +11241,20 @@ impl CreatorKeysContract {
         Ok(())
     }
 
+    /// Seconds remaining before `wallet` may trade `key_id` again.
+    ///
+    /// Returns `0` when no cooldown is configured or the cooldown window has
+    /// already elapsed. Convenience alias over `get_cooldown_status` for
+    /// callers that want the raw seconds instead of the full status struct.
+    pub fn get_cooldown_remaining(env: Env, key_id: Address, wallet: Address) -> u64 {
+        let status = Self::get_cooldown_status(env.clone(), key_id, wallet);
+        if !status.active {
+            return 0;
+        }
+        let now = env.ledger().timestamp();
+        status.expires_at.saturating_sub(now)
+    }
+
     /// Returns the cooldown status for a specific wallet on a creator's key.
     ///
     /// - `active`: `true` when the wallet is currently within its cooldown window.
