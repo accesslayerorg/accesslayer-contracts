@@ -4239,3 +4239,99 @@ pub fn announcement_posted_topics(
         announcement_id,
     )
 }
+
+// ============================================================================
+// Feature: content gating contract for token-gated access control
+// ============================================================================
+
+/// Event name emitted when a wallet is granted access to gated content.
+pub const ACCESS_GRANTED_EVENT_NAME: Symbol = symbol_short!("acc_grant");
+
+/// Event name emitted when a wallet is denied access to gated content.
+pub const ACCESS_DENIED_EVENT_NAME: Symbol = symbol_short!("acc_deny");
+
+/// Event name emitted when a creator configures (or updates) a content gate.
+pub const GATE_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("gate_cfg");
+
+/// Stable field order for [`AccessGrantedEvent`] payloads.
+pub const ACCESS_GRANTED_DATA_FIELDS: [&str; 3] = ["wallet", "key_id", "gate_type"];
+
+/// Stable field order for [`AccessDeniedEvent`] payloads.
+pub const ACCESS_DENIED_DATA_FIELDS: [&str; 3] = ["wallet", "key_id", "gate_type"];
+
+/// Stable field order for [`GateConfiguredEvent`] payloads.
+pub const GATE_CONFIGURED_DATA_FIELDS: [&str; 3] = ["key_id", "gate_type", "params"];
+
+/// Stable access-granted event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(ACCESS_GRANTED_EVENT_NAME, key_id, wallet)`
+/// - data: `AccessGrantedEvent`
+///
+/// Emitted by `check_access` when the wallet satisfies the configured gate for
+/// `key_id`. `gate_type` records which gate kind produced the decision so
+/// indexers can attribute grants to a specific access rule.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AccessGrantedEvent {
+    /// Wallet that was granted access.
+    pub wallet: Address,
+    /// Creator key whose gated content is being accessed.
+    pub key_id: Address,
+    /// Gate type evaluated for this decision.
+    pub gate_type: crate::content_gating::GateType,
+}
+
+/// Stable access-denied event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(ACCESS_DENIED_EVENT_NAME, key_id, wallet)`
+/// - data: `AccessDeniedEvent`
+///
+/// Emitted by `check_access` when the wallet does not satisfy the configured
+/// gate for `key_id`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AccessDeniedEvent {
+    /// Wallet that was denied access.
+    pub wallet: Address,
+    /// Creator key whose gated content is being accessed.
+    pub key_id: Address,
+    /// Gate type evaluated for this decision.
+    pub gate_type: crate::content_gating::GateType,
+}
+
+/// Stable gate-configured event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(GATE_CONFIGURED_EVENT_NAME, key_id)`
+/// - data: `GateConfiguredEvent`
+///
+/// Emitted by `set_gate` when a creator configures or updates the access gate
+/// for their key. `params` mirrors the stored [`crate::content_gating::GateParams`]
+/// so indexers can reconstruct the active rule without a follow-up read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GateConfiguredEvent {
+    /// Creator key whose gate was configured.
+    pub key_id: Address,
+    /// Gate type now enforced for this key.
+    pub gate_type: crate::content_gating::GateType,
+    /// Parameters associated with the gate.
+    pub params: crate::content_gating::GateParams,
+}
+
+/// Shared access-granted event topics tuple.
+pub fn access_granted_topics(key_id: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (ACCESS_GRANTED_EVENT_NAME, key_id.clone(), wallet.clone())
+}
+
+/// Shared access-denied event topics tuple.
+pub fn access_denied_topics(key_id: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (ACCESS_DENIED_EVENT_NAME, key_id.clone(), wallet.clone())
+}
+
+/// Shared gate-configured event topics tuple.
+pub fn gate_configured_topics(key_id: &Address) -> (Symbol, Address) {
+    (GATE_CONFIGURED_EVENT_NAME, key_id.clone())
+}
