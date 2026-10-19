@@ -4241,26 +4241,27 @@ pub fn announcement_posted_topics(
 }
 
 // ============================================================================
-// Feature: content gating contract for token-gated access control
+// Feature: content gating contract (token-gated access control)
 // ============================================================================
 
 /// Event name emitted when a wallet is granted access to gated content.
-pub const ACCESS_GRANTED_EVENT_NAME: Symbol = symbol_short!("acc_grant");
+pub const ACCESS_GRANTED_EVENT_NAME: Symbol = symbol_short!("acc_grnt");
 
 /// Event name emitted when a wallet is denied access to gated content.
 pub const ACCESS_DENIED_EVENT_NAME: Symbol = symbol_short!("acc_deny");
 
 /// Event name emitted when a creator configures (or updates) a content gate.
-pub const GATE_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("gate_cfg");
+pub const GATE_SET_EVENT_NAME: Symbol = symbol_short!("gate_set");
 
 /// Stable field order for [`AccessGrantedEvent`] payloads.
-pub const ACCESS_GRANTED_DATA_FIELDS: [&str; 3] = ["wallet", "key_id", "gate_type"];
+pub const ACCESS_GRANTED_DATA_FIELDS: [&str; 4] = ["wallet", "key_id", "gate_type", "ledger"];
 
 /// Stable field order for [`AccessDeniedEvent`] payloads.
-pub const ACCESS_DENIED_DATA_FIELDS: [&str; 3] = ["wallet", "key_id", "gate_type"];
+pub const ACCESS_DENIED_DATA_FIELDS: [&str; 4] = ["wallet", "key_id", "gate_type", "ledger"];
 
-/// Stable field order for [`GateConfiguredEvent`] payloads.
-pub const GATE_CONFIGURED_DATA_FIELDS: [&str; 3] = ["key_id", "gate_type", "params"];
+/// Stable field order for [`GateSetEvent`] payloads.
+pub const GATE_SET_DATA_FIELDS: [&str; 5] =
+    ["key_id", "gate_type", "min_balance", "subscription_ledgers", "ledger"];
 
 /// Stable access-granted event payload for downstream indexers.
 ///
@@ -4268,9 +4269,7 @@ pub const GATE_CONFIGURED_DATA_FIELDS: [&str; 3] = ["key_id", "gate_type", "para
 /// - topics: `(ACCESS_GRANTED_EVENT_NAME, key_id, wallet)`
 /// - data: `AccessGrantedEvent`
 ///
-/// Emitted by `check_access` when the wallet satisfies the configured gate for
-/// `key_id`. `gate_type` records which gate kind produced the decision so
-/// indexers can attribute grants to a specific access rule.
+/// Emitted by `check_access` when the wallet satisfies the configured gate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct AccessGrantedEvent {
@@ -4278,8 +4277,10 @@ pub struct AccessGrantedEvent {
     pub wallet: Address,
     /// Creator key whose gated content is being accessed.
     pub key_id: Address,
-    /// Gate type evaluated for this decision.
+    /// Gate type that was evaluated.
     pub gate_type: crate::content_gating::GateType,
+    /// Ledger sequence number at the time of the check.
+    pub ledger: u32,
 }
 
 /// Stable access-denied event payload for downstream indexers.
@@ -4288,8 +4289,7 @@ pub struct AccessGrantedEvent {
 /// - topics: `(ACCESS_DENIED_EVENT_NAME, key_id, wallet)`
 /// - data: `AccessDeniedEvent`
 ///
-/// Emitted by `check_access` when the wallet does not satisfy the configured
-/// gate for `key_id`.
+/// Emitted by `check_access` when the wallet does not satisfy the configured gate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct AccessDeniedEvent {
@@ -4297,28 +4297,32 @@ pub struct AccessDeniedEvent {
     pub wallet: Address,
     /// Creator key whose gated content is being accessed.
     pub key_id: Address,
-    /// Gate type evaluated for this decision.
+    /// Gate type that was evaluated.
     pub gate_type: crate::content_gating::GateType,
+    /// Ledger sequence number at the time of the check.
+    pub ledger: u32,
 }
 
-/// Stable gate-configured event payload for downstream indexers.
+/// Stable gate-set event payload for downstream indexers.
 ///
 /// Event shape:
-/// - topics: `(GATE_CONFIGURED_EVENT_NAME, key_id)`
-/// - data: `GateConfiguredEvent`
+/// - topics: `(GATE_SET_EVENT_NAME, key_id)`
+/// - data: `GateSetEvent`
 ///
-/// Emitted by `set_gate` when a creator configures or updates the access gate
-/// for their key. `params` mirrors the stored [`crate::content_gating::GateParams`]
-/// so indexers can reconstruct the active rule without a follow-up read.
+/// Emitted by `set_gate` when a creator configures or updates a content gate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct GateConfiguredEvent {
+pub struct GateSetEvent {
     /// Creator key whose gate was configured.
     pub key_id: Address,
-    /// Gate type now enforced for this key.
+    /// Gate type now in effect.
     pub gate_type: crate::content_gating::GateType,
-    /// Parameters associated with the gate.
-    pub params: crate::content_gating::GateParams,
+    /// Minimum balance required for `THRESHOLD` gates (ignored otherwise).
+    pub min_balance: u32,
+    /// Subscription duration in ledgers required for `SUBSCRIBER` gates (ignored otherwise).
+    pub subscription_ledgers: u32,
+    /// Ledger sequence number at the time of configuration.
+    pub ledger: u32,
 }
 
 /// Shared access-granted event topics tuple.
@@ -4331,7 +4335,7 @@ pub fn access_denied_topics(key_id: &Address, wallet: &Address) -> (Symbol, Addr
     (ACCESS_DENIED_EVENT_NAME, key_id.clone(), wallet.clone())
 }
 
-/// Shared gate-configured event topics tuple.
-pub fn gate_configured_topics(key_id: &Address) -> (Symbol, Address) {
-    (GATE_CONFIGURED_EVENT_NAME, key_id.clone())
+/// Shared gate-set event topics tuple.
+pub fn gate_set_topics(key_id: &Address) -> (Symbol, Address) {
+    (GATE_SET_EVENT_NAME, key_id.clone())
 }
