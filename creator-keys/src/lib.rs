@@ -23,6 +23,7 @@ pub mod price_alerts;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;
+pub mod timed_pause;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 
 pub mod test_feature_impl;
@@ -233,6 +234,8 @@ pub enum ContractError {
     AnnouncementPageSizeExceeded = 115,
     /// An announcement index points to a record that is no longer available.
     AnnouncementRecordMissing = 116,
+    /// An admin's bounded platform halt is active; query `get_platform_pause` for context.
+    PlatformPaused = 117,
 }
 
 impl ContractError {
@@ -11531,6 +11534,8 @@ impl CreatorKeysContract {
         direction: SwapDirection,
         max_slippage_bps: u32,
     ) -> Result<i128, ContractError> {
+        timed_pause::assert_not_paused(&env)?;
+        assert_not_paused(&env)?;
         if amount == 0 {
             return Err(ContractError::NotPositiveAmount);
         }
