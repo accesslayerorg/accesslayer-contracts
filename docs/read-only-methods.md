@@ -472,6 +472,23 @@ Returns `wallet`'s active price alerts in registration order. Each `PriceAlert` 
 
 ---
 
+## LP reward read methods
+
+### `get_reward_rate(key_id: Address) → RewardRate`
+
+Returns the current reward rate and the timestamp at which it was last set for `key_id`'s LP pool.
+
+| Field | Type | Semantics |
+|---|---|---|
+| `rate_bps` | `u32` | Reward rate in basis points (e.g., `500` = 5.00%). Returns `0` if not set. |
+| `updated_at` | `u64` | Ledger timestamp (in seconds) of the last update. Returns `0` if not set. |
+
+**Edge cases:**
+- Never panics and requires no authorization.
+- Returns `{ rate_bps: 0, updated_at: 0 }` for any key where `set_reward_rate` has not been called, or if `key_id` is unregistered.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.

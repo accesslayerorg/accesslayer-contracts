@@ -82,6 +82,17 @@ Creator-authorized buyback that burns keys from the creator's own held balance.
   - the creator wallet must already hold at least `amount` keys, otherwise `InsufficientBalance`
 - **Returns**: The new total supply for the creator after the burn
 
+### `set_reward_rate(key_id: Address, caller: Address, new_rate_bps: u32) -> Result<(), LpRewardError>`
+
+Sets the per-pool reward rate (in basis points) for `key_id`'s LP pool.
+
+- **Auth**: `caller.require_auth()`
+- **Constraints**:
+  - `key_id` must be a registered creator (`read_registered_creator_profile`), otherwise `LpRewardError::Unauthorized`
+  - `new_rate_bps` must be within `MIN_REWARD_RATE_BPS..=MAX_REWARD_RATE_BPS` (`1..=5000`), otherwise `LpRewardError::RateOutOfBounds`
+- **Semantics**: Prospective only; existing positions' `reward_debt` snapshots remain untouched.
+- **Emits**: `RewardRateUpdated` (`lp_rate`).
+
 ---
 
 ## Key holder functions
@@ -190,6 +201,7 @@ These functions require no authorization. Anyone can call them. They do not muta
 |---|---|---|
 | `register_creator` | Creator | Yes |
 | `buyback` | Creator | Yes |
+| `set_reward_rate` | Creator | Yes |
 | `buy_key` | Key holder (buyer) | Yes |
 | `sell_key` | Key holder (seller) | Yes |
 | `transfer_keys` | Key holder (sender / `from`) | Yes |

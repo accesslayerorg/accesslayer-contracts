@@ -46,6 +46,7 @@ pub enum DataKey {
 | `LastAppliedWasm`              | Global             | `BytesN<32>`     | WASM hash applied by the most recent timelocked upgrade    |
 | `PreviousWasm`                 | Global             | `BytesN<32>`     | WASM hash in effect immediately before `LastAppliedWasm`   |
 | `UpgradeApprovalVote(Address, u32)` | Per-action    | `bool`           | One admin's multi-sig approval vote for upgrade `action_id` |
+| `RewardRate(Address)`          | Per-pool           | `RewardRate`     | Stores creator-configured LP reward rate and updated_at timestamp |
 
 ### Timelocked Upgrade Storage-Key Notes
 
@@ -93,6 +94,22 @@ Price alerts (issue #1030) use their own `PriceAlertDataKey` enum in [`creator-k
 - A trade that reads `KeyAlerts` extends its TTL, so a key that keeps trading keeps its alerts live.
 
 **Storage layout / backward compatibility**: the keys are new and additive. No existing key is read or changed, so no migration is needed in either direction.
+
+### LP Reward Rate Storage-Key Notes
+
+LP reward rate management (issue #1032) uses `DataKey::RewardRate(Address)` in [`creator-keys/src/lp_reward.rs`](../creator-keys/src/lp_reward.rs).
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| LP reward rate (`rate_bps`, `updated_at`) | `lp_reward::DataKey::RewardRate(key_id)` | `RewardRate` | `get_reward_rate`, `set_reward_rate` | `set_reward_rate` (creator-auth only) |
+
+**Invariants**:
+
+- `RewardRate(key_id)` stores the configured reward rate in basis points (`1..=5000`) and the ledger timestamp of the update.
+- Unset pools return zero defaults (`rate_bps = 0`, `updated_at = 0`) before any rate is set.
+- Rate changes are prospective only; existing positions' `reward_debt` snapshots remain untouched.
+
+**Storage layout / backward compatibility**: `DataKey::RewardRate(Address)` is an additive storage key with a zero default. No existing storage key is read or modified, and no migration is required.
 
 ## Storage Invariants
 

@@ -150,6 +150,19 @@ Notes for indexers:
 - Tiers are ratchet-only (`Bronze` = 0, `Silver` = 1, `Gold` = 2) and never downgrade regardless of subsequent volume drops.
 - `reward_rate_bps` reports the new reward rate in basis points (10,000 bps = 100%).
 
+### LP Reward Rate Update Events (#1032)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `lp_rate` | `(Symbol("lp_rate"), key_id)` | `key_id`, `old_rate_bps`, `new_rate_bps`, `updated_at` | `struct RewardRateUpdated` |
+
+Notes for indexers:
+
+- `lp_rate` is emitted by `set_reward_rate` when a creator updates the reward rate for their LP pool.
+- Topic index 1 is `key_id` (`Address`).
+- `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
+- `updated_at` is the ledger timestamp in seconds.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
 
