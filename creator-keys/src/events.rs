@@ -140,6 +140,49 @@ pub fn lockup_blocked_topics(creator: &Address, seller: &Address) -> (Symbol, Ad
     (LOCKUP_BLOCKED_EVENT_NAME, creator.clone(), seller.clone())
 }
 
+/// Event name for creating an investor-specific lock-up.
+pub const LOCKUP_CREATED_EVENT_NAME: Symbol = symbol_short!("lck_crt");
+
+/// Investor lock-up creation payload.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_CREATED_EVENT_NAME, wallet, key_id)`
+/// - data: `LockupCreatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupCreatedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub unlock_timestamp: u64,
+}
+
+/// Shared investor lock-up creation event topics.
+pub fn lockup_created_topics(wallet: &Address, key_id: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_CREATED_EVENT_NAME, wallet.clone(), key_id.clone())
+}
+
+/// Event name for releasing an investor-specific lock-up.
+pub const LOCKUP_RELEASED_EVENT_NAME: Symbol = symbol_short!("lck_rel");
+
+/// Investor lock-up release payload.
+///
+/// Event shape:
+/// - topics: `(LOCKUP_RELEASED_EVENT_NAME, wallet, key_id)`
+/// - data: `LockupReleasedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LockupReleasedEvent {
+    pub wallet: Address,
+    pub key_id: Address,
+    pub unlock_timestamp: u64,
+    pub released_at: u64,
+}
+
+/// Shared investor lock-up release event topics.
+pub fn lockup_released_topics(wallet: &Address, key_id: &Address) -> (Symbol, Address, Address) {
+    (LOCKUP_RELEASED_EVENT_NAME, wallet.clone(), key_id.clone())
+}
+
 /// Event name for quorum threshold update.
 pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
 
@@ -1166,6 +1209,9 @@ pub const WHITELIST_ENABLED_EVENT_NAME: Symbol = symbol_short!("wl_en");
 pub const WHITELIST_DISABLED_EVENT_NAME: Symbol = symbol_short!("wl_dis");
 pub const ADDRESS_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_add");
 pub const ADDRESS_REMOVED_EVENT_NAME: Symbol = symbol_short!("wl_rem");
+pub const WALLET_WHITELISTED_EVENT_NAME: Symbol = symbol_short!("wl_wadd");
+pub const WALLET_REMOVED_FROM_WHITELIST_EVENT_NAME: Symbol = symbol_short!("wl_wrem");
+pub const WHITELIST_MODE_SET_EVENT_NAME: Symbol = symbol_short!("wl_mode");
 pub const HOLDING_CAP_UPDATED_EVENT_NAME: Symbol = symbol_short!("hold_cap");
 pub const WHITELIST_UPDATED_EVENT_NAME: Symbol = symbol_short!("wl_upd");
 pub const EARLY_ACCESS_MODE_CHANGED_EVENT_NAME: Symbol = symbol_short!("ea_mode");
@@ -1804,12 +1850,13 @@ impl CreatorKeysContract {
         }
 
         let delegate_key = constants::storage::delegate(&creator_id, &voter);
-        if env.storage().persistent().has(&delegate_key) {
+        if env.storage().persistent().has(&delegate_key)
+            || crate::vote_delegation::has_active_delegation(&env, &creator_id, &voter)
+        {
             return Err(PollError::Unauthorized);
         }
 
-        let balance_key = constants::storage::holder_balance_key(&creator_id, &voter);
-        let weight: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        let weight: u32 = crate::vote_delegation::get_voting_weight(&env, &voter, &creator_id);
         if weight == 0 {
             return Err(PollError::NotAHolder);
         }
@@ -2577,6 +2624,82 @@ pub fn keys_redeemed_topics(creator: &Address, holder: &Address) -> (Symbol, Add
     (KEYS_REDEEMED_EVENT_NAME, creator.clone(), holder.clone())
 }
 
+// --- Notice-period deprecation (retiring inactive creator keys) ---
+
+/// Event name emitted when an admin proposes to retire a key after a notice period.
+pub const DEPRECATION_PROPOSED_EVENT_NAME: Symbol = symbol_short!("dep_prop");
+
+/// Event name emitted when a proposed deprecation is executed.
+pub const DEPRECATION_EXECUTED_EVENT_NAME: Symbol = symbol_short!("dep_exec");
+
+/// Stable field order for the `dep_prop` event payload.
+pub const DEPRECATION_PROPOSED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "reason",
+    "notice_period_days",
+    "unwind_at_timestamp",
+    "ledger",
+];
+
+/// Stable field order for the `dep_exec` event payload.
+pub const DEPRECATION_EXECUTED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "total_positions_unwound",
+    "amount_distributed",
+    "unwind_price",
+    "ledger",
+];
+
+/// Stable deprecation-proposed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(DEPRECATION_PROPOSED_EVENT_NAME, key_id)`
+/// - data: `DeprecationProposedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationProposedEvent {
+    /// Key (creator address) proposed for retirement.
+    pub key_id: Address,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Notice period length in days.
+    pub notice_period_days: u32,
+    /// Unix timestamp at (or after) which the unwind may execute.
+    pub unwind_at_timestamp: u64,
+    /// Ledger sequence at which the proposal was recorded.
+    pub ledger: u32,
+}
+
+/// Shared deprecation-proposed event topics tuple.
+pub fn deprecation_proposed_topics(key_id: &Address) -> (Symbol, Address) {
+    (DEPRECATION_PROPOSED_EVENT_NAME, key_id.clone())
+}
+
+/// Stable deprecation-executed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(DEPRECATION_EXECUTED_EVENT_NAME, key_id)`
+/// - data: `DeprecationExecutedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationExecutedEvent {
+    /// Key that was retired.
+    pub key_id: Address,
+    /// Total number of key positions unwound across all holders.
+    pub total_positions_unwound: u32,
+    /// Total XLM distributed to holders during the unwind.
+    pub amount_distributed: i128,
+    /// Per-key price used for the unwind (last traded price).
+    pub unwind_price: i128,
+    /// Ledger sequence at which the unwind executed.
+    pub ledger: u32,
+}
+
+/// Shared deprecation-executed event topics tuple.
+pub fn deprecation_executed_topics(key_id: &Address) -> (Symbol, Address) {
+    (DEPRECATION_EXECUTED_EVENT_NAME, key_id.clone())
+}
+
 // ============================================================================
 // Early Unstake Penalty
 // ============================================================================
@@ -2831,6 +2954,55 @@ pub struct MilestoneCrossedEvent {
 
 pub fn milestone_crossed_topics(key_id: &Address) -> (Symbol, Address) {
     (MILESTONE_CROSSED_EVENT_NAME, key_id.clone())
+}
+
+// --- Supply milestone fee reduction (#1076) ---
+
+/// Emitted when a key's circulating supply crosses a milestone threshold and
+/// the fee in effect is reduced.
+pub const MILESTONE_REACHED_EVENT_NAME: Symbol = symbol_short!("ms_reach");
+
+/// Event shape:
+/// - topics: `(MILESTONE_REACHED_EVENT_NAME, key_id)`
+/// - data: `MilestoneReachedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MilestoneReachedEvent {
+    /// The key whose supply crossed the milestone threshold.
+    pub key_id: Address,
+    /// 1-based index of the milestone tier that was reached.
+    pub tier: u32,
+    /// Circulating supply after the trade that crossed the threshold.
+    pub supply: u32,
+    /// New fee in basis points after the reduction.
+    pub new_fee_bps: u32,
+    /// Ledger sequence number at the time of the reduction.
+    pub ledger: u32,
+}
+
+pub fn milestone_reached_topics(key_id: &Address) -> (Symbol, Address) {
+    (MILESTONE_REACHED_EVENT_NAME, key_id.clone())
+}
+
+/// Publish a [`MilestoneReachedEvent`] for `key_id`.
+pub fn publish_milestone_reached(
+    env: &Env,
+    key_id: &Address,
+    tier: u32,
+    supply: u32,
+    new_fee_bps: u32,
+    ledger: u32,
+) {
+    env.events().publish(
+        milestone_reached_topics(key_id),
+        MilestoneReachedEvent {
+            key_id: key_id.clone(),
+            tier,
+            supply,
+            new_fee_bps,
+            ledger,
+        },
+    );
 }
 
 // --- Contract upgrade (#884) ---
@@ -4107,4 +4279,289 @@ pub struct KeyRatedEvent {
 /// Shared key rated event topics tuple.
 pub fn key_rated_topics(creator: &Address, rater: &Address) -> (Symbol, Address, Address) {
     (KEY_RATED_EVENT_NAME, creator.clone(), rater.clone())
+}
+
+// --- Creator announcements ---
+
+/// Event name for a creator announcement posted to key holders.
+pub const ANNOUNCEMENT_POSTED_EVENT_NAME: Symbol = symbol_short!("announce");
+
+/// Stable announcement payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(ANNOUNCEMENT_POSTED_EVENT_NAME, key_id, announcement_id)`
+/// - data: `AnnouncementPostedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AnnouncementPostedEvent {
+    /// Creator key whose holders the announcement targets.
+    pub key_id: Address,
+    /// Sequential identifier within this creator's announcement history.
+    pub announcement_id: u32,
+    /// Short announcement headline.
+    pub title: String,
+    /// IPFS content identifier for the complete announcement content.
+    pub content_hash: String,
+    /// Announcement category.
+    pub category: crate::AnnouncementCategory,
+    /// Ledger timestamp at which the announcement was posted.
+    pub posted_at: u64,
+}
+
+/// Shared announcement event topics tuple.
+pub fn announcement_posted_topics(
+    key_id: &Address,
+    announcement_id: u32,
+) -> (Symbol, Address, u32) {
+    (
+        ANNOUNCEMENT_POSTED_EVENT_NAME,
+        key_id.clone(),
+        announcement_id,
+    )
+}
+
+// --- Key ownership handover (#1098) ---
+
+/// Event name for `TransferProposed`: the wallet managing a key proposed
+/// handing the key's management rights to a new wallet. Emitted alongside the
+/// 48h acceptance window, so it doubles as the holder notification.
+pub const TRANSFER_PROPOSED_EVENT_NAME: Symbol = symbol_short!("own_prop");
+
+/// Stable ownership-proposed event field order for downstream indexers.
+pub const TRANSFER_PROPOSED_EVENT_DATA_FIELDS: [&str; 7] = [
+    "proposal_id",
+    "key_id",
+    "current_owner",
+    "new_owner",
+    "proposed_at",
+    "expires_at",
+    "ledger",
+];
+
+/// Payload emitted when an ownership handover is proposed.
+///
+/// Event shape:
+/// - topics: `(TRANSFER_PROPOSED_EVENT_NAME, key_id, new_owner)`
+/// - data: `TransferProposedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferProposedEvent {
+    /// Sequential id of the proposal; also its storage key.
+    pub proposal_id: u32,
+    /// Key whose management rights are being handed over.
+    pub key_id: Address,
+    /// Owner that raised the proposal.
+    pub current_owner: Address,
+    /// Wallet proposed to take over management of `key_id`.
+    pub new_owner: Address,
+    /// Ledger timestamp at which the proposal was raised.
+    pub proposed_at: u64,
+    /// `proposed_at + ACCEPTANCE_WINDOW_SECS`; acceptance is rejected from here.
+    pub expires_at: u64,
+    /// Ledger sequence number at the time of the proposal.
+    pub ledger: u32,
+}
+
+/// Shared ownership-proposed event topics tuple.
+pub fn transfer_proposed_topics(
+    key_id: &Address,
+    new_owner: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        TRANSFER_PROPOSED_EVENT_NAME,
+        key_id.clone(),
+        new_owner.clone(),
+    )
+}
+
+/// Event name for `TransferAccepted`: the proposed new owner accepted the
+/// ownership handover, which starts the 24h execution timelock.
+pub const TRANSFER_ACCEPTED_EVENT_NAME: Symbol = symbol_short!("own_acpt");
+
+/// Stable ownership-accepted event field order for downstream indexers.
+pub const TRANSFER_ACCEPTED_EVENT_DATA_FIELDS: [&str; 7] = [
+    "proposal_id",
+    "key_id",
+    "current_owner",
+    "new_owner",
+    "accepted_at",
+    "executable_at",
+    "ledger",
+];
+
+/// Payload emitted when the proposed new owner accepts a handover.
+///
+/// Event shape:
+/// - topics: `(TRANSFER_ACCEPTED_EVENT_NAME, key_id, new_owner)`
+/// - data: `TransferAcceptedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferAcceptedEvent {
+    /// Sequential id of the accepted proposal.
+    pub proposal_id: u32,
+    /// Key whose management rights are being handed over.
+    pub key_id: Address,
+    /// Owner the key still has until the handover executes.
+    pub current_owner: Address,
+    /// Wallet that accepted the handover.
+    pub new_owner: Address,
+    /// Ledger timestamp at which the new owner accepted.
+    pub accepted_at: u64,
+    /// `accepted_at + EXECUTION_TIMELOCK_SECS`, the earliest execution time.
+    pub executable_at: u64,
+    /// Ledger sequence number at the time of acceptance.
+    pub ledger: u32,
+}
+
+/// Shared ownership-accepted event topics tuple.
+pub fn transfer_accepted_topics(
+    key_id: &Address,
+    new_owner: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        TRANSFER_ACCEPTED_EVENT_NAME,
+        key_id.clone(),
+        new_owner.clone(),
+    )
+}
+
+/// Event name for `TransferExecuted`: the accepted handover was finalised and
+/// `new_owner` is now the wallet managing the key.
+pub const TRANSFER_EXECUTED_EVENT_NAME: Symbol = symbol_short!("own_exec");
+
+/// Stable ownership-executed event field order for downstream indexers.
+pub const TRANSFER_EXECUTED_EVENT_DATA_FIELDS: [&str; 6] = [
+    "proposal_id",
+    "key_id",
+    "previous_owner",
+    "new_owner",
+    "executed_at",
+    "ledger",
+];
+
+/// Payload emitted when an accepted ownership handover executes.
+///
+/// Event shape:
+/// - topics: `(TRANSFER_EXECUTED_EVENT_NAME, key_id, new_owner)`
+/// - data: `TransferExecutedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferExecutedEvent {
+    /// Sequential id of the executed proposal.
+    pub proposal_id: u32,
+    /// Key whose management rights changed hands.
+    pub key_id: Address,
+    /// Wallet that managed the key before execution.
+    pub previous_owner: Address,
+    /// Wallet that manages the key after execution.
+    pub new_owner: Address,
+    /// Ledger timestamp at which the handover executed.
+    pub executed_at: u64,
+    /// Ledger sequence number at the time of execution.
+    pub ledger: u32,
+}
+
+/// Shared ownership-executed event topics tuple.
+pub fn transfer_executed_topics(
+    key_id: &Address,
+    new_owner: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        TRANSFER_EXECUTED_EVENT_NAME,
+        key_id.clone(),
+        new_owner.clone(),
+    )
+}
+
+// --- Creator key vote delegation for proxy voting rights (Issue #1116) ---
+
+/// Event name for proxy voting delegation set.
+pub const VOTING_DELEGATED_EVENT_NAME: Symbol = symbol_short!("vote_del");
+
+/// Event name for proxy voting delegation revoked.
+pub const VOTE_DELEGATION_REVOKED_EVENT_NAME: Symbol = symbol_short!("v_del_rev");
+
+/// Stable field order for voting delegated payloads.
+pub const VOTING_DELEGATED_DATA_FIELDS: [&str; 4] =
+    ["holder", "delegate_wallet", "key_id", "weight"];
+
+/// Stable field order for delegation revoked payloads.
+pub const VOTE_DELEGATION_REVOKED_DATA_FIELDS: [&str; 4] =
+    ["holder", "previous_delegate_wallet", "key_id", "weight"];
+
+/// Event payload emitted when a key holder delegates voting weight to a proxy wallet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VotingDelegated {
+    pub holder: Address,
+    pub delegate_wallet: Address,
+    pub key_id: Address,
+    pub weight: u32,
+}
+
+/// Event payload emitted when a key holder revokes their voting delegation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DelegationRevoked {
+    pub holder: Address,
+    pub previous_delegate_wallet: Address,
+    pub key_id: Address,
+    pub weight: u32,
+}
+
+impl DelegationRevoked {
+    pub fn previous_delegate(&self) -> &Address {
+        &self.previous_delegate_wallet
+    }
+}
+
+pub fn voting_delegated_topics(key_id: &Address, holder: &Address) -> (Symbol, Address, Address) {
+    (VOTING_DELEGATED_EVENT_NAME, key_id.clone(), holder.clone())
+}
+
+pub fn vote_delegation_revoked_topics(
+    key_id: &Address,
+    holder: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        VOTE_DELEGATION_REVOKED_EVENT_NAME,
+        key_id.clone(),
+        holder.clone(),
+    )
+}
+
+pub fn publish_voting_delegated(
+    env: &Env,
+    holder: &Address,
+    delegate_wallet: &Address,
+    key_id: &Address,
+    weight: u32,
+) {
+    env.events().publish(
+        voting_delegated_topics(key_id, holder),
+        VotingDelegated {
+            holder: holder.clone(),
+            delegate_wallet: delegate_wallet.clone(),
+            key_id: key_id.clone(),
+            weight,
+        },
+    );
+}
+
+pub fn publish_delegation_revoked(
+    env: &Env,
+    holder: &Address,
+    previous_delegate_wallet: &Address,
+    key_id: &Address,
+    weight: u32,
+) {
+    env.events().publish(
+        vote_delegation_revoked_topics(key_id, holder),
+        DelegationRevoked {
+            holder: holder.clone(),
+            previous_delegate_wallet: previous_delegate_wallet.clone(),
+            key_id: key_id.clone(),
+            weight,
+        },
+    );
 }

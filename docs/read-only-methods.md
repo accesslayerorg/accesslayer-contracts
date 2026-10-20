@@ -336,6 +336,17 @@ Returns accrued creator fee balance for the creator's fee recipient after buy ex
 
 ---
 
+### `get_current_milestone(key_id: Address) → Result<(u32, u32), ContractError>`
+
+Returns the active graduated supply milestone tier and the fee currently in effect for `key_id` (#1076).
+
+- Returns `(tier, fee_bps)` where `tier` is the 1-based count of milestone tiers reached (`0` when none) and `fee_bps` is the fee in basis points currently in effect.
+- Tiers are applied in ascending supply order and the fee only ever moves downward, so a supply drop never raises the fee.
+- Returns `Err(ContractError::NotRegistered)` for unregistered keys.
+- Does not mutate state.
+
+---
+
 ### `is_protocol_config_initialized(env: Env) → bool`
 
 Returns `true` if a protocol fee configuration has been stored; `false` otherwise.
@@ -373,6 +384,14 @@ Returns the configured treasury address, or `None` if not yet set.
 ### `get_protocol_admin(env: Env) → Option<Address>`
 
 Returns the configured protocol admin address, or `None` if not yet set.
+
+---
+
+### `check_lockup(wallet: Address, key_id: Address) → (bool, u64)`
+
+Returns `(locked, seconds_remaining)` for the wallet's investor lock-up on the
+specified key. `seconds_remaining` is zero when no lock-up exists or the
+inclusive unlock timestamp has been reached.
 
 ---
 
@@ -489,8 +508,47 @@ Returns the current reward rate and the timestamp at which it was last set for `
 
 ---
 
+## Vote delegation read methods
+
+### `get_voting_weight(wallet: Address, key_id: Address) → u32`
+
+Returns the effective voting weight of `wallet` for `key_id` governance polls.
+
+- If `wallet` has delegated its votes on `key_id`, its direct weight is zero (`0`).
+- If `wallet` has not delegated, its weight equals its own liquid key balance (`get_key_balance(key_id, wallet)`) plus the sum of all keys held by active delegators who have assigned their voting weight to `wallet`.
+- Dynamic balance tracking: delegators' keys remain in the delegator's wallet. If a delegator buys, sells, or transfers keys, `get_voting_weight` dynamically reflects the delegator's current balance without requiring re-delegation.
+- If a delegator's balance drops to 0, delegation is automatically pruned during `sell_key` / `transfer_keys`.
+
+**Edge cases:**
+- Returns `0` if `wallet` holds 0 keys and has received no delegations.
+- Returns `0` if `wallet` holds keys but has an active delegation to another wallet.
+- Never panics and requires no authorization.
+
+---
+
+### `get_vote_delegate(holder: Address, key_id: Address) → Option<Address>`
+
+Returns the address of the proxy delegate currently assigned to vote on behalf of `holder` for `key_id`.
+
+**Edge cases:**
+- Returns `None` if `holder` has no active vote delegation for `key_id`.
+- Never panics and requires no authorization.
+
+---
+
+### `get_vote_delegators(delegate: Address, key_id: Address) → Vec<Address>`
+
+Returns a list of all wallet addresses that have currently delegated their voting rights for `key_id` to `delegate`.
+
+**Edge cases:**
+- Returns an empty vector if no wallets have delegated to `delegate` for `key_id`.
+- Never panics and requires no authorization.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.
 
 Basis points fields (`creator_bps`, `protocol_bps`) are in units of `1/10000` (e.g., `1000` = 10%). The sum `creator_bps + protocol_bps` always equals `10000` when a valid fee config is stored.
+

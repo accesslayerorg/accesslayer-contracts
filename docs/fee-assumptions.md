@@ -38,6 +38,7 @@ This document describes the assumptions, behavior, and integration points for cr
 - **DataKey**: `FeeConfig` stores a global `FeeConfig` struct with `creator_bps` and `protocol_bps`.
 - **Initialization**: Fee config must be set explicitly via `set_fee_config` before `compute_fees_for_payment` can be used.
 - **Admin**: `set_fee_config` requires authorization of the `admin` address. Admin key management is out of scope for this module.
+- **Graduated milestone fee reduction (#1076)**: `set_milestones` configures an additional per-key scheduled fee (`MilestoneTier { supply, fee_bps }`). It does not change the global `FeeConfig` split; the milestone fee is tracked separately per key, applied post-swap by `check_and_apply_milestone`, only ever moves downward, and is readable via `get_current_milestone`.
 
 ## Contract Interface
 

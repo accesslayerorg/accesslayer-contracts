@@ -79,6 +79,7 @@ distinguishable from other key types.
 | `HolderCapBps(Address)` | Per-creator | `u32` (basis points, 1%–25%) | `set_holder_cap` (creator), `update_holder_cap` (creator, tighten only) | `buy_key` (cap enforcement), `get_holder_cap` |
 | `LastBuyTimestamp(Address, Address)` | Per-creator-holder (composite) | `u64` (ledger timestamp) | `buy_key` (updated on every purchase) | `sell_key` (lockup enforcement) |
 | `LockupDurationSecs` | Global | `u64` (seconds, default 86400 = 24h) | `set_lockup_duration` (admin) | `sell_key` (lockup enforcement), `get_lockup_duration` |
+| `InvestorLockup(Address, Address)` | Per-wallet-key (composite) | `u64` (absolute unlock timestamp) | `create_lockup` (wallet-authorized investment flow) | `check_lockup`, sell paths (`swap`, `sell_key`, `batch_sell`, `batch_sell_v2`), `emergency_unlock` (admin) |
 
 > **Note:** `CreatorVolume(Address)` is read by `get_creator_volume` but has no
 > writer in the current implementation, so it always resolves to its `0`

@@ -57,6 +57,30 @@ Transfers the protocol admin role to a new address.
 - **Auth**: `admin.require_auth()`
 - **No-op**: Returns without writing if the new admin matches the stored admin.
 
+### `set_milestones(admin: Address, key_id: Address, milestones: Vec<MilestoneTier>) -> Result<(), ContractError>`
+
+Configures the graduated supply milestone tiers for a key (intended at key creation).
+
+- **Auth**: `admin.require_auth()` — caller must be the stored protocol admin.
+- **Constraints**: `key_id` must be a registered key; `milestones` must contain 1-5 tiers in strictly ascending supply order; each `fee_bps` must not exceed 10,000.
+- **Behavior**: Stores the milestone config with no tier applied yet. Tiers are applied in ascending supply order as `check_and_apply_milestone` is invoked post-swap.
+
+### `check_and_apply_milestone(key_id: Address) -> Result<(u32, u32), ContractError>`
+
+Re-evaluates the active milestone tier for a key after a supply change (intended to be called post-swap).
+
+- **Auth**: Open (no authorization required).
+- **Behavior**: Applies the highest newly reached tier whose fee lowers the fee currently in effect. The fee only ever moves downward; a supply drop below a milestone never regresses to a higher fee.
+- **Returns**: `(tier, fee_bps)` — the 1-based count of tiers reached and the fee currently in effect.
+- **Emits**: `MilestoneReached` when a newly reached tier lowers the fee.
+
+### `get_current_milestone(key_id: Address) -> Result<(u32, u32), ContractError>`
+
+Read-only view returning the active milestone tier and fee for a key.
+
+- **Auth**: Open (no authorization required).
+- **Returns**: `(tier, fee_bps)` — tier is `0` when no milestone has been reached.
+
 ---
 
 ## Creator-only functions
@@ -132,6 +156,33 @@ Transfers `amount` keys from `from` to `to` for `creator`. Does not interact wit
 
 ---
 
+### `delegate_votes(holder: Address, key_id: Address, delegate_wallet: Address) -> Result<(), ContractError>`
+
+Assigns the governance voting weight of `key_id` held by `holder` to `delegate_wallet` (proxy voting rights).
+
+- **Auth**: `holder.require_auth()` — only the key holder may delegate their voting weight.
+- **Constraints**:
+  - `holder` must currently hold at least 1 key of `key_id` (`ContractError::NotAHolder`).
+  - `holder` cannot delegate to itself (`ContractError::SelfDelegation`).
+  - `key_id` must not already be delegated by `holder`; re-delegations require revoking first (`ContractError::AlreadyDelegated`).
+  - Re-delegation is rejected bidirectionally (`ContractError::CannotReDelegate`): a delegate currently receiving voting weight cannot delegate, and a delegating holder cannot receive delegations.
+- **State changes**: Stores `VoteDelegationKey::Delegate(key_id, holder) -> delegate_wallet` and appends `holder` to `VoteDelegationKey::Delegators(key_id, delegate_wallet)`.
+- **Emits**: `VotingDelegated` (`vote_del`).
+
+---
+
+### `revoke_delegation(holder: Address, key_id: Address) -> Result<(), ContractError>`
+
+Revokes an existing proxy voting delegation for `key_id`, returning voting weight to `holder`.
+
+- **Auth**: `holder.require_auth()` — only the delegating holder may revoke their delegation.
+- **Constraints**:
+  - An active delegation must exist for `(key_id, holder)` (`ContractError::NoDelegation`).
+- **State changes**: Removes `VoteDelegationKey::Delegate(key_id, holder)` and removes `holder` from `VoteDelegationKey::Delegators(key_id, previous_delegate)`.
+- **Emits**: `DelegationRevoked` (`v_del_rev`).
+
+---
+
 ## Open (read-only) functions
 
 These functions require no authorization. Anyone can call them. They do not mutate contract state.
@@ -193,6 +244,14 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `get_protocol_admin()` | `Option<Address>` |
 | `get_protocol_fee_recipient()` | `Option<Address>` |
 
+### Governance and vote delegation methods
+
+| Method | Returns |
+|---|---|
+| `get_voting_weight(wallet: Address, key_id: Address)` | `u32` |
+| `get_vote_delegate(holder: Address, key_id: Address)` | `Option<Address>` |
+| `get_vote_delegators(delegate: Address, key_id: Address)` | `Vec<Address>` |
+
 ---
 
 ## Summary table
@@ -205,9 +264,18 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `buy_key` | Key holder (buyer) | Yes |
 | `sell_key` | Key holder (seller) | Yes |
 | `transfer_keys` | Key holder (sender / `from`) | Yes |
+| `delegate_votes` | Key holder (`holder`) | Yes |
+| `revoke_delegation` | Key holder (`holder`) | Yes |
 | `set_fee_config` | Admin | Yes |
 | `set_key_price` | Admin | Yes |
 | `set_treasury_address` | Admin | Yes |
 | `set_protocol_admin` | Admin | Yes |
+| `set_milestones` | Admin | Yes |
+| `check_and_apply_milestone` | Open | Yes |
+| `get_current_milestone` | Open | No |
+| `get_voting_weight` | Open | No |
+| `get_vote_delegate` | Open | No |
+| `get_vote_delegators` | Open | No |
 | All `get_*` / `is_*` methods | Open | No |
 | `compute_fees_for_payment` | Open | No |
+
