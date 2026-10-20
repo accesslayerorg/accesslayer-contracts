@@ -91,11 +91,27 @@ The following invariants are guaranteed for successful quote responses:
 
 ### Units and Precision
 - All monetary values are raw `i128` integers in the base unit (stroops or protocol-defined).
-- No on-chain decimal scaling is performed. Callers should use `get_key_decimals()` for display formatting.
 
----
+## Dynamic Fee Methods
 
-## Aggregated key stats
+### `get_current_fee_bps(key_id: Address) → Result<u32, ContractError>`
+
+Returns the fee in basis points selected for a registered key from its rolling
+24-hour gross volume. It does not write buckets or emit events. Unknown keys
+return `NotRegistered`. Default tiers and 5-minute bucket boundary behavior
+are described in [fee-assumptions.md](./fee-assumptions.md).
+
+### `get_key_rolling_volume(key_id: Address) → Result<i128, ContractError>`
+
+Returns the key's current rolling gross trade volume in raw curve-price base
+units. Expired buckets are ignored without being deleted, so this is read-only.
+
+### `get_volume_brackets() → Vec<VolumeBracket>`
+
+Returns configured brackets, or the default three brackets when none have
+been stored.
+
+## Aggregated Key Stats
 
 ### `get_key_stats(key_id: Address) → Result<KeyStatsView, ContractError>`
 
@@ -140,13 +156,7 @@ Returns the current total supply of keys for `creator`.
 
 - Returns `0` for unregistered creators (no panic).
 - Precision: integer key count; no decimals at the supply level.
-- Equivalent to `read_key_balance` helper output.
 
----
-
-### `get_creator_supply(creator: Address) → Result<u32, ContractError>`
-
-Returns the supply for a registered creator.
 
 - Returns `Err(ContractError::NotRegistered)` for unknown creators — use `get_total_key_supply` if you need a zero-safe fallback.
 
@@ -194,13 +204,7 @@ Returns the number of distinct addresses holding at least one key for `creator`.
 - Decrements when a holder sells their last key.
 
 ---
-
-## Creator profile methods
-
-### `get_creator(creator: Address) → Result<CreatorProfile, ContractError>`
-
 Returns the full profile for a registered creator.
-
 - Returns `Err(ContractError::NotRegistered)` for unregistered creators.
 - `CreatorProfile.supply` equals `get_total_key_supply` output.
 
@@ -248,13 +252,7 @@ Returns `true` if a creator profile exists for `creator`, `false` otherwise.
 ---
 
 ## Fee configuration methods
-
-### `get_protocol_fee_view(env: Env) → ProtocolFeeView`
-
-Returns a non-optional protocol fee configuration snapshot.
-
 | Field | Type | Semantics |
-|---|---|---|
 | `creator_bps` | `u32` | Creator share in basis points (`0–10000`). |
 | `protocol_bps` | `u32` | Protocol share in basis points. |
 | `is_configured` | `bool` | `true` once `set_fee_config` has been called. |
@@ -508,8 +506,47 @@ Returns the current reward rate and the timestamp at which it was last set for `
 
 ---
 
+## Vote delegation read methods
+
+### `get_voting_weight(wallet: Address, key_id: Address) → u32`
+
+Returns the effective voting weight of `wallet` for `key_id` governance polls.
+
+- If `wallet` has delegated its votes on `key_id`, its direct weight is zero (`0`).
+- If `wallet` has not delegated, its weight equals its own liquid key balance (`get_key_balance(key_id, wallet)`) plus the sum of all keys held by active delegators who have assigned their voting weight to `wallet`.
+- Dynamic balance tracking: delegators' keys remain in the delegator's wallet. If a delegator buys, sells, or transfers keys, `get_voting_weight` dynamically reflects the delegator's current balance without requiring re-delegation.
+- If a delegator's balance drops to 0, delegation is automatically pruned during `sell_key` / `transfer_keys`.
+
+**Edge cases:**
+- Returns `0` if `wallet` holds 0 keys and has received no delegations.
+- Returns `0` if `wallet` holds keys but has an active delegation to another wallet.
+- Never panics and requires no authorization.
+
+---
+
+### `get_vote_delegate(holder: Address, key_id: Address) → Option<Address>`
+
+Returns the address of the proxy delegate currently assigned to vote on behalf of `holder` for `key_id`.
+
+**Edge cases:**
+- Returns `None` if `holder` has no active vote delegation for `key_id`.
+- Never panics and requires no authorization.
+
+---
+
+### `get_vote_delegators(delegate: Address, key_id: Address) → Vec<Address>`
+
+Returns a list of all wallet addresses that have currently delegated their voting rights for `key_id` to `delegate`.
+
+**Edge cases:**
+- Returns an empty vector if no wallets have delegated to `delegate` for `key_id`.
+- Never panics and requires no authorization.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.
 
 Basis points fields (`creator_bps`, `protocol_bps`) are in units of `1/10000` (e.g., `1000` = 10%). The sum `creator_bps + protocol_bps` always equals `10000` when a valid fee config is stored.
+

@@ -163,6 +163,25 @@ Notes for indexers:
 - `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
 - `updated_at` is the ledger timestamp in seconds.
 
+### Per-Key Dynamic Swap Fee Events (#1056)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `fee_adj` | `(Symbol("fee_adj"), key_id)` | `key_id`, `previous_fee_bps`, `new_fee_bps`, `rolling_volume`, `timestamp` | `struct FeeAdjustedEvent` |
+
+Notes for indexers:
+
+- `rolling_volume` is gross trade volume in the raw price base units at the
+  transition point. An expiry transition reports volume before the current
+  trade is added; a bracket crossing caused by that trade reports volume after
+  it is added.
+- Swaps select their fee from pre-trade volume. Fee changes caused by the
+  current swap apply to later swaps.
+- Time expiration and bracket updates do not autonomously emit events. A
+  later successful trade detects and emits the transition; reads never emit
+  or mutate.
+- No event is emitted if the fee bps is unchanged.
+
 ### Supply Milestone Fee Reduction Events (#1076)
 
 | Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
@@ -178,6 +197,49 @@ Notes for indexers:
 - `new_fee_bps` reports the new fee in basis points (`0..=10000`).
 - `ledger` is the ledger sequence number at the time of the reduction.
 
+### Key Ownership Handover Events (#1098)
+
+| Event Name | Issue Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- | :--- |
+| `own_prop` | `TransferProposed` | `(Symbol("own_prop"), key_id, new_owner)` | `proposal_id`, `key_id`, `current_owner`, `new_owner`, `proposed_at`, `expires_at`, `ledger` | `struct TransferProposedEvent` |
+| `own_acpt` | `TransferAccepted` | `(Symbol("own_acpt"), key_id, new_owner)` | `proposal_id`, `key_id`, `current_owner`, `new_owner`, `accepted_at`, `executable_at`, `ledger` | `struct TransferAcceptedEvent` |
+| `own_exec` | `TransferExecuted` | `(Symbol("own_exec"), key_id, new_owner)` | `proposal_id`, `key_id`, `previous_owner`, `new_owner`, `executed_at`, `ledger` | `struct TransferExecutedEvent` |
+
+Notes for indexers:
+
+- The issue names these events `TransferProposed`, `TransferAccepted` and
+  `TransferExecuted`; they use the contract's lowercase, `symbol_short!`
+  naming convention on-chain (`own_prop`, `own_acpt`, `own_exec`), so clients
+  should subscribe to the short names.
+- Topic index 1 is always `key_id`, topic index 2 is always `new_owner`, so a
+  wallet can filter on its own address to see every handover incoming to it.
+- `own_prop` doubles as the holder notification for the 48h acceptance window:
+  it carries `proposed_at` and `expires_at` (`proposed_at + 172_800`).
+- `own_acpt` starts the 24h execution timelock; `executable_at` is
+  `accepted_at + 86_400` and is the earliest timestamp `execute_transfer`
+  accepts.
+- `own_exec` is emitted only after the timelock elapsed, and reports
+  `previous_owner` (the wallet that managed the key until execution) beside
+  `new_owner`, which becomes the wallet reported by `get_key_owner`.
+- `cancel_transfer` deliberately emits no event: it only deletes the proposal,
+  so the `own_prop` for that id stops resolving in `get_transfer_proposal`.
+
+### Creator Key Vote Delegation Events (#1116)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `vote_del` | `(Symbol("vote_del"), key_id, holder)` | `holder`, `delegate_wallet`, `key_id`, `weight` | `struct VotingDelegated` |
+| `v_del_rev` | `(Symbol("v_del_rev"), key_id, holder)` | `holder`, `previous_delegate_wallet`, `key_id`, `weight` | `struct DelegationRevoked` |
+
+Notes for indexers:
+
+- `vote_del` is emitted by `delegate_votes` when a key holder assigns their voting weight on `key_id` to a proxy delegate wallet.
+- `v_del_rev` is emitted by `revoke_delegation` when a key holder revokes their voting delegation on `key_id`.
+- Topic index 1 is `key_id` (`Address`) and topic index 2 is `holder` (`Address`).
+- `weight` reports the key balance held by the delegator at delegation/revocation time.
+- Note that because delegated weight dynamically tracks the delegator's balance while delegation is active, indexers tracking current voting weight should compute delegate weight dynamically from the active delegator set and their balances.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
+
 

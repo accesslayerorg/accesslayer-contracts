@@ -16,14 +16,19 @@ pub mod bundle;
 /// declaration, so `subscribe_key_access` and `is_subscribed` compiled nowhere
 /// and could not be called.
 pub mod curve_subscriptions_swaps;
+pub mod dynamic_fees;
 pub mod emergency_pause;
 pub mod events;
+pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
+pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
+pub mod vote_delegation;
+pub use vote_delegation::VoteDelegationKey;
 
 pub mod test_feature_impl;
 pub mod test_new_features;
@@ -237,11 +242,49 @@ pub enum ContractError {
     LockupActive = 117,
     /// No investor lock-up exists for the supplied wallet and key.
     LockupNotFound = 118,
+    // --- Key ownership handover (Issue #1098) ---
+    /// No ownership-transfer proposal with that id exists (never existed, or it
+    /// has already been executed or cancelled).
+    TransferProposalNotFound = 119,
+    /// The key already has a live ownership-transfer proposal; execute or cancel
+    /// it before raising another one.
+    TransferAlreadyPending = 120,
+    /// The proposal was not accepted within the 48h acceptance window.
+    TransferWindowExpired = 121,
+    /// `execute_transfer` was called on a proposal the proposed new owner has
+    /// not accepted (which is also what an expired, unaccepted proposal reports).
+    TransferNotAccepted = 122,
+    /// The proposed new owner already accepted this proposal.
+    TransferAlreadyAccepted = 123,
+    // --- Notice-period key deprecation ---
+    /// No notice-period deprecation has been proposed for the supplied key.
+    NoDeprecationProposed = 124,
+    /// A notice-period deprecation has already been proposed for the supplied key.
+    DeprecationAlreadyProposed = 125,
+    /// `execute_deprecation` was called before the notice period elapsed.
+    DeprecationNoticePeriodActive = 126,
+    /// The notice period in days is invalid (zero or above the protocol ceiling).
+    InvalidNoticePeriod = 127,
+    /// The key's notice-period deprecation has already been executed.
+    DeprecationAlreadyExecuted = 128,
+    // --- Creator key vote delegation for proxy voting (Issue #1116) ---
+    /// Attempted vote delegation to self.
+    SelfDelegation = 129,
+    /// Vote delegation already active for this key; revoke first to re-delegate.
+    AlreadyDelegated = 130,
+    /// No active vote delegation found for this key.
+    NoDelegation = 131,
+    /// Re-delegation not permitted (delegates cannot delegate; delegators cannot receive delegation).
+    CannotReDelegate = 132,
+    /// Wallet does not hold keys for this creator.
+    NotAHolder = 133,
 }
 
 impl ContractError {
     #[allow(non_upper_case_globals)]
     pub const AlreadyInitialised: Self = Self::AlreadyInitialized;
+    #[allow(non_upper_case_globals)]
+    pub const TWAPInvalid: Self = Self::OraclePriceNotSet;
 }
 
 /// Errors raised by the staking entrypoints
@@ -1680,6 +1723,20 @@ pub const MAX_GOVERNANCE_VIOLATION_PENALTY: i128 = 1_000;
 pub const MAX_SELL_TAX_BPS: u32 = 1_000;
 
 // ---------------------------------------------------------------------------
+// Notice-period key deprecation
+// ---------------------------------------------------------------------------
+
+/// Maximum notice period, in days, accepted by `propose_deprecation`.
+///
+/// Bounds the window during which holders can exit voluntarily so a retirement
+/// cannot be scheduled arbitrarily far in the future.
+pub const MAX_DEPRECATION_NOTICE_DAYS: u32 = 365;
+
+/// Number of seconds in a day, used to convert notice-period days to a Unix
+/// timestamp deadline.
+pub const SECONDS_PER_DAY: u64 = 86_400;
+
+// ---------------------------------------------------------------------------
 // Governance quorum escalation
 // ---------------------------------------------------------------------------
 
@@ -2157,6 +2214,17 @@ pub enum AnnouncementKey {
     Record(Address, u32),
 }
 
+/// Storage keys for the notice-period deprecation flow.
+///
+/// Kept separate from [`DataKey`] to stay within Soroban's 50-variant
+/// `#[contracttype]` cap.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum DeprecationKey {
+    /// Creator -> `DeprecationProposal` for a key awaiting its unwind date.
+    Proposal(Address),
+}
+
 /// Storage keys for the cycle-based protocol revenue distribution (#877).
 ///
 /// Kept separate from [`DataKey`] to stay within Soroban's 50-variant cap.
@@ -2177,6 +2245,51 @@ pub enum RevenueKey {
     CycleShare(Address, u32, Address),
     /// (creator, cycle, holder) -> `true` once the share has been claimed.
     CycleClaimed(Address, u32, Address),
+}
+
+/// Storage keys for creator-funded revenue sharing (issue #1135).
+///
+/// Kept separate from [`DataKey`] to follow the same convention as
+/// [`RevenueKey`] and [`LeaderboardKey`] and avoid expanding [`DataKey`].
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum RevenueShareKey {
+    /// Global auto-incrementing distribution ID counter -> `u32`.
+    GlobalDistributionCount,
+    /// Metadata for a specific distribution: `distribution_id` -> `RevenueDistributionMeta`.
+    DistributionMeta(u32),
+    /// Allocated share for a holder in a distribution: `(distribution_id, holder)` -> `i128`.
+    SnapshotShare(u32, Address),
+    /// Marker indicating whether a holder has claimed their share: `(distribution_id, holder)` -> `bool`.
+    Claimed(u32, Address),
+}
+
+/// Metadata recorded for each creator-funded revenue distribution (issue #1135).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct RevenueDistributionMeta {
+    /// Creator / key ID who funded the distribution.
+    pub key_id: Address,
+    /// Ledger sequence when the snapshot was executed.
+    pub snapshot_ledger: u32,
+    /// Total requested distribution amount.
+    pub total_amount: i128,
+    /// Total allocated amount actually debited and claimable by holders.
+    pub allocated_amount: i128,
+    /// Undistributed remainder from floor-division dust (retained in creator fee balance).
+    pub remainder: i128,
+    /// Total key supply eligible at the time of distribution.
+    pub total_entitled_keys: u32,
+}
+
+/// Return type for `get_revenue_share` showing claimable and claimed amounts (issue #1135).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RevenueShareView {
+    /// Amount currently claimable by the wallet.
+    pub claimable_amount: i128,
+    /// Amount already claimed by the wallet from this distribution.
+    pub claimed_amount: i128,
 }
 
 /// Storage keys for the per-creator holder leaderboard (issue #924).
@@ -2694,6 +2807,48 @@ pub struct DeprecationStatus {
     pub successor_key_id: Option<Address>,
     /// Ledger sequence of deprecation; `0` when not deprecated.
     pub deprecated_at_ledger: u32,
+}
+
+/// Record of a notice-period deprecation proposal.
+///
+/// Written by `propose_deprecation` and stored under
+/// `DeprecationKey::Proposal(creator)`. Holders may exit at the market rate
+/// until `unwind_at_timestamp`; after that point `execute_deprecation` unwinds
+/// every remaining position at the last traded price.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationProposal {
+    /// Key (creator address) being retired.
+    pub key_id: Address,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Ledger sequence at which the proposal was recorded.
+    pub proposed_at_ledger: u32,
+    /// Unix timestamp at (or after) which `execute_deprecation` is allowed.
+    pub unwind_at_timestamp: u64,
+    /// Notice period length in days, echoing the admin's input.
+    pub notice_period_days: u32,
+    /// `true` once `execute_deprecation` has unwound the key.
+    pub executed: bool,
+}
+
+/// Return value for `execute_deprecation`.
+///
+/// Captures the outcome of an unwind so callers and indexers see the exact
+/// totals without a follow-up read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationExecution {
+    /// Key that was retired.
+    pub key_id: Address,
+    /// Total number of key positions (across all holders) unwound.
+    pub total_positions_unwound: u32,
+    /// Total XLM distributed to holders during the unwind.
+    pub amount_distributed: i128,
+    /// Per-key price used for the unwind (last traded price).
+    pub unwind_price: i128,
+    /// Ledger sequence at which the unwind executed.
+    pub ledger: u32,
 }
 
 fn validate_whitelist_config(config: &WhitelistConfig) -> Result<(), ContractError> {
@@ -3218,6 +3373,19 @@ pub(crate) fn assert_not_paused(env: &Env) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// Rejects new buys while a notice-period deprecation is pending or executed.
+///
+/// Once an admin proposes to retire a key, no new positions may be opened so
+/// the unwind cannot be gamed; holders can still sell at the market rate during
+/// the notice period.
+fn assert_key_not_deprecating(env: &Env, key_id: &Address) -> Result<(), ContractError> {
+    let key = DeprecationKey::Proposal(key_id.clone());
+    if env.storage().persistent().has(&key) {
+        return Err(ContractError::KeyDeprecated);
+    }
+    Ok(())
+}
+
 /// Number of distinct admin approvals required to toggle the global pause (#784).
 const GLOBAL_PAUSE_THRESHOLD: u32 = 2;
 
@@ -3686,13 +3854,14 @@ fn read_trade_fee_config(env: &Env) -> Option<(u32, Address)> {
 /// Returns `0` when the trade fee is not configured, the rate is zero, or the
 /// amount is non-positive. Mirrors the deduction performed by
 /// [`collect_protocol_trade_fee`] so slippage and quote math stay consistent.
-fn compute_trade_fee(env: &Env, amount: i128) -> Result<i128, ContractError> {
-    let Some((fee_bps, _)) = read_trade_fee_config(env) else {
+fn compute_trade_fee(env: &Env, key_id: &Address, amount: i128) -> Result<i128, ContractError> {
+    let Some((configured_bps, _)) = read_trade_fee_config(env) else {
         return Ok(0);
     };
-    if fee_bps == 0 {
+    if configured_bps == 0 {
         return Ok(0);
     }
+    let fee_bps = dynamic_fees::current_fee_bps(env, key_id)?;
     fee::apply_percentage_fee(amount, fee_bps).ok_or(ContractError::Overflow)
 }
 
@@ -3708,25 +3877,28 @@ fn collect_protocol_trade_fee(
     creator: &Address,
     amount: i128,
 ) -> Result<i128, ContractError> {
-    let trade_fee = compute_trade_fee(env, amount)?;
-    if trade_fee == 0 {
-        return Ok(amount);
-    }
-    let (_, treasury) = read_trade_fee_config(env).ok_or(ContractError::FeeConfigNotSet)?;
-    let trade_id = next_trade_id(env)?;
-    credit_treasury_balance(env, trade_fee)?;
-    credit_staking_rewards_pool(env, creator, trade_fee)?;
-    env.events().publish(
-        events::fee_collected_topics_with_trade_id(&treasury, trade_id),
-        events::FeeCollectedEvent {
-            treasury: treasury.clone(),
-            trade_id,
-            amount,
-            fee: trade_fee,
-            ledger: env.ledger().sequence(),
-        },
-    );
-    fee::checked_sub_i128(amount, trade_fee).ok_or(ContractError::Overflow)
+    let trade_fee = compute_trade_fee(env, creator, amount)?;
+    let net_amount = if trade_fee > 0 {
+        let (_, treasury) = read_trade_fee_config(env).ok_or(ContractError::FeeConfigNotSet)?;
+        let trade_id = next_trade_id(env)?;
+        credit_treasury_balance(env, trade_fee)?;
+        credit_staking_rewards_pool(env, creator, trade_fee)?;
+        env.events().publish(
+            events::fee_collected_topics_with_trade_id(&treasury, trade_id),
+            events::FeeCollectedEvent {
+                treasury: treasury.clone(),
+                trade_id,
+                amount,
+                fee: trade_fee,
+                ledger: env.ledger().sequence(),
+            },
+        );
+        fee::checked_sub_i128(amount, trade_fee).ok_or(ContractError::Overflow)?
+    } else {
+        amount
+    };
+    dynamic_fees::record_trade(env, creator, amount)?;
+    Ok(net_amount)
 }
 
 /// Credits the configured share of a protocol trade fee into the creator's
@@ -4021,11 +4193,14 @@ fn assert_buyback_total_cost_slippage(
     Ok(())
 }
 
-fn compute_sell_proceeds(env: &Env, price: i128) -> Result<i128, ContractError> {
+fn compute_sell_proceeds(env: &Env, creator: &Address, price: i128) -> Result<i128, ContractError> {
     // The protocol trade fee is deducted before the creator/seller split, so
     // proceeds are computed on the net amount to mirror the sell execution path.
-    let trade_fee = compute_trade_fee(env, price)?;
+    let trade_fee = compute_trade_fee(env, creator, price)?;
     let net_price = fee::checked_sub_i128(price, trade_fee).ok_or(ContractError::Overflow)?;
+    if read_effective_fee_config(env).is_none() {
+        return Ok(net_price);
+    }
     let (creator_fee, protocol_fee) =
         CreatorKeysContract::compute_fees_for_payment(env.clone(), net_price)?;
     let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
@@ -4039,7 +4214,7 @@ fn assert_sell_proceeds_slippage(
     min_proceeds: Option<i128>,
 ) -> Result<(), ContractError> {
     if let Some(min) = min_proceeds {
-        let proceeds = compute_sell_proceeds(env, price)?;
+        let proceeds = compute_sell_proceeds(env, creator, price)?;
         if proceeds < min {
             return Err(ContractError::SlippageExceeded);
         }
@@ -4986,6 +5161,54 @@ fn current_spot_price(env: &Env, creator: &Address) -> i128 {
         Ok(profile) => compute_bonding_curve_price(env, creator, base_price, profile.supply)
             .unwrap_or(base_price),
         Err(_) => base_price,
+    }
+}
+
+/// Reads every wallet that has ever held keys for `creator`.
+///
+/// Returns an empty vector when no registry entry exists, mirroring
+/// [`CreatorKeysContract::get_holder_registry`] without bumping TTLs on the
+/// internal unwind path.
+fn read_holder_registry(env: &Env, creator: &Address) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get::<DataKey, Vec<Address>>(&constants::storage::holder_registry(creator))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Credits `amount` to a holder's internal payable (pending dividend) balance.
+///
+/// This contract has no SEP-41 transfer, so a payout is represented by adding
+/// to the holder's `HolderDividendPending` ledger, the established payout sink
+/// used by `claim_dividend_claimable`.
+fn credit_holder_pending_dividend(
+    env: &Env,
+    creator: &Address,
+    holder: &Address,
+    amount: i128,
+) -> Result<(), ContractError> {
+    if amount <= 0 {
+        return Ok(());
+    }
+    let pending_key = constants::storage::holder_dividend_pending(creator, holder);
+    let prior: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+    let updated = prior.checked_add(amount).ok_or(ContractError::Overflow)?;
+    env.storage().persistent().set(&pending_key, &updated);
+    extend_key_ttl_to_full_window(env, &pending_key);
+    Ok(())
+}
+
+/// Returns the last traded price for `creator`, used to unwind positions during
+/// a notice-period deprecation.
+///
+/// Prefers the most recent recorded price observation (the last price at which
+/// the key actually traded). Falls back to the current bonding-curve spot price
+/// when no trade has ever been recorded.
+fn last_traded_price(env: &Env, creator: &Address) -> i128 {
+    let history = read_price_history(env, creator);
+    match history.last() {
+        Some(observation) => observation.price,
+        None => current_spot_price(env, creator),
     }
 }
 
@@ -6384,6 +6607,7 @@ impl CreatorKeysContract {
         {
             return Err(ContractError::KeyDeprecated);
         }
+        assert_key_not_deprecating(&env, &creator)?;
 
         if quantity == 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -6535,7 +6759,7 @@ impl CreatorKeysContract {
                         compute_bonding_curve_price(&env, &creator, base_price, profile.supply - 1)?
                     };
                     let net_for_slippage = {
-                        let trade_fee = compute_trade_fee(&env, key_price)?;
+                        let trade_fee = compute_trade_fee(&env, &creator, key_price)?;
                         fee::checked_sub_i128(key_price, trade_fee).unwrap_or(key_price)
                     };
                     assert_max_slippage_bps(
@@ -6748,6 +6972,7 @@ impl CreatorKeysContract {
         // the fee collector is paid ahead of every other participant. A share
         // of the fee is routed into the creator's staking rewards pool.
         let net_amount = collect_protocol_trade_fee(&env, &creator, total_price)?;
+        apply_trade_volume(&env, total_price)?;
 
         // Deduct LP allocation if LP contract is configured
         let lp_contract: Option<Address> = env
@@ -6957,6 +7182,7 @@ impl CreatorKeysContract {
         {
             return Err(ContractError::KeyDeprecated);
         }
+        assert_key_not_deprecating(&env, &creator)?;
 
         if payment <= 0 {
             return Err(ContractError::NotPositiveAmount);
@@ -7087,7 +7313,7 @@ impl CreatorKeysContract {
                     compute_bonding_curve_price(&env, &creator, base_price, profile.supply - 1)?
                 };
                 let net_price = {
-                    let trade_fee = compute_trade_fee(&env, price)?;
+                    let trade_fee = compute_trade_fee(&env, &creator, price)?;
                     fee::checked_sub_i128(price, trade_fee).unwrap_or(price)
                 };
                 assert_max_slippage_bps(&env, &creator, reference_price, net_price, Some(max_bps))?;
@@ -7289,10 +7515,6 @@ impl CreatorKeysContract {
         // the fee collector is paid ahead of every other participant. A share
         // of the fee is routed into the creator's staking rewards pool.
         let net_amount = collect_protocol_trade_fee(&env, &creator, price)?;
-
-        // Record this trade's gross volume before the fee split is computed, so the
-        // trade is priced at the tier its own volume earns. Any later failure reverts
-        // the whole transaction, including this write.
         apply_trade_volume(&env, price)?;
 
         if let Some(config) = read_effective_fee_config(&env) {
@@ -7569,13 +7791,11 @@ impl CreatorKeysContract {
         assert_sell_proceeds_slippage(&env, &creator, price, min_proceeds)?;
         if let Some(max_bps) = max_slippage_bps {
             if max_bps > 0 {
-                let proceeds = compute_sell_proceeds(&env, price)?;
+                let proceeds = compute_sell_proceeds(&env, &creator, price)?;
                 assert_max_slippage_bps(&env, &creator, curve_price, proceeds, Some(max_bps))?;
             }
         }
 
-        // A sell is market activity too, so it feeds the same rolling volume window
-        // as a buy. Recorded before the fee split so the tier reflects this trade.
         apply_trade_volume(&env, price)?;
 
         let new_balance = current_balance
@@ -7618,17 +7838,17 @@ impl CreatorKeysContract {
             env.storage()
                 .persistent()
                 .remove(&constants::storage::last_buy_timestamp(&creator, &seller));
+            vote_delegation::prune_if_zero_balance(&env, &creator, &seller);
         } else {
             env.storage().persistent().set(&balance_key, &new_balance);
             extend_key_ttl_to_full_window(&env, &balance_key);
         }
-        accrue_sell_trade_fees(&env, &creator, price)?;
-
         // Launch penalty: if the sell occurs within the launch window
         // (7 days / 120,960 ledgers of the key's creation), deduct a
         // configurable penalty from the proceeds and credit it to the
         // creator fee balance.
-        let gross_proceeds = compute_sell_proceeds(&env, price).unwrap_or(0);
+        let gross_proceeds = compute_sell_proceeds(&env, &creator, price)?;
+        accrue_sell_trade_fees(&env, &creator, price)?;
 
         // Sell tax: deduct the creator's configured tax from their proceeds and
         // forward it to the buyback pool. The pool credit and the proceeds
@@ -7983,6 +8203,230 @@ impl CreatorKeysContract {
                 deprecated_at_ledger: 0,
             },
         }
+    }
+
+    /// Proposes the notice-period retirement of an inactive creator key.
+    ///
+    /// Admin-only. Records a [`DeprecationProposal`] with an unwind date
+    /// `notice_period_days` in the future and emits a `DeprecationProposed`
+    /// event carrying the key, reason, and unwind timestamp so holders are
+    /// notified. Holders may still exit voluntarily at the market rate via the
+    /// normal sell path for the duration of the notice period.
+    ///
+    /// # Arguments
+    ///
+    /// - `key_id`: the creator key to retire.
+    /// - `notice_period_days`: length of the notice window; must be in
+    ///   `1..=`[`MAX_DEPRECATION_NOTICE_DAYS`].
+    /// - `reason`: human-readable reason (max 256 bytes).
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `key_id` is not the calling admin.
+    /// - [`ContractError::NotRegistered`] if `key_id` is not a registered creator.
+    /// - [`ContractError::InvalidNoticePeriod`] if `notice_period_days` is `0`
+    ///   or above [`MAX_DEPRECATION_NOTICE_DAYS`].
+    /// - [`ContractError::BioTooLong`] if `reason` exceeds 256 bytes.
+    /// - [`ContractError::DeprecationAlreadyProposed`] if a proposal already exists.
+    /// - [`ContractError::DeprecationAlreadyExecuted`] if the key was already retired.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn propose_deprecation(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        notice_period_days: u32,
+        reason: String,
+    ) -> Result<DeprecationProposal, ContractError> {
+        assert_not_paused(&env)?;
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        if notice_period_days == 0 || notice_period_days > MAX_DEPRECATION_NOTICE_DAYS {
+            return Err(ContractError::InvalidNoticePeriod);
+        }
+        if reason.len() > 256 {
+            return Err(ContractError::BioTooLong);
+        }
+
+        // A key must exist before it can be retired.
+        read_registered_creator_profile(&env, &key_id)?;
+
+        let key = DeprecationKey::Proposal(key_id.clone());
+        if let Some(existing) = env
+            .storage()
+            .persistent()
+            .get::<DeprecationKey, DeprecationProposal>(&key)
+        {
+            return if existing.executed {
+                Err(ContractError::DeprecationAlreadyExecuted)
+            } else {
+                Err(ContractError::DeprecationAlreadyProposed)
+            };
+        }
+
+        let current_ledger = env.ledger().sequence();
+        let notice_secs = u64::from(notice_period_days)
+            .checked_mul(SECONDS_PER_DAY)
+            .ok_or(ContractError::Overflow)?;
+        let unwind_at_timestamp = env
+            .ledger()
+            .timestamp()
+            .checked_add(notice_secs)
+            .ok_or(ContractError::Overflow)?;
+
+        let proposal = DeprecationProposal {
+            key_id: key_id.clone(),
+            reason: reason.clone(),
+            proposed_at_ledger: current_ledger,
+            unwind_at_timestamp,
+            notice_period_days,
+            executed: false,
+        };
+        env.storage().persistent().set(&key, &proposal);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        env.events().publish(
+            events::deprecation_proposed_topics(&key_id),
+            events::DeprecationProposedEvent {
+                key_id: key_id.clone(),
+                reason,
+                notice_period_days,
+                unwind_at_timestamp,
+                ledger: current_ledger,
+            },
+        );
+
+        Ok(proposal)
+    }
+
+    /// Executes a proposed deprecation once its notice period has elapsed.
+    ///
+    /// Admin-only. After the notice period, unwinds every remaining holder
+    /// position at the last traded price and credits each holder's payout to
+    /// their internal payable balance. Emits a `DeprecationExecuted` event with
+    /// the total positions unwound and the total amount distributed.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `key_id` is not the calling admin.
+    /// - [`ContractError::NoDeprecationProposed`] if no proposal exists.
+    /// - [`ContractError::DeprecationAlreadyExecuted`] if already retired.
+    /// - [`ContractError::DeprecationNoticePeriodActive`] if called before the
+    ///   notice period expires.
+    /// - [`ContractError::ProtocolPaused`] if the contract is paused.
+    pub fn execute_deprecation(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+    ) -> Result<DeprecationExecution, ContractError> {
+        assert_not_paused(&env)?;
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+
+        let key = DeprecationKey::Proposal(key_id.clone());
+        let mut proposal: DeprecationProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NoDeprecationProposed)?;
+
+        if proposal.executed {
+            return Err(ContractError::DeprecationAlreadyExecuted);
+        }
+
+        let now = env.ledger().timestamp();
+        if now < proposal.unwind_at_timestamp {
+            return Err(ContractError::DeprecationNoticePeriodActive);
+        }
+
+        let mut profile: CreatorProfile = read_registered_creator_profile(&env, &key_id)?;
+        let unwind_price = last_traded_price(&env, &key_id);
+
+        // Snapshot the registry before mutating balances so the unwind is
+        // computed against a stable holder list.
+        let registry = read_holder_registry(&env, &key_id);
+
+        let mut total_positions_unwound: u32 = 0;
+        let mut amount_distributed: i128 = 0;
+
+        for holder in registry.iter() {
+            let balance_key = constants::storage::holder_balance_key(&key_id, &holder);
+            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            if balance == 0 {
+                continue;
+            }
+
+            let payout = (balance as i128)
+                .checked_mul(unwind_price)
+                .ok_or(ContractError::Overflow)?;
+
+            // Settle pending dividends before the position is burned so earned
+            // dividends are not lost, then credit the unwind payout on top.
+            settle_holder_dividends(&env, &key_id, &holder, balance)?;
+            credit_holder_pending_dividend(&env, &key_id, &holder, payout)?;
+
+            env.storage().persistent().remove(&balance_key);
+            env.storage()
+                .persistent()
+                .remove(&constants::storage::staked_balance(&key_id, &holder));
+
+            total_positions_unwound = total_positions_unwound
+                .checked_add(balance)
+                .ok_or(ContractError::Overflow)?;
+            amount_distributed = amount_distributed
+                .checked_add(payout)
+                .ok_or(ContractError::Overflow)?;
+        }
+
+        // The key is fully retired: no circulating supply or holders remain.
+        profile.supply = 0;
+        profile.holder_count = 0;
+        let profile_key = constants::storage::creator(&key_id);
+        env.storage().persistent().set(&profile_key, &profile);
+        extend_key_ttl_to_full_window(&env, &profile_key);
+
+        // Mark the key as deprecated so the buy path rejects new purchases.
+        let deprecated_key = constants::storage::deprecated_key(&key_id);
+        env.storage()
+            .persistent()
+            .set(&deprecated_key, &unwind_price);
+        extend_key_ttl_to_full_window(&env, &deprecated_key);
+
+        proposal.executed = true;
+        env.storage().persistent().set(&key, &proposal);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        let ledger = env.ledger().sequence();
+        env.events().publish(
+            events::deprecation_executed_topics(&key_id),
+            events::DeprecationExecutedEvent {
+                key_id: key_id.clone(),
+                total_positions_unwound,
+                amount_distributed,
+                unwind_price,
+                ledger,
+            },
+        );
+
+        Ok(DeprecationExecution {
+            key_id,
+            total_positions_unwound,
+            amount_distributed,
+            unwind_price,
+            ledger,
+        })
+    }
+
+    /// Read-only view: returns the pending or executed deprecation proposal for
+    /// a key, or `None` when no notice-period deprecation has been proposed.
+    pub fn get_deprecation_proposal(env: Env, key_id: Address) -> Option<DeprecationProposal> {
+        let key = DeprecationKey::Proposal(key_id);
+        let proposal = env
+            .storage()
+            .persistent()
+            .get::<DeprecationKey, DeprecationProposal>(&key)?;
+        extend_key_ttl_to_full_window(&env, &key);
+        Some(proposal)
     }
 
     /// Redeems all keys held by `holder` for a deprecated creator key.
@@ -9463,6 +9907,247 @@ impl CreatorKeysContract {
         Ok(share)
     }
 
+    /// Distributes `amount` of accrued creator fees to all current key holders pro-rata (issue #1135).
+    ///
+    /// # Authorization
+    /// - Requires authentication by `key_id` (the creator).
+    ///
+    /// # Safety and Accounting
+    /// - Fails with [`ContractError::ProtocolPaused`] if the protocol is paused.
+    /// - Fails with [`ContractError::NotRegistered`] if `key_id` is not registered.
+    /// - Fails with [`ContractError::NoKeyHolders`] if total supply is zero or if eligible
+    ///   holders' total keys do not match supply.
+    /// - Fails with [`ContractError::ZeroDistributionAmount`] if `amount < supply as i128` (dust threshold).
+    /// - Fails with [`ContractError::InsufficientBalance`] if `creator_fee_balance < amount`.
+    /// - Fails with [`ContractError::SnapshotHolderLimitExceeded`] if eligible holders exceed [`MAX_SNAPSHOT_HOLDERS`].
+    /// - Floor-division dust stays in the creator's fee balance; only `total_allocated` is debited.
+    ///
+    /// # Returns
+    /// - The newly generated unique `distribution_id`.
+    pub fn distribute_revenue(
+        env: Env,
+        key_id: Address,
+        amount: i128,
+    ) -> Result<u32, ContractError> {
+        key_id.require_auth();
+        assert_not_paused(&env)?;
+
+        let profile = read_registered_creator_profile(&env, &key_id)?;
+        if profile.supply == 0 {
+            return Err(ContractError::NoKeyHolders);
+        }
+
+        let supply = profile.supply as i128;
+        if amount < supply {
+            return Err(ContractError::ZeroDistributionAmount);
+        }
+
+        let current_fees = read_creator_fee_recipient_balance(&env, &key_id);
+        if current_fees < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+
+        let registry = Self::get_holder_registry(env.clone(), key_id.clone());
+
+        let mut eligible_holders = soroban_sdk::Vec::new(&env);
+        let mut eligible_balances = soroban_sdk::Vec::new(&env);
+        let mut total_eligible_keys: u32 = 0;
+
+        for holder in registry.iter() {
+            let balance: u32 = env
+                .storage()
+                .persistent()
+                .get(&constants::storage::holder_balance_key(&key_id, &holder))
+                .unwrap_or(0);
+
+            if balance > 0 {
+                total_eligible_keys = total_eligible_keys
+                    .checked_add(balance)
+                    .ok_or(ContractError::Overflow)?;
+                eligible_holders.push_back(holder);
+                eligible_balances.push_back(balance);
+            }
+        }
+
+        if total_eligible_keys != profile.supply {
+            return Err(ContractError::NoKeyHolders);
+        }
+
+        let eligible_count = eligible_holders.len();
+        if eligible_count == 0 {
+            return Err(ContractError::NoKeyHolders);
+        }
+        if eligible_count > MAX_SNAPSHOT_HOLDERS {
+            return Err(ContractError::SnapshotHolderLimitExceeded);
+        }
+
+        // Allocate shares and compute sum
+        let mut total_allocated: i128 = 0;
+        let mut shares = soroban_sdk::Vec::new(&env);
+
+        for balance in eligible_balances.iter() {
+            let holder_keys = balance as i128;
+            let share = amount
+                .checked_mul(holder_keys)
+                .ok_or(ContractError::Overflow)?
+                / supply;
+            total_allocated = total_allocated
+                .checked_add(share)
+                .ok_or(ContractError::Overflow)?;
+            shares.push_back(share);
+        }
+
+        let remainder = amount
+            .checked_sub(total_allocated)
+            .ok_or(ContractError::Overflow)?;
+
+        // Debit creator fee balance by total_allocated
+        let updated_fees = current_fees
+            .checked_sub(total_allocated)
+            .ok_or(ContractError::InsufficientBalance)?;
+        let fee_balance_key = constants::storage::creator_fee_balance(&key_id);
+        env.storage()
+            .persistent()
+            .set(&fee_balance_key, &updated_fees);
+        extend_key_ttl_to_full_window(&env, &fee_balance_key);
+
+        // Advance global distribution counter
+        let global_count_key = RevenueShareKey::GlobalDistributionCount;
+        let current_count: u32 = env
+            .storage()
+            .persistent()
+            .get(&global_count_key)
+            .unwrap_or(0);
+        let distribution_id = current_count
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        env.storage()
+            .persistent()
+            .set(&global_count_key, &distribution_id);
+        extend_key_ttl_to_full_window(&env, &global_count_key);
+
+        // Persist per-holder snapshot shares
+        for i in 0..eligible_count {
+            let holder = eligible_holders.get(i).unwrap();
+            let share = shares.get(i).unwrap();
+            let share_key = RevenueShareKey::SnapshotShare(distribution_id, holder);
+            env.storage().persistent().set(&share_key, &share);
+            extend_key_ttl_to_full_window(&env, &share_key);
+        }
+
+        // Record distribution metadata
+        let meta = RevenueDistributionMeta {
+            key_id: key_id.clone(),
+            snapshot_ledger: env.ledger().sequence(),
+            total_amount: amount,
+            allocated_amount: total_allocated,
+            remainder,
+            total_entitled_keys: profile.supply,
+        };
+        let meta_key = RevenueShareKey::DistributionMeta(distribution_id);
+        env.storage().persistent().set(&meta_key, &meta);
+        extend_key_ttl_to_full_window(&env, &meta_key);
+
+        // Publish event
+        env.events().publish(
+            events::revenue_distributed_topics(&key_id, distribution_id),
+            events::RevenueDistributedEvent {
+                key_id: key_id.clone(),
+                distribution_id,
+                amount,
+                allocated_amount: total_allocated,
+                remainder,
+                total_eligible_keys: profile.supply,
+                eligible_count,
+            },
+        );
+
+        Ok(distribution_id)
+    }
+
+    /// Claims `claimant`'s allocated share for `distribution_id` and credits their pending dividend balance (issue #1135).
+    ///
+    /// # Authorization
+    /// - Requires authentication by `claimant`.
+    ///
+    /// # Safety and Accounting
+    /// - Fails with [`ContractError::ProtocolPaused`] if the protocol is paused.
+    /// - Fails with [`ContractError::SnapshotNotFound`] if `distribution_id` is invalid or missing.
+    /// - Fails with [`ContractError::AlreadyClaimed`] if the share was already claimed.
+    /// - Fails with [`ContractError::NoDividendClaimable`] if the claimant has no share (share == 0).
+    /// - Credits claimant's `holder_dividend_pending` using checked accumulation.
+    ///
+    /// # Returns
+    /// - The claimed share amount.
+    pub fn claim_revenue_share(
+        env: Env,
+        distribution_id: u32,
+        claimant: Address,
+    ) -> Result<i128, ContractError> {
+        claimant.require_auth();
+        assert_not_paused(&env)?;
+
+        let meta_key = RevenueShareKey::DistributionMeta(distribution_id);
+        let meta: RevenueDistributionMeta = env
+            .storage()
+            .persistent()
+            .get(&meta_key)
+            .ok_or(ContractError::SnapshotNotFound)?;
+
+        let claimed_key = RevenueShareKey::Claimed(distribution_id, claimant.clone());
+        if env.storage().persistent().has(&claimed_key) {
+            return Err(ContractError::AlreadyClaimed);
+        }
+
+        let share_key = RevenueShareKey::SnapshotShare(distribution_id, claimant.clone());
+        let share: i128 = env.storage().persistent().get(&share_key).unwrap_or(0);
+        if share == 0 {
+            return Err(ContractError::NoDividendClaimable);
+        }
+
+        // Mark as claimed
+        env.storage().persistent().set(&claimed_key, &true);
+        extend_key_ttl_to_full_window(&env, &claimed_key);
+
+        // Credit holder_dividend_pending for (meta.key_id, claimant)
+        let pending_key = constants::storage::holder_dividend_pending(&meta.key_id, &claimant);
+        let current_pending: i128 = env.storage().persistent().get(&pending_key).unwrap_or(0);
+        let new_pending = fee::checked_accumulate(current_pending, share)?;
+        env.storage().persistent().set(&pending_key, &new_pending);
+        extend_key_ttl_to_full_window(&env, &pending_key);
+
+        // Publish event
+        env.events().publish(
+            events::revenue_share_claimed_topics(distribution_id, &claimant),
+            events::RevenueShareClaimedEvent {
+                distribution_id,
+                key_id: meta.key_id,
+                claimant: claimant.clone(),
+                amount: share,
+            },
+        );
+
+        Ok(share)
+    }
+
+    /// Read-only view: returns both claimable and claimed amounts for a wallet in a distribution (issue #1135).
+    pub fn get_revenue_share(env: Env, distribution_id: u32, wallet: Address) -> RevenueShareView {
+        let share_key = RevenueShareKey::SnapshotShare(distribution_id, wallet.clone());
+        let share: i128 = env.storage().persistent().get(&share_key).unwrap_or(0);
+
+        let claimed_key = RevenueShareKey::Claimed(distribution_id, wallet);
+        let is_claimed: bool = env
+            .storage()
+            .persistent()
+            .get(&claimed_key)
+            .unwrap_or(false);
+
+        RevenueShareView {
+            claimable_amount: if is_claimed { 0 } else { share },
+            claimed_amount: if is_claimed { share } else { 0 },
+        }
+    }
+
     /// Read-only view: returns a holder's snapshotted balance, or `0` if the
     /// holder was not included in the snapshot's `holders` list.
     pub fn get_snapshot_balance(
@@ -10503,6 +11188,7 @@ impl CreatorKeysContract {
             assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
             let mut order_price: i128 = 0;
+            let mut order_trade_fee_total: i128 = 0;
 
             let mut i = 0u32;
             while i < quantity {
@@ -10553,29 +11239,13 @@ impl CreatorKeysContract {
                 extend_key_ttl_to_full_window(&env, &balance_key);
                 append_holder_to_registry(&env, &creator, &buyer);
 
-                // Collect protocol trade fee and emit FeeCollected per key.
-                let trade_fee = compute_trade_fee(&env, price)?;
-                if trade_fee > 0 {
-                    if let Some((_, treasury)) = read_trade_fee_config(&env) {
-                        credit_treasury_balance(&env, trade_fee)?;
-                        credit_staking_rewards_pool(&env, &creator, trade_fee)?;
-                        let trade_id = next_trade_id(&env)?;
-                        env.events().publish(
-                            events::fee_collected_topics_with_trade_id(&treasury, trade_id),
-                            events::FeeCollectedEvent {
-                                treasury: treasury.clone(),
-                                trade_id,
-                                amount: price,
-                                fee: trade_fee,
-                                ledger: env.ledger().sequence(),
-                            },
-                        );
-                    }
-                }
-
-                // Collect creator / protocol fee split.
-                let net_amount = price
-                    .checked_sub(trade_fee)
+                // Collect the dynamic protocol fee and record volume once per key.
+                let net_amount = collect_protocol_trade_fee(&env, &creator, price)?;
+                let trade_fee = price
+                    .checked_sub(net_amount)
+                    .ok_or(ContractError::Overflow)?;
+                order_trade_fee_total = order_trade_fee_total
+                    .checked_add(trade_fee)
                     .ok_or(ContractError::Overflow)?;
                 if let Some(config) = read_protocol_fee_config(&env) {
                     let (creator_fee, protocol_fee) = fee::checked_compute_fee_split(
@@ -10627,7 +11297,6 @@ impl CreatorKeysContract {
             }
 
             // Emit BatchBuyFeeCollected summary per order.
-            let order_trade_fee = compute_trade_fee(&env, order_price).unwrap_or(0);
             env.events().publish(
                 events::batch_buy_fee_collected_topics(&creator, &buyer),
                 events::BatchBuyFeeCollectedEvent {
@@ -10635,7 +11304,7 @@ impl CreatorKeysContract {
                     buyer: buyer.clone(),
                     quantity,
                     total_price: order_price,
-                    fee_amount: order_trade_fee,
+                    fee_amount: order_trade_fee_total,
                     ledger: env.ledger().sequence(),
                 },
             );
@@ -11092,6 +11761,35 @@ impl CreatorKeysContract {
             Some((fee_bps, treasury)) => (fee_bps, Some(treasury)),
             None => (0, None),
         }
+    }
+
+    /// Replaces ordered rolling-volume fee brackets. Accumulated volume is preserved.
+    pub fn set_volume_brackets(
+        env: Env,
+        admin: Address,
+        brackets: Vec<dynamic_fees::VolumeBracket>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        dynamic_fees::validate_volume_brackets(&brackets)?;
+        dynamic_fees::set_volume_brackets(&env, &brackets);
+        Ok(())
+    }
+
+    /// Read-only view of the current swap fee for a registered key.
+    pub fn get_current_fee_bps(env: Env, key_id: Address) -> Result<u32, ContractError> {
+        dynamic_fees::current_fee_bps(&env, &key_id)
+    }
+
+    /// Read-only view of a key's rolling 24-hour gross trade volume.
+    pub fn get_key_rolling_volume(env: Env, key_id: Address) -> Result<i128, ContractError> {
+        read_registered_creator_profile(&env, &key_id)?;
+        dynamic_fees::rolling_volume(&env, &key_id)
+    }
+
+    /// Read-only view of the configured fee brackets, or the protocol defaults.
+    pub fn get_volume_brackets(env: Env) -> Vec<dynamic_fees::VolumeBracket> {
+        dynamic_fees::read_volume_brackets(&env)
     }
 
     /// Sets the protocol admin address.
@@ -12601,6 +13299,7 @@ impl CreatorKeysContract {
                 .holder_count
                 .checked_sub(1)
                 .ok_or(ContractError::Overflow)?;
+            vote_delegation::prune_if_zero_balance(&env, &creator, &from);
         }
 
         // Update recipient balance.
@@ -12782,6 +13481,112 @@ impl CreatorKeysContract {
         );
 
         Ok(())
+    }
+
+    // =========================================================================
+    // Feature: key ownership handover with an acceptance window and timelock (#1098)
+    // =========================================================================
+
+    /// Proposes handing the management rights of `key_id` over to `new_owner`.
+    ///
+    /// Only the wallet that currently manages the key may propose (the
+    /// registered creator until a handover has executed), and `new_owner` must
+    /// differ from it. The proposal is live for
+    /// [`key_ownership_transfer::ACCEPTANCE_WINDOW_SECS`] (48h) and emits
+    /// [`events::TransferProposedEvent`], which is what the key's holders see
+    /// during the notification period.
+    ///
+    /// Returns the `proposal_id` to use with [`Self::accept_transfer`],
+    /// [`Self::execute_transfer`] and [`Self::cancel_transfer`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::NotRegistered`] if the key is not registered.
+    /// - [`ContractError::SelfTransfer`] if `new_owner` already manages the key.
+    /// - [`ContractError::TransferAlreadyPending`] if the key already has a
+    ///   live proposal (an expired, unaccepted one is replaced silently).
+    /// - [`ContractError::Overflow`] on timestamp arithmetic overflow.
+    pub fn propose_transfer(
+        env: Env,
+        key_id: Address,
+        new_owner: Address,
+    ) -> Result<u32, ContractError> {
+        key_ownership_transfer::propose_transfer(&env, &key_id, &new_owner)
+    }
+
+    /// Accepts ownership-transfer proposal `proposal_id` as the proposed new
+    /// owner.
+    ///
+    /// Restricted to `new_owner` and only valid strictly before the proposal's
+    /// 48h `expires_at`. Returns the timestamp at which
+    /// [`Self::execute_transfer`] becomes callable (24h later) and emits
+    /// [`events::TransferAcceptedEvent`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown.
+    /// - [`ContractError::TransferAlreadyAccepted`] on a second acceptance.
+    /// - [`ContractError::TransferWindowExpired`] once 48h have elapsed.
+    /// - [`ContractError::Overflow`] on timestamp arithmetic overflow.
+    pub fn accept_transfer(env: Env, proposal_id: u32) -> Result<u64, ContractError> {
+        key_ownership_transfer::accept_transfer(&env, proposal_id)
+    }
+
+    /// Finalises accepted ownership-transfer `proposal_id`, making `new_owner`
+    /// the wallet that manages `key_id`.
+    ///
+    /// Callable by anyone once the 24h timelock after acceptance has elapsed;
+    /// the proposal already carries the current owner's proposal and the new
+    /// owner's acceptance. Emits [`events::TransferExecutedEvent`] and deletes
+    /// the proposal.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown.
+    /// - [`ContractError::TransferNotAccepted`] if the new owner never accepted
+    ///   (also what an expired, unaccepted proposal reports).
+    /// - [`ContractError::TimelockNotElapsed`] before 24h have elapsed.
+    /// - [`ContractError::Unauthorized`] if the key's owner changed since the
+    ///   proposal was raised.
+    pub fn execute_transfer(env: Env, proposal_id: u32) -> Result<(), ContractError> {
+        key_ownership_transfer::execute_transfer(&env, proposal_id)
+    }
+
+    /// Cancels ownership-transfer `proposal_id` before it executes.
+    ///
+    /// Restricted to the wallet that currently manages the key — the proposer —
+    /// and allowed at any point before execution, including after the new owner
+    /// accepted.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown.
+    /// - [`ContractError::Unauthorized`] if the caller does not manage the key
+    ///   or is not the owner that raised the proposal.
+    pub fn cancel_transfer(env: Env, proposal_id: u32) -> Result<(), ContractError> {
+        key_ownership_transfer::cancel_transfer(&env, proposal_id)
+    }
+
+    /// Read-only view: the wallet that currently manages `key_id`.
+    ///
+    /// Returns `key_id` itself — the registered creator address — until an
+    /// ownership handover has been executed.
+    pub fn get_key_owner(env: Env, key_id: Address) -> Address {
+        key_ownership_transfer::get_key_owner(&env, &key_id)
+    }
+
+    /// Read-only view: the ownership-transfer proposal stored under
+    /// `proposal_id`.
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::TransferProposalNotFound`] if the id is unknown or the
+    ///   proposal has already been executed or cancelled.
+    pub fn get_transfer_proposal(
+        env: Env,
+        proposal_id: u32,
+    ) -> Result<key_ownership_transfer::OwnershipTransferProposal, ContractError> {
+        key_ownership_transfer::get_transfer_proposal(&env, proposal_id)
     }
 
     /// Withdraws `amount` from the protocol treasury to `recipient`.
@@ -14986,7 +15791,9 @@ impl CreatorKeysContract {
         }
 
         let delegate_key = constants::storage::delegate(&creator_id, &voter);
-        if env.storage().persistent().has(&delegate_key) {
+        if env.storage().persistent().has(&delegate_key)
+            || vote_delegation::has_active_delegation(&env, &creator_id, &voter)
+        {
             return Err(PollError::Unauthorized);
         }
 
@@ -14999,8 +15806,7 @@ impl CreatorKeysContract {
         {
             snap
         } else {
-            let balance_key = constants::storage::holder_balance_key(&creator_id, &voter);
-            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            let balance = vote_delegation::get_voting_weight(&env, &voter, &creator_id);
             if balance == 0 {
                 return Err(PollError::NotAHolder);
             }
@@ -15120,6 +15926,50 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::delegate(&creator_id, &delegator))
+    }
+
+    /// Assigns governance voting weight of `key_id` held by `holder` to `delegate_wallet` (Issue #1116).
+    ///
+    /// Requires authorization from `holder` (`require_auth`).
+    /// Verifies `holder` holds keys of `key_id`.
+    /// Rejects self-delegation, delegating an already-delegated key,
+    /// and re-delegation (delegates cannot delegate, delegators cannot receive delegation).
+    pub fn delegate_votes(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        delegate_wallet: Address,
+    ) -> Result<(), ContractError> {
+        vote_delegation::delegate_votes(&env, &holder, &key_id, &delegate_wallet)
+    }
+
+    /// Revokes an existing vote delegation for `key_id`, returning voting weight to `holder` (Issue #1116).
+    ///
+    /// Requires authorization from `holder` (`require_auth`).
+    /// Fails cleanly with `NoDelegation` if no active delegation exists.
+    pub fn revoke_delegation(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+    ) -> Result<(), ContractError> {
+        vote_delegation::revoke_delegation(&env, &holder, &key_id)
+    }
+
+    /// Read-only view: returns the wallet's own weight plus any weight delegated to it for `key_id` (Issue #1116).
+    ///
+    /// If `wallet` has delegated its votes, returns `0`.
+    pub fn get_voting_weight(env: Env, wallet: Address, key_id: Address) -> u32 {
+        vote_delegation::get_voting_weight(&env, &wallet, &key_id)
+    }
+
+    /// Read-only view: returns the current proxy vote delegate for `holder` on `key_id`.
+    pub fn get_vote_delegate(env: Env, holder: Address, key_id: Address) -> Option<Address> {
+        vote_delegation::get_vote_delegate(&env, &holder, &key_id)
+    }
+
+    /// Read-only view: returns all delegators who have delegated to `delegate` on `key_id`.
+    pub fn get_vote_delegators(env: Env, delegate: Address, key_id: Address) -> Vec<Address> {
+        vote_delegation::get_vote_delegators(&env, &delegate, &key_id)
     }
 
     /// Casts a vote on behalf of delegators using their delegated weight.
@@ -15607,7 +16457,7 @@ impl CreatorKeysContract {
                     extend_key_ttl_to_full_window(&env, &balance_key);
                 }
 
-                let gross_proceeds = compute_sell_proceeds(&env, price)?;
+                let gross_proceeds = compute_sell_proceeds(&env, &creator, price)?;
                 let (proceeds, tax_amount, _pool_balance_after) =
                     Self::collect_sell_tax(&env, &creator, gross_proceeds)?;
                 if tax_amount > 0 {
@@ -15854,9 +16704,8 @@ impl CreatorKeysContract {
                     extend_key_ttl_to_full_window(&env, &balance_key);
                 }
 
+                let proceeds = compute_sell_proceeds(&env, &creator, price)?;
                 accrue_sell_trade_fees(&env, &creator, price)?;
-
-                let proceeds = compute_sell_proceeds(&env, price).unwrap_or(0);
 
                 if let Some(created_at) = env
                     .storage()
@@ -21544,3 +22393,6 @@ mod test_proxy;
 
 #[cfg(test)]
 mod test_announcements;
+
+#[cfg(test)]
+mod test_issue_1056;
