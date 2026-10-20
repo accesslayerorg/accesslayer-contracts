@@ -229,6 +229,9 @@ pub enum ContractError {
     StateRestoring = 113,
     /// The creator is not in the lifecycle state the archive operation requires (#709).
     InvalidLifecycleState = 114,
+    // --- Liquidity depth oracle (Issue #1035) ---
+    /// The requested impact tolerance exceeds 100% (10 000 bps).
+    InvalidImpactTolerance = 115,
 }
 
 impl ContractError {
@@ -11307,6 +11310,147 @@ impl CreatorKeysContract {
         checked_format_quote_response(price, creator_fee, protocol_fee, false)
     }
 
+    /// Read-only liquidity depth oracle for batch-trade pre-validation (issue #1035).
+    ///
+    /// Returns the maximum number of keys that can be bought for `key_id` without
+    /// moving the bonding-curve price more than `max_impact_bps` above its current
+    /// level, together with the current per-key price and the price expected after
+    /// executing that full amount.
+    ///
+    /// Price impact is measured on the raw bonding-curve price (before fees):
+    /// `(price_after - price_now) * 10_000 / price_now <= max_impact_bps`.
+    /// An amount whose simulated post-trade price overflows is treated as exceeding
+    /// the tolerance.
+    ///
+    /// The scan depth is capped by the key's remaining supply when a cap is
+    /// configured, and by [`MAX_DEPTH_SCAN_LIMIT`] when it is not (for example a
+    /// flat curve where price never moves: the full scan depth is buyable at any
+    /// tolerance).
+    ///
+    /// Never mutates contract state.
+    ///
+    /// # Errors
+    /// - [`ContractError::InvalidImpactTolerance`] if `max_impact_bps` exceeds 10 000.
+    /// - [`ContractError::KeyPriceNotSet`] if no key price has been configured.
+    /// - [`ContractError::NotRegistered`] if `key_id` is not a registered creator.
+    pub fn get_max_buy(
+        env: Env,
+        key_id: Address,
+        max_impact_bps: u32,
+    ) -> Result<LiquidityDepthQuote, ContractError> {
+        if max_impact_bps > fee::BPS_MAX {
+            return Err(ContractError::InvalidImpactTolerance);
+        }
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        let profile = read_registered_creator_profile(&env, &key_id)?;
+        let supply = profile.supply;
+
+        let current_price = compute_bonding_curve_price(&env, &key_id, base_price, supply)?;
+        // Zero-liquidity guard: a non-positive curve price has no meaningful
+        // impact ratio, so report an empty depth instead of dividing by it.
+        if current_price <= 0 {
+            return Ok(LiquidityDepthQuote {
+                max_amount: 0,
+                current_price,
+                expected_price: current_price,
+            });
+        }
+
+        let cap: u32 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::max_supply(&key_id))
+            .unwrap_or(0);
+        let max_depth = if cap == 0 {
+            MAX_DEPTH_SCAN_LIMIT
+        } else {
+            cap.saturating_sub(supply)
+        };
+
+        let within_limit = |amount: u32| -> bool {
+            match depth_post_trade_price(&env, &key_id, base_price, supply, amount, true) {
+                Ok(post) => depth_within_impact_limit(post, current_price, max_impact_bps),
+                Err(_) => false,
+            }
+        };
+        let max_amount = find_max_depth(max_depth, within_limit);
+        let expected_price =
+            depth_post_trade_price(&env, &key_id, base_price, supply, max_amount, true)?;
+
+        Ok(LiquidityDepthQuote {
+            max_amount,
+            current_price,
+            expected_price,
+        })
+    }
+
+    /// Read-only liquidity depth oracle for batch-trade pre-validation (issue #1035).
+    ///
+    /// Returns the maximum number of keys that can be sold for `key_id` without
+    /// moving the bonding-curve price more than `min_impact_bps` below its current
+    /// level, together with the current per-key price and the price expected after
+    /// executing that full amount.
+    ///
+    /// Price impact is measured on the raw bonding-curve price (before fees and
+    /// before any configured bid-ask spread):
+    /// `(price_now - price_after) * 10_000 / price_now <= min_impact_bps`.
+    /// The scan never walks the curve below a supply of zero; at zero supply the
+    /// key has no sellable liquidity and an empty depth is returned.
+    ///
+    /// Never mutates contract state.
+    ///
+    /// # Errors
+    /// - [`ContractError::InvalidImpactTolerance`] if `min_impact_bps` exceeds 10 000.
+    /// - [`ContractError::KeyPriceNotSet`] if no key price has been configured.
+    /// - [`ContractError::NotRegistered`] if `key_id` is not a registered creator.
+    pub fn get_max_sell(
+        env: Env,
+        key_id: Address,
+        min_impact_bps: u32,
+    ) -> Result<LiquidityDepthQuote, ContractError> {
+        if min_impact_bps > fee::BPS_MAX {
+            return Err(ContractError::InvalidImpactTolerance);
+        }
+        let base_price: i128 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::KEY_PRICE)
+            .ok_or(ContractError::KeyPriceNotSet)?;
+        let profile = read_registered_creator_profile(&env, &key_id)?;
+        let supply = profile.supply;
+
+        let current_price = compute_bonding_curve_price(&env, &key_id, base_price, supply)?;
+        // Zero-liquidity guard: nothing is sellable at zero supply, and a
+        // non-positive curve price has no meaningful impact ratio.
+        if supply == 0 || current_price <= 0 {
+            return Ok(LiquidityDepthQuote {
+                max_amount: 0,
+                current_price,
+                expected_price: current_price,
+            });
+        }
+
+        let within_limit = |amount: u32| -> bool {
+            match depth_post_trade_price(&env, &key_id, base_price, supply, amount, false) {
+                Ok(post) => depth_within_impact_limit(post, current_price, min_impact_bps),
+                Err(_) => false,
+            }
+        };
+        let max_amount = find_max_depth(supply, within_limit);
+        let expected_price =
+            depth_post_trade_price(&env, &key_id, base_price, supply, max_amount, false)?;
+
+        Ok(LiquidityDepthQuote {
+            max_amount,
+            current_price,
+            expected_price,
+        })
+    }
+
     /// Read-only view: returns the bonding-curve price impact, in basis points,
     /// of swapping `amount` keys in `direction` against the current supply.
     ///
@@ -21245,3 +21389,6 @@ mod test_issue_1000;
 
 #[cfg(test)]
 mod test_proxy;
+
+#[cfg(test)]
+mod test_issue_1035;
