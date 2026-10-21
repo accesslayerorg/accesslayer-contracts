@@ -122,6 +122,14 @@ was renumbered, reordered, or reused. Vote delegation (Issue #1116) reuses
 `PollError::Unauthorized` (32) in governance voting when a delegator attempts
 to vote directly.
 
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `134` | `InvalidImpactTolerance` | The requested price-impact tolerance exceeds 10 000 bps (100%). | Triggered by `get_max_buy` / `get_max_sell` when `max_impact_bps` / `min_impact_bps` is above the allowed maximum. |
+
+**Backward compatibility for 134**: this code is appended after the previously
+highest code (`133`, `NotAHolder`). No existing variant was renumbered,
+reordered, or reused.
+
 ---
 
 ## `PollError` Reference (Governance Polls)

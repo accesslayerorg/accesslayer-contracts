@@ -278,6 +278,9 @@ pub enum ContractError {
     CannotReDelegate = 132,
     /// Wallet does not hold keys for this creator.
     NotAHolder = 133,
+    // --- Liquidity depth oracle (Issue #1035) ---
+    /// The requested price-impact tolerance exceeds 10 000 bps (100%).
+    InvalidImpactTolerance = 134,
 }
 
 impl ContractError {
@@ -22323,6 +22326,9 @@ mod test_issue_998;
 
 #[cfg(test)]
 mod test_issue_1000;
+
+#[cfg(test)]
+mod test_issue_1035;
 
 #[cfg(test)]
 mod test_proxy;
