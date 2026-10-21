@@ -5319,7 +5319,9 @@ fn accumulate_twap_snapshot(env: &Env, creator: &Address, price: i128) {
             cumulative = last.cumulative;
         } else {
             let delta_t = (now.saturating_sub(last.timestamp)) as i128;
-            cumulative = last.cumulative.saturating_add(last.price.saturating_mul(delta_t));
+            cumulative = last
+                .cumulative
+                .saturating_add(last.price.saturating_mul(delta_t));
         }
     }
 
@@ -5449,8 +5451,8 @@ fn compute_twap_seconds(env: &Env, creator: &Address, window_seconds: u64) -> Op
             }
         }
         let fwd_delta = (effective_start.saturating_sub(found_timestamp)) as i128;
-        cumulative_at_start = found_cumulative
-            .saturating_add(found_price.saturating_mul(fwd_delta));
+        cumulative_at_start =
+            found_cumulative.saturating_add(found_price.saturating_mul(fwd_delta));
     }
 
     let total_time = (now.saturating_sub(effective_start)) as i128;
@@ -18029,11 +18031,7 @@ impl CreatorKeysContract {
     ///
     /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
     /// - [`ContractError::NotPositiveAmount`] if `size` is `0`.
-    pub fn set_twap_buffer_size(
-        env: Env,
-        admin: Address,
-        size: u32,
-    ) -> Result<(), ContractError> {
+    pub fn set_twap_buffer_size(env: Env, admin: Address, size: u32) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
         if size == 0 {
