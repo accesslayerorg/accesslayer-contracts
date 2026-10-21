@@ -347,6 +347,14 @@
                   "val": {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "updated_at_ledger"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
                 }
               ]
             }

@@ -1250,6 +1250,17 @@ pub mod constants {
         pub fn forwarder_nonce(wallet: &Address) -> DataKey {
             DataKey::ForwarderNonce(wallet.clone())
         }
+        // --- TWAP ring-buffer oracle ---
+        /// Storage key for the TWAP snapshot ring-buffer for `creator`.
+        pub fn twap_snapshot_buffer(creator: &Address) -> DataKey {
+            DataKey::TwapSnapshotBuffer(creator.clone())
+        }
+        /// Storage key for the ring-buffer head (next write slot) for `creator`.
+        pub fn twap_buffer_head(creator: &Address) -> DataKey {
+            DataKey::TwapBufferHead(creator.clone())
+        }
+        /// Storage key for the protocol-wide default ring-buffer capacity.
+        pub const TWAP_BUFFER_SIZE: DataKey = DataKey::TwapBufferSize;
     }
     fn creator_key(creator: &Address) -> DataKey {
         DataKey::Creator(creator.clone())
@@ -2194,6 +2205,14 @@ pub enum DataKey {
     /// admin via `set_trade_limit` (Issue #1100). A value of `0` for either
     /// field means no limit is configured for that direction.
     TradeLimit(Address),
+    // --- TWAP ring-buffer oracle ---
+    /// (creator) -> `Vec<TwapPriceSnapshot>` ring buffer of up to
+    /// `TwapBufferSize` entries; entries are evicted oldest-first when full.
+    TwapSnapshotBuffer(Address),
+    /// (creator) -> index of the next write slot in the ring buffer (`u32`).
+    TwapBufferHead(Address),
+    /// Protocol-wide default ring-buffer capacity (`u32`; default 100).
+    TwapBufferSize,
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
@@ -2207,6 +2226,30 @@ pub struct TradeLimit {
     pub max_buy: u32,
     /// Maximum sell quantity per single swap for this key.
     pub max_sell: u32,
+}
+
+/// A single price snapshot stored on every buy or sell trade.
+///
+/// The ring buffer of these snapshots powers the time-weighted average price
+/// (TWAP) oracle inside the bonding curve contract. `cumulative` is the running
+/// sum of `price_i * delta_t_i` up to and including this snapshot; it is used
+/// by [`CreatorKeysContract::get_twap_seconds`] so the TWAP for an arbitrary
+/// window can be computed with two array lookups rather than a full scan.
+///
+/// Field stability: do not reorder; Soroban XDR serialises struct fields in
+/// declaration order and on-chain data would become unreadable for clients.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TwapPriceSnapshot {
+    /// Unix timestamp (seconds) when the trade that produced this snapshot
+    /// was executed.
+    pub timestamp: u64,
+    /// Bonding-curve spot price (stroops) at the end of the trade.
+    pub price: i128,
+    /// Cumulative `sum(price_i * delta_t_i)` up to and including this
+    /// snapshot.  Used to compute the TWAP for any window in O(1) after a
+    /// binary search.
+    pub cumulative: i128,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -5163,9 +5206,267 @@ fn record_trade_price_snapshot(env: &Env, creator: &Address) {
         if let Ok(price) = compute_bonding_curve_price(env, creator, base_price, profile.supply) {
             record_price_observation(env, creator, price);
             prune_price_history(env, creator);
+            // Push a timestamp-based snapshot into the TWAP ring buffer and
+            // emit the PriceSnapshot event. This single call site covers every
+            // buy and sell path because all of them delegate to
+            // record_trade_price_snapshot after completing their trade logic.
+            accumulate_twap_snapshot(env, creator, price);
         }
     }
 }
+
+// ─── TWAP ring-buffer oracle ────────────────────────────────────────────────
+
+/// Default ring-buffer capacity when none has been configured via
+/// [`CreatorKeysContract::set_twap_buffer_size`].
+pub const DEFAULT_TWAP_BUFFER_SIZE: u32 = 100;
+
+/// Returns the active ring-buffer capacity for the TWAP oracle.
+///
+/// Falls back to [`DEFAULT_TWAP_BUFFER_SIZE`] when the admin has not set an
+/// explicit value. A capacity of `0` is treated the same as the default to
+/// guard against misconfiguration.
+fn twap_buffer_capacity(env: &Env) -> u32 {
+    let cap: u32 = env
+        .storage()
+        .persistent()
+        .get(&constants::storage::TWAP_BUFFER_SIZE)
+        .unwrap_or(DEFAULT_TWAP_BUFFER_SIZE);
+    if cap == 0 {
+        DEFAULT_TWAP_BUFFER_SIZE
+    } else {
+        cap
+    }
+}
+
+/// Reads the TWAP snapshot ring-buffer for `creator`.
+///
+/// Returns an empty `Vec` when no snapshots have been stored yet.
+/// Bumps the persistent TTL on every read so actively polled history never
+/// expires.
+fn read_twap_buffer(env: &Env, creator: &Address) -> Vec<TwapPriceSnapshot> {
+    let key = constants::storage::twap_snapshot_buffer(creator);
+    match env
+        .storage()
+        .persistent()
+        .get::<DataKey, Vec<TwapPriceSnapshot>>(&key)
+    {
+        Some(buf) => {
+            bump_persistent_ttl(env, &key);
+            buf
+        }
+        None => Vec::new(env),
+    }
+}
+
+/// Pushes a new [`TwapPriceSnapshot`] into `creator`'s ring buffer, evicting
+/// the oldest entry when the buffer is full, and persists the result.
+///
+/// The ring buffer is stored as a contiguous `Vec` whose logical head is always
+/// index `0`. When the buffer is at capacity the front element (the oldest
+/// snapshot) is removed before the new one is appended. This keeps the `Vec`
+/// length bounded at `capacity` and the entries in ascending timestamp order,
+/// which is the invariant [`compute_twap_seconds`] relies on.
+fn write_twap_buffer(env: &Env, creator: &Address, snapshot: TwapPriceSnapshot) {
+    let capacity = twap_buffer_capacity(env);
+    let mut buf = read_twap_buffer(env, creator);
+
+    // Evict oldest entry when the buffer is full.
+    if buf.len() >= capacity {
+        buf.remove(0);
+    }
+    buf.push_back(snapshot);
+
+    let key = constants::storage::twap_snapshot_buffer(creator);
+    env.storage().persistent().set(&key, &buf);
+    extend_key_ttl_to_full_window(env, &key);
+}
+
+/// Records a price snapshot for `creator` on every buy or sell trade.
+///
+/// ### Algorithm
+///
+/// 1. Reads the last snapshot from the ring buffer (if any) to compute the
+///    time delta since the previous trade.
+/// 2. Accumulates `cumulative += last_price * delta_t` so the running sum is
+///    always available without a full history scan.
+/// 3. Pushes the new snapshot (timestamp, price, cumulative) into the ring
+///    buffer, evicting the oldest entry when the buffer is full.
+/// 4. Emits a [`events::PriceSnapshotEvent`] carrying the price and the new
+///    cumulative value.
+///
+/// ### Same-timestamp guard
+///
+/// When two trades land in the same ledger (same `env.ledger().timestamp()`),
+/// `delta_t` is zero, so `cumulative` does not advance. The prior entry is
+/// replaced in-place rather than appending a duplicate, which keeps the buffer
+/// capacity correctly bounded.
+fn accumulate_twap_snapshot(env: &Env, creator: &Address, price: i128) {
+    let now = env.ledger().timestamp();
+    let buf = read_twap_buffer(env, creator);
+
+    let cumulative: i128;
+    let replace_last = !buf.is_empty() && buf.last().unwrap().timestamp == now;
+
+    if buf.is_empty() {
+        // First ever snapshot: cumulative starts at zero.
+        cumulative = 0;
+    } else {
+        let last = buf.last().unwrap();
+        if last.timestamp == now {
+            // Same-ledger trade: reuse the prior cumulative so time is not
+            // inflated by wash trades within the same block.
+            cumulative = last.cumulative;
+        } else {
+            let delta_t = (now.saturating_sub(last.timestamp)) as i128;
+            cumulative = last.cumulative.saturating_add(last.price.saturating_mul(delta_t));
+        }
+    }
+
+    let snapshot = TwapPriceSnapshot {
+        timestamp: now,
+        price,
+        cumulative,
+    };
+
+    if replace_last {
+        // Replace the tail entry rather than pushing a duplicate timestamp.
+        let capacity = twap_buffer_capacity(env);
+        let mut buf = read_twap_buffer(env, creator);
+        let last_idx = buf.len() - 1;
+        buf.set(last_idx, snapshot.clone());
+        // Enforce capacity: evict oldest when full (should not happen on a
+        // replace, but guard defensively).
+        while buf.len() > capacity {
+            buf.remove(0);
+        }
+        let key = constants::storage::twap_snapshot_buffer(creator);
+        env.storage().persistent().set(&key, &buf);
+        extend_key_ttl_to_full_window(env, &key);
+    } else {
+        write_twap_buffer(env, creator, snapshot.clone());
+    }
+
+    env.events().publish(
+        events::price_snapshot_topics(creator),
+        events::PriceSnapshotEvent {
+            creator_id: creator.clone(),
+            price,
+            cumulative,
+            timestamp: now,
+            ledger: env.ledger().sequence(),
+        },
+    );
+}
+
+/// Computes the time-weighted average price for `creator` over the last
+/// `window_seconds` seconds using the snapshot ring buffer.
+///
+/// ### TWAP formula
+///
+/// ```text
+/// TWAP = sum(price_i * delta_t_i) / total_window_time
+/// ```
+///
+/// where `delta_t_i` is the number of seconds snapshot `i` was the active
+/// price before it was superseded by snapshot `i+1`, and `total_window_time`
+/// is the elapsed seconds within the requested window that are covered by
+/// observations.
+///
+/// ### Window clamping
+///
+/// When `window_seconds` exceeds the age of the oldest stored snapshot, the
+/// TWAP is computed over the full available history. When fewer than two
+/// snapshots exist, the single stored price (or `0`) is returned directly.
+///
+/// ### Returns
+///
+/// `None` when no snapshots have been stored yet.
+fn compute_twap_seconds(env: &Env, creator: &Address, window_seconds: u64) -> Option<i128> {
+    let buf = read_twap_buffer(env, creator);
+    if buf.is_empty() {
+        return None;
+    }
+
+    let now = env.ledger().timestamp();
+    let latest = buf.last().unwrap();
+
+    // With only one snapshot there is no time delta — return that price directly.
+    if buf.len() == 1 {
+        return Some(latest.price);
+    }
+
+    // Clamp window to the full available history when the request exceeds it.
+    let oldest = buf.get(0).unwrap();
+    let effective_window = if window_seconds == 0 {
+        return Some(latest.price);
+    } else {
+        window_seconds
+    };
+
+    let window_start = now.saturating_sub(effective_window);
+    // Clamp: if the window start is before the oldest snapshot we have, use
+    // the oldest snapshot as the effective start.
+    let effective_start = if window_start < oldest.timestamp {
+        oldest.timestamp
+    } else {
+        window_start
+    };
+
+    // Compute the cumulative price-time at `now` by extending the last snapshot
+    // forward to the current time.
+    let tail_delta = (now.saturating_sub(latest.timestamp)) as i128;
+    let cumulative_now = latest
+        .cumulative
+        .saturating_add(latest.price.saturating_mul(tail_delta));
+
+    // Find the cumulative price-time at `effective_start` by scanning the buffer
+    // for the snapshot immediately at or before that timestamp.
+    let cumulative_at_start: i128;
+    let first = buf.get(0).unwrap();
+
+    if effective_start <= first.timestamp {
+        // The window starts at or before the very first snapshot. Back-project
+        // from the first snapshot using its own price.
+        let back_delta = (first.timestamp.saturating_sub(effective_start)) as i128;
+        cumulative_at_start = first
+            .cumulative
+            .saturating_sub(first.price.saturating_mul(back_delta));
+    } else {
+        // Walk from the end: find the last snapshot whose timestamp <= effective_start.
+        let mut found_cumulative = first.cumulative;
+        let mut found_timestamp = first.timestamp;
+        let mut found_price = first.price;
+
+        for i in 0..buf.len() {
+            let snap = buf.get(i).unwrap();
+            if snap.timestamp <= effective_start {
+                found_cumulative = snap.cumulative;
+                found_timestamp = snap.timestamp;
+                found_price = snap.price;
+            } else {
+                break;
+            }
+        }
+        let fwd_delta = (effective_start.saturating_sub(found_timestamp)) as i128;
+        cumulative_at_start = found_cumulative
+            .saturating_add(found_price.saturating_mul(fwd_delta));
+    }
+
+    let total_time = (now.saturating_sub(effective_start)) as i128;
+    if total_time <= 0 {
+        return Some(latest.price);
+    }
+
+    let twap = cumulative_now
+        .saturating_sub(cumulative_at_start)
+        .checked_div(total_time)
+        .unwrap_or(latest.price);
+
+    Some(twap)
+}
+
+// ─── end TWAP ring-buffer oracle ────────────────────────────────────────────
 
 /// Computes the time-weighted average price for `creator` over
 /// `window_ledgers` ledgers ending at the current ledger.
@@ -17712,6 +18013,80 @@ impl CreatorKeysContract {
     /// Read-only view: number of price snapshots currently stored for `creator`.
     pub fn get_price_snapshot_count(env: Env, creator: Address) -> u32 {
         read_price_history(&env, &creator).len()
+    }
+
+    // ── TWAP ring-buffer oracle — public entrypoints ──────────────────────
+
+    /// Sets the protocol-wide TWAP snapshot ring-buffer capacity (admin-only).
+    ///
+    /// Every creator's snapshot buffer will be capped to `size` entries after
+    /// this call. New entries evict the oldest when the buffer is full.
+    ///
+    /// - The default capacity is [`DEFAULT_TWAP_BUFFER_SIZE`] (100).
+    /// - A `size` of `0` is rejected with [`ContractError::NotPositiveAmount`].
+    ///
+    /// # Errors
+    ///
+    /// - [`ContractError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`ContractError::NotPositiveAmount`] if `size` is `0`.
+    pub fn set_twap_buffer_size(
+        env: Env,
+        admin: Address,
+        size: u32,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if size == 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        env.storage()
+            .persistent()
+            .set(&constants::storage::TWAP_BUFFER_SIZE, &size);
+        extend_key_ttl_to_full_window(&env, &constants::storage::TWAP_BUFFER_SIZE);
+        Ok(())
+    }
+
+    /// Returns the configured TWAP snapshot ring-buffer capacity, or the
+    /// default ([`DEFAULT_TWAP_BUFFER_SIZE`]) when none has been set.
+    pub fn get_twap_buffer_size(env: Env) -> u32 {
+        twap_buffer_capacity(&env)
+    }
+
+    /// Returns the time-weighted average price for `creator` over the last
+    /// `window_seconds` seconds.
+    ///
+    /// ### TWAP formula
+    ///
+    /// ```text
+    /// TWAP = sum(price_i * delta_t_i) / total_window_time
+    /// ```
+    ///
+    /// where each `price_i` is a bonding-curve spot price recorded at trade
+    /// time and `delta_t_i` is the seconds that price was active before the
+    /// next trade.
+    ///
+    /// ### Window clamping
+    ///
+    /// When `window_seconds` exceeds the age of the oldest stored snapshot,
+    /// the TWAP is computed over the full available history rather than
+    /// returning an error. When fewer than two snapshots exist, the single
+    /// stored price is returned as-is.
+    ///
+    /// ### Returns
+    ///
+    /// `0` when no trades have been recorded yet for `creator`.
+    pub fn get_twap_seconds(env: Env, creator: Address, window_seconds: u64) -> i128 {
+        compute_twap_seconds(&env, &creator, window_seconds).unwrap_or(0)
+    }
+
+    /// Returns all TWAP snapshots currently stored for `creator` (read-only).
+    ///
+    /// Useful for off-chain indexers that want to reconstruct the full
+    /// cumulative price-time series. The buffer is in ascending timestamp order
+    /// and contains at most [`DEFAULT_TWAP_BUFFER_SIZE`] (or the admin-set
+    /// capacity) entries.
+    pub fn get_twap_snapshots(env: Env, creator: Address) -> Vec<TwapPriceSnapshot> {
+        read_twap_buffer(&env, &creator)
     }
 
     /// Adds `caller` to the price-oracle approve allowlist (admin-only).
