@@ -5,7 +5,9 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, register_test_creator, set_key_price_for_tests};
+use contract_test_env::{
+    assert_event, register_creator_keys, register_test_creator, set_key_price_for_tests,
+};
 use creator_keys::constants::storage;
 use creator_keys::events::{self, ttl_extended_topics};
 use creator_keys::CREATOR_TTL_LEDGERS;
@@ -124,9 +126,24 @@ fn test_ttl_extension_event_topics_and_payload() {
     let topic1: Address = topics.get(1).unwrap().into_val(&env);
     assert_eq!(topic1, creator);
 
-    let extend_to: u32 = data.into_val(&env);
+    let payload: events::TtlExtendedEvent = data.into_val(&env);
     let expected_extend_to = ledger_before_buy + CREATOR_TTL_LEDGERS;
-    assert_eq!(extend_to, expected_extend_to);
+    assert_eq!(payload.creator_id, creator);
+    assert_eq!(payload.extended_at_ledger, ledger_before_buy);
+    assert_eq!(payload.new_expiry_ledger, expected_extend_to);
+
+    // Verify using shared assert_event helper (#573)
+    let expected_event = events::TtlExtendedEvent {
+        creator_id: creator.clone(),
+        extended_at_ledger: ledger_before_buy,
+        new_expiry_ledger: expected_extend_to,
+    };
+    assert_event(
+        &env,
+        &contract_id,
+        events::TTL_EXTENDED_EVENT_NAME,
+        &expected_event,
+    );
 }
 
 /// Second buy on the same ledger does NOT further extend TTL
