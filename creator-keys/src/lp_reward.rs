@@ -3,9 +3,15 @@ use soroban_sdk::{contracterror, contracttype, symbol_short, Address, Env, Symbo
 pub const SCALE: i128 = 1_000_000_000_000; // 1e12 for fixed-point fee accumulator
 pub const BPS_SCALE: i128 = 10_000;
 
+/// Minimum reward rate a creator may set (1 bps = 0.01%).
+pub const MIN_REWARD_RATE_BPS: u32 = 1;
+/// Maximum reward rate a creator may set (5000 bps = 50%).
+pub const MAX_REWARD_RATE_BPS: u32 = 5_000;
+
 pub const LP_ADDED_EVENT_NAME: Symbol = symbol_short!("LPAdded");
 pub const LP_CLAIMED_EVENT_NAME: Symbol = symbol_short!("lp_claim");
 pub const LP_REMOVED_EVENT_NAME: Symbol = symbol_short!("lp_rem");
+pub const LP_RATE_UPDATED_EVENT_NAME: Symbol = symbol_short!("lp_rate");
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -18,6 +24,7 @@ pub enum LpRewardError {
     ZeroLiquidityPool = 5,
     PositionAlreadyClosed = 6,
     ArithmeticOverflow = 7,
+    RateOutOfBounds = 8,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -83,6 +90,30 @@ pub struct LPRemoved {
     pub total_returned: i128,
 }
 
+/// Emitted when a creator updates the reward rate for their pool.
+///
+/// Event shape:
+/// - topics: `(LP_RATE_UPDATED_EVENT_NAME, key_id)`
+/// - data: `RewardRateUpdated`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RewardRateUpdated {
+    pub key_id: Address,
+    pub old_rate_bps: u32,
+    pub new_rate_bps: u32,
+    pub updated_at: u64,
+}
+
+/// Per-pool reward rate configuration set by the creator.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RewardRate {
+    /// Rate in basis points.
+    pub rate_bps: u32,
+    /// Ledger timestamp (seconds) at which this rate last changed.
+    pub updated_at: u64,
+}
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -90,6 +121,7 @@ pub enum DataKey {
     Position(u64),
     Pool(Address),
     TotalPositions,
+    RewardRate(Address),
 }
 
 fn read_next_lp_id(env: &Env) -> u64 {
@@ -420,4 +452,72 @@ pub fn get_lp_count(env: &Env) -> u64 {
         .persistent()
         .get(&DataKey::TotalPositions)
         .unwrap_or(0)
+}
+
+fn read_reward_rate(env: &Env, key_id: &Address) -> RewardRate {
+    env.storage()
+        .persistent()
+        .get(&DataKey::RewardRate(key_id.clone()))
+        .unwrap_or(RewardRate {
+            rate_bps: 0,
+            updated_at: 0,
+        })
+}
+
+fn write_reward_rate(env: &Env, key_id: &Address, rate: &RewardRate) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::RewardRate(key_id.clone()), rate);
+}
+
+/// Updates the reward rate for `key_id`'s LP pool.
+///
+/// Restricted to the creator that owns `key_id`. Rate changes apply only to
+/// future fee accruals — existing positions' `reward_debt` snapshots are
+/// unaffected, so past earnings remain unchanged.
+///
+/// `new_rate_bps` must be within [`MIN_REWARD_RATE_BPS`]..=[`MAX_REWARD_RATE_BPS`].
+pub fn set_reward_rate(
+    env: &Env,
+    key_id: Address,
+    caller: Address,
+    new_rate_bps: u32,
+) -> Result<(), LpRewardError> {
+    caller.require_auth();
+
+    if !(MIN_REWARD_RATE_BPS..=MAX_REWARD_RATE_BPS).contains(&new_rate_bps) {
+        return Err(LpRewardError::RateOutOfBounds);
+    }
+
+    let current = read_reward_rate(env, &key_id);
+    let old_rate_bps = current.rate_bps;
+    let updated_at = env.ledger().timestamp();
+
+    write_reward_rate(
+        env,
+        &key_id,
+        &RewardRate {
+            rate_bps: new_rate_bps,
+            updated_at,
+        },
+    );
+
+    env.events().publish(
+        (LP_RATE_UPDATED_EVENT_NAME, key_id.clone()),
+        RewardRateUpdated {
+            key_id,
+            old_rate_bps,
+            new_rate_bps,
+            updated_at,
+        },
+    );
+
+    Ok(())
+}
+
+/// Returns the current reward rate and the timestamp at which it was last set.
+///
+/// Returns a zeroed `RewardRate` when no rate has been configured yet.
+pub fn get_reward_rate(env: &Env, key_id: Address) -> RewardRate {
+    read_reward_rate(env, &key_id)
 }

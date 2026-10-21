@@ -46,6 +46,7 @@ pub enum DataKey {
 | `LastAppliedWasm`              | Global             | `BytesN<32>`     | WASM hash applied by the most recent timelocked upgrade    |
 | `PreviousWasm`                 | Global             | `BytesN<32>`     | WASM hash in effect immediately before `LastAppliedWasm`   |
 | `UpgradeApprovalVote(Address, u32)` | Per-action    | `bool`           | One admin's multi-sig approval vote for upgrade `action_id` |
+| `RewardRate(Address)`          | Per-pool           | `RewardRate`     | Stores creator-configured LP reward rate and updated_at timestamp |
 
 ### Timelocked Upgrade Storage-Key Notes
 
@@ -71,8 +72,11 @@ pub enum DataKey {
 | ----- | ----------- | -------------- | --------------- |
 | Protocol fee split (`creator_bps`, `protocol_bps`) | `DataKey::FeeConfig` (`constants::storage::FEE_CONFIG`) | `get_fee_config`, `get_protocol_fee_view`, `get_creator_fee_bps`, `get_creator_treasury_share`, quote methods through shared readers | `set_fee_config` (admin-auth only) |
 | Protocol fee recipient | `DataKey::ProtocolFeeRecipient` (`constants::storage::PROTOCOL_FEE_RECIPIENT`) | `get_protocol_fee_recipient` | `set_protocol_fee_recipient` (admin-auth only) |
+| Graduated milestone fee reduction (#1076) | `DataKey::KeyMilestones(Address)` (`constants::storage::key_milestones`) | `get_current_milestone`, `check_and_apply_milestone` | `set_milestones` (admin-auth only) writes the configured tiers; `check_and_apply_milestone` writes the applied tier only when a newly reached tier lowers the fee |
 
 `set_fee_config` uses the shared `fee::assert_valid_fee_bps` guard to keep key writes aligned with the current constants (`BPS_MAX = 10_000`, `PROTOCOL_BPS_MAX = 5_000`) before persisting the config.
+
+**Storage layout / backward compatibility**: `DataKey::KeyMilestones(Address)` is an additive `DataKey` variant appended at the end, so all existing variant discriminants are unchanged. No existing key is read or modified, and no migration is required in either direction.
 
 ### Price Alert Storage-Key Notes
 
@@ -93,6 +97,42 @@ Price alerts (issue #1030) use their own `PriceAlertDataKey` enum in [`creator-k
 - A trade that reads `KeyAlerts` extends its TTL, so a key that keeps trading keeps its alerts live.
 
 **Storage layout / backward compatibility**: the keys are new and additive. No existing key is read or changed, so no migration is needed in either direction.
+
+### LP Reward Rate Storage-Key Notes
+
+LP reward rate management (issue #1032) uses `DataKey::RewardRate(Address)` in [`creator-keys/src/lp_reward.rs`](../creator-keys/src/lp_reward.rs).
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| LP reward rate (`rate_bps`, `updated_at`) | `lp_reward::DataKey::RewardRate(key_id)` | `RewardRate` | `get_reward_rate`, `set_reward_rate` | `set_reward_rate` (creator-auth only) |
+
+**Invariants**:
+
+- `RewardRate(key_id)` stores the configured reward rate in basis points (`1..=5000`) and the ledger timestamp of the update.
+- Unset pools return zero defaults (`rate_bps = 0`, `updated_at = 0`) before any rate is set.
+- Rate changes are prospective only; existing positions' `reward_debt` snapshots remain untouched.
+
+**Storage layout / backward compatibility**: `DataKey::RewardRate(Address)` is an additive storage key with a zero default. No existing storage key is read or modified, and no migration is required.
+
+### Key Ownership Handover Storage-Key Notes (#1098)
+
+Key ownership handover (issue #1098) uses its own `OwnershipDataKey` enum in [`creator-keys/src/key_ownership_transfer.rs`](../creator-keys/src/key_ownership_transfer.rs), like the other feature modules. All entries are persistent and extended to the full `CREATOR_TTL_LEDGERS` window on write.
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| Wallet that currently manages a key | `OwnershipDataKey::Owner(key_id)` | `Address` (absent = `key_id`, the registered creator) | `get_key_owner`, and the owner checks in `propose_transfer` / `cancel_transfer` / `execute_transfer` | `execute_transfer` |
+| A proposal record | `OwnershipDataKey::Proposal(proposal_id)` | `OwnershipTransferProposal` | `get_transfer_proposal`, `accept_transfer`, `execute_transfer`, `cancel_transfer` | `propose_transfer`, `accept_transfer` write; `execute_transfer` and `cancel_transfer` delete |
+| The key's single live proposal | `OwnershipDataKey::ActiveProposal(key_id)` | `u32` proposal id | `propose_transfer` | `propose_transfer` writes; `execute_transfer` and `cancel_transfer` delete |
+| Next proposal id to issue | `OwnershipDataKey::NextProposalId` | `u32` (ids start at `0`) | `propose_transfer` | `propose_transfer` |
+
+**Invariants**:
+
+- `Owner(key_id)` is absent until a handover executes, so every pre-existing reader that treats the registered creator as the owner keeps seeing `key_id` itself. It only ever changes through `execute_transfer`.
+- At most one live proposal exists per key: `ActiveProposal(key_id)` is written with every proposal and cleared on execution or cancellation, so a stale proposal can never execute over a newer one. A proposal whose 48h window passed without acceptance is dropped and replaced by the next `propose_transfer` for that key.
+- `Proposal(proposal_id)` is deleted on both execution and cancellation, so ids are never reused against live state and `get_transfer_proposal` reports `TransferProposalNotFound` for consumed ids.
+- Proposal ids are globally sequential and monotonic (`NextProposalId`), independent of `key_id`, so two keys never share a proposal id.
+
+**Storage layout / backward compatibility**: the keys are new and additive and live outside `DataKey`, so no existing key is read or changed and no migration is needed in either direction.
 
 ## Storage Invariants
 
