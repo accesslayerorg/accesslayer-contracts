@@ -76,9 +76,13 @@ distinguishable from other key types.
 | `RetentionPolicy` | Global | `RetentionPolicy` | `set_retention_policy` (admin) | `read_retention_policy`, `get_retention_policy` |
 | `CreatorTtlLiveUntil(Address)` | Per-creator | `u32` | `register_creator` (initial write), `extend_creator_ttl` (updated after every trade) | `extend_creator_ttl` (TTL-extension event gate) |
 | `ProtocolFeeBps` | Global | `u32` (basis points, default 100 = 1%) | `set_protocol_fee` (admin) | `collect_protocol_trade_fee`, `compute_trade_fee`, `get_protocol_trade_fee` |
+| Dynamic fee brackets | Global module storage | `Vec<VolumeBracket>` | `set_volume_brackets` (admin) | `get_volume_brackets`, `get_current_fee_bps`, swap fee collection |
+| Key volume buckets | Per-key module storage | At most 289 `(bucket_start, volume)` entries | Successful buy/sell fee collection | Fee queries and successful buy/sell fee collection |
+| Last observed key fee | Per-key module storage | `u32` | Fee transition detection | Successful buy/sell fee collection |
 | `HolderCapBps(Address)` | Per-creator | `u32` (basis points, 1%–25%) | `set_holder_cap` (creator), `update_holder_cap` (creator, tighten only) | `buy_key` (cap enforcement), `get_holder_cap` |
 | `LastBuyTimestamp(Address, Address)` | Per-creator-holder (composite) | `u64` (ledger timestamp) | `buy_key` (updated on every purchase) | `sell_key` (lockup enforcement) |
 | `LockupDurationSecs` | Global | `u64` (seconds, default 86400 = 24h) | `set_lockup_duration` (admin) | `sell_key` (lockup enforcement), `get_lockup_duration` |
+| `InvestorLockup(Address, Address)` | Per-wallet-key (composite) | `u64` (absolute unlock timestamp) | `create_lockup` (wallet-authorized investment flow) | `check_lockup`, sell paths (`swap`, `sell_key`, `batch_sell`, `batch_sell_v2`), `emergency_unlock` (admin) |
 
 > **Note:** `CreatorVolume(Address)` is read by `get_creator_volume` but has no
 > writer in the current implementation, so it always resolves to its `0`
