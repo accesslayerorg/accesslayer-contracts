@@ -12,7 +12,7 @@ use creator_keys::{
     },
     ContractError,
 };
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::Address as _, vec, Address, Env, IntoVal, Symbol};
 
 const START_TS: u64 = 1_700_000_000;
 
@@ -91,18 +91,46 @@ fn creator_can_cancel_a_pending_curve_update() {
 
 #[test]
 fn proposal_rejects_unregistered_keys_and_invalid_parameters() {
-    let (env, client, _contract_id, creator) = setup();
+    let (env, _client, contract_id, creator) = setup();
     let unknown_key = Address::generate(&env);
+    // Exercise contract errors without relying on generated try-client wrappers.
     assert_eq!(
-        client.try_propose_curve_update(&unknown_key, &1, &100),
+        env.try_invoke_contract::<u32, ContractError>(
+            &contract_id,
+            &Symbol::new(&env, "propose_curve_update"),
+            vec![
+                &env,
+                unknown_key.into_val(&env),
+                1_i128.into_val(&env),
+                100_i128.into_val(&env),
+            ],
+        ),
         Err(Ok(ContractError::NotRegistered))
     );
     assert_eq!(
-        client.try_propose_curve_update(&creator, &-1, &100),
+        env.try_invoke_contract::<u32, ContractError>(
+            &contract_id,
+            &Symbol::new(&env, "propose_curve_update"),
+            vec![
+                &env,
+                creator.clone().into_val(&env),
+                (-1_i128).into_val(&env),
+                100_i128.into_val(&env),
+            ],
+        ),
         Err(Ok(ContractError::NotPositiveAmount))
     );
     assert_eq!(
-        client.try_propose_curve_update(&creator, &1, &0),
+        env.try_invoke_contract::<u32, ContractError>(
+            &contract_id,
+            &Symbol::new(&env, "propose_curve_update"),
+            vec![
+                &env,
+                creator.into_val(&env),
+                1_i128.into_val(&env),
+                0_i128.into_val(&env),
+            ],
+        ),
         Err(Ok(ContractError::NotPositiveAmount))
     );
 }
