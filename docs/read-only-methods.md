@@ -91,11 +91,27 @@ The following invariants are guaranteed for successful quote responses:
 
 ### Units and Precision
 - All monetary values are raw `i128` integers in the base unit (stroops or protocol-defined).
-- No on-chain decimal scaling is performed. Callers should use `get_key_decimals()` for display formatting.
 
----
+## Dynamic Fee Methods
 
-## Aggregated key stats
+### `get_current_fee_bps(key_id: Address) → Result<u32, ContractError>`
+
+Returns the fee in basis points selected for a registered key from its rolling
+24-hour gross volume. It does not write buckets or emit events. Unknown keys
+return `NotRegistered`. Default tiers and 5-minute bucket boundary behavior
+are described in [fee-assumptions.md](./fee-assumptions.md).
+
+### `get_key_rolling_volume(key_id: Address) → Result<i128, ContractError>`
+
+Returns the key's current rolling gross trade volume in raw curve-price base
+units. Expired buckets are ignored without being deleted, so this is read-only.
+
+### `get_volume_brackets() → Vec<VolumeBracket>`
+
+Returns configured brackets, or the default three brackets when none have
+been stored.
+
+## Aggregated Key Stats
 
 ### `get_key_stats(key_id: Address) → Result<KeyStatsView, ContractError>`
 
@@ -140,13 +156,7 @@ Returns the current total supply of keys for `creator`.
 
 - Returns `0` for unregistered creators (no panic).
 - Precision: integer key count; no decimals at the supply level.
-- Equivalent to `read_key_balance` helper output.
 
----
-
-### `get_creator_supply(creator: Address) → Result<u32, ContractError>`
-
-Returns the supply for a registered creator.
 
 - Returns `Err(ContractError::NotRegistered)` for unknown creators — use `get_total_key_supply` if you need a zero-safe fallback.
 
@@ -194,13 +204,7 @@ Returns the number of distinct addresses holding at least one key for `creator`.
 - Decrements when a holder sells their last key.
 
 ---
-
-## Creator profile methods
-
-### `get_creator(creator: Address) → Result<CreatorProfile, ContractError>`
-
 Returns the full profile for a registered creator.
-
 - Returns `Err(ContractError::NotRegistered)` for unregistered creators.
 - `CreatorProfile.supply` equals `get_total_key_supply` output.
 
@@ -248,13 +252,7 @@ Returns `true` if a creator profile exists for `creator`, `false` otherwise.
 ---
 
 ## Fee configuration methods
-
-### `get_protocol_fee_view(env: Env) → ProtocolFeeView`
-
-Returns a non-optional protocol fee configuration snapshot.
-
 | Field | Type | Semantics |
-|---|---|---|
 | `creator_bps` | `u32` | Creator share in basis points (`0–10000`). |
 | `protocol_bps` | `u32` | Protocol share in basis points. |
 | `is_configured` | `bool` | `true` once `set_fee_config` has been called. |
@@ -508,8 +506,26 @@ Returns the current reward rate and the timestamp at which it was last set for `
 
 ---
 
+## Liquidity depth read methods (#1133)
+
+### `get_depth(key_id: Address, levels: u32) → LiquidityDepth`
+
+Returns the top `levels` bid and ask price levels with individual and cumulative volume for `key_id`.
+
+- `bids`: Sorted descending (highest bid price first).
+- `asks`: Sorted ascending (lowest ask price first).
+- `cumulative_volume`: Monotonically increasing sum of volume from the top of the book down to that level.
+- When `levels == 0` or no depth exists for `key_id`, returns empty vectors for both bids and asks.
+
+### `get_price_level_volume(key_id: Address, price: i128, side: OrderSide) → i128`
+
+Returns the active volume at a specific price level for `key_id` and `side`. Returns `0` if no volume exists at that level.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.
 
 Basis points fields (`creator_bps`, `protocol_bps`) are in units of `1/10000` (e.g., `1000` = 10%). The sum `creator_bps + protocol_bps` always equals `10000` when a valid fee config is stored.
+

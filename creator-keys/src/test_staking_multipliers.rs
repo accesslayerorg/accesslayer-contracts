@@ -2,8 +2,8 @@ use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{Address, Env, String, Vec};
 
 use crate::{
-    ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
-    StakingError, StakingMultiplierTier,
+    dynamic_fees::VolumeBracket, ContractError, CreatorKeysContract, CreatorKeysContractClient,
+    RegisterCreatorParams, StakingError, StakingMultiplierTier,
 };
 
 fn setup() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
@@ -18,6 +18,16 @@ fn setup() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     client.set_key_price(&admin, &10_000);
     client.set_fee_config(&admin, &10_000, &0);
     client.set_protocol_fee(&admin, &Some(1_000), &treasury);
+    client.set_volume_brackets(
+        &admin,
+        &soroban_sdk::vec![
+            &env,
+            VolumeBracket {
+                min_volume: 0,
+                fee_bps: 1_000,
+            },
+        ],
+    );
     client.register_creator(
         &RegisterCreatorParams {
             creator: creator.clone(),

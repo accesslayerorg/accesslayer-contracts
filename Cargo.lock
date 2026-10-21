@@ -151,6 +151,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "auto-invest-registry"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -679,6 +686,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "holder-rewards"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -784,6 +798,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "key-analytics"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "key-liquidity-depth"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "key-staking-contract"
 version = "0.1.0"
 dependencies = [
@@ -792,6 +820,13 @@ dependencies = [
 
 [[package]]
 name = "launch-auction"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "leaderboard-contract"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
@@ -1025,6 +1060,13 @@ dependencies = [
 
 [[package]]
 name = "referral-contract"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "reserve-contract"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
