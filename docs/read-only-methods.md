@@ -8,6 +8,21 @@ For fee split math, see [fee-assumptions.md](./fee-assumptions.md). For integrat
 
 ## Quote methods
 
+### `query_price(creator: Address, supply: u64) → Result<i128, ContractError>`
+
+Pure read-only helper that computes the bonding curve price at any given supply step without mutating contract state or requiring authentication (#552).
+
+- **Returns**: Expected price in stroops for the given supply step, matching the exact value the buy function computes for that step (`base_price + slope * supply`).
+- **Authorization**: None required (public read-only query).
+- **Edge cases**:
+  - `supply == 0`: returns the base key price.
+  - `supply == 1`: returns `base_price + slope * 1`.
+  - Mid-range supply (e.g. `supply == 50`): returns `base_price + slope * 50`.
+  - Returns `Err(ContractError::KeyPriceNotSet)` if no key price has been configured.
+  - Returns `Err(ContractError::Overflow)` if supply exceeds `u32::MAX` or calculation overflows.
+
+---
+
 ### `get_buy_quote(creator: Address) → Result<QuoteResponse, ContractError>`
 
 Returns the current quote for purchasing one key for a creator.
@@ -506,41 +521,20 @@ Returns the current reward rate and the timestamp at which it was last set for `
 
 ---
 
-## Vote delegation read methods
+## Liquidity depth read methods (#1133)
 
-### `get_voting_weight(wallet: Address, key_id: Address) → u32`
+### `get_depth(key_id: Address, levels: u32) → LiquidityDepth`
 
-Returns the effective voting weight of `wallet` for `key_id` governance polls.
+Returns the top `levels` bid and ask price levels with individual and cumulative volume for `key_id`.
 
-- If `wallet` has delegated its votes on `key_id`, its direct weight is zero (`0`).
-- If `wallet` has not delegated, its weight equals its own liquid key balance (`get_key_balance(key_id, wallet)`) plus the sum of all keys held by active delegators who have assigned their voting weight to `wallet`.
-- Dynamic balance tracking: delegators' keys remain in the delegator's wallet. If a delegator buys, sells, or transfers keys, `get_voting_weight` dynamically reflects the delegator's current balance without requiring re-delegation.
-- If a delegator's balance drops to 0, delegation is automatically pruned during `sell_key` / `transfer_keys`.
+- `bids`: Sorted descending (highest bid price first).
+- `asks`: Sorted ascending (lowest ask price first).
+- `cumulative_volume`: Monotonically increasing sum of volume from the top of the book down to that level.
+- When `levels == 0` or no depth exists for `key_id`, returns empty vectors for both bids and asks.
 
-**Edge cases:**
-- Returns `0` if `wallet` holds 0 keys and has received no delegations.
-- Returns `0` if `wallet` holds keys but has an active delegation to another wallet.
-- Never panics and requires no authorization.
+### `get_price_level_volume(key_id: Address, price: i128, side: OrderSide) → i128`
 
----
-
-### `get_vote_delegate(holder: Address, key_id: Address) → Option<Address>`
-
-Returns the address of the proxy delegate currently assigned to vote on behalf of `holder` for `key_id`.
-
-**Edge cases:**
-- Returns `None` if `holder` has no active vote delegation for `key_id`.
-- Never panics and requires no authorization.
-
----
-
-### `get_vote_delegators(delegate: Address, key_id: Address) → Vec<Address>`
-
-Returns a list of all wallet addresses that have currently delegated their voting rights for `key_id` to `delegate`.
-
-**Edge cases:**
-- Returns an empty vector if no wallets have delegated to `delegate` for `key_id`.
-- Never panics and requires no authorization.
+Returns the active volume at a specific price level for `key_id` and `side`. Returns `0` if no volume exists at that level.
 
 ---
 

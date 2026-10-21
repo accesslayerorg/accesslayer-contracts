@@ -122,6 +122,17 @@ was renumbered, reordered, or reused. Vote delegation (Issue #1116) reuses
 `PollError::Unauthorized` (32) in governance voting when a delegator attempts
 to vote directly.
 
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `138` | `ParityDeviationExceeded` | The two sides of an atomic swap deviate in value by more than the caller's tolerance | Triggered in [`atomic_swap`](../creator-keys/src/lib.rs) when the two sides' values differ by more than `max_parity_deviation_bps` basis points of the larger side; a tolerance of `0` requires an exact match. |
+
+**Backward compatibility for 138**: this code is appended after the previously
+highest code (`137`, `InvalidPollOption`). No existing variant was renumbered,
+reordered, or reused. The atomic-swap guard reuses existing codes where they
+already describe the failure: `SelfTransfer` (26) when both legs name the same
+key, `ZeroTransferAmount` (27) for a zero-quantity leg, and `Overflow` (3) on
+value arithmetic.
+
 ---
 
 ## `PollError` Reference (Governance Polls)
