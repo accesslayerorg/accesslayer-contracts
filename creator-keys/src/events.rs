@@ -4254,6 +4254,46 @@ pub fn curve_reset_topics(creator: &Address) -> (Symbol, Address) {
     (CURVE_RESET_EVENT_NAME, creator.clone())
 }
 
+pub const CURVE_UPDATE_PROPOSED_EVENT_NAME: Symbol = symbol_short!("crv_prop");
+pub const CURVE_UPDATE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("crv_exec");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveUpdateProposedEvent {
+    pub proposal_id: u32,
+    pub creator: Address,
+    pub new_slope: i128,
+    pub new_intercept: i128,
+    pub eta: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveUpdateExecutedEvent {
+    pub proposal_id: u32,
+    pub creator: Address,
+    pub old_slope: i128,
+    pub old_intercept: i128,
+    pub new_slope: i128,
+    pub new_intercept: i128,
+}
+
+pub fn curve_update_proposed_topics(creator: &Address, proposal_id: u32) -> (Symbol, Address, u32) {
+    (
+        CURVE_UPDATE_PROPOSED_EVENT_NAME,
+        creator.clone(),
+        proposal_id,
+    )
+}
+
+pub fn curve_update_executed_topics(creator: &Address, proposal_id: u32) -> (Symbol, Address, u32) {
+    (
+        CURVE_UPDATE_EXECUTED_EVENT_NAME,
+        creator.clone(),
+        proposal_id,
+    )
+}
+
 // --- Key rating ---
 
 /// Event name for a key rating submission.
