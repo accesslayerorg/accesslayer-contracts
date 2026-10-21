@@ -18,6 +18,10 @@ price(supply) = KEY_PRICE
 
 This is the simplest bonding curve shape — a horizontal line. It is the intended starting model and may be replaced with a supply-sensitive curve in a future version.
 
+### Pure Price Query Helper (#552)
+
+To predict prices off-chain or in simulation without mutating contract state or requiring admin authorization, the contract provides `query_price(creator: Address, supply: u64) -> Result<i128, ContractError>`. It computes the exact bonding curve price for a given supply step using the formula `base_price + slope * supply`.
+
 ---
 
 ## Inputs

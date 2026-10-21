@@ -71,11 +71,10 @@ intentionally unassigned.
 | `116` | `AnnouncementRecordMissing` | An announcement index points to a record that is no longer available | Triggered when an announcement page references an absent record in stored pagination state. |
 | `117` | `LockupActive` | The wallet's keys are still inside an investor lock-up window | Triggered by `swap`, `sell_key`, `batch_sell`, or `batch_sell_v2` before the stored `unlock_timestamp`; call `check_lockup` for remaining seconds. |
 | `118` | `LockupNotFound` | No investor lock-up exists for the wallet and key | Triggered by `emergency_unlock` when no lock-up entry exists. |
-
-**Backward compatibility for 107-118**: these codes
+**Backward compatibility for 107-118**: these twelve codes
 are appended after the previously highest code (`106`, `CapTooLow`). Codes
 `115` and `116` are reserved for announcement errors; investor lock-up errors
-use `117` and `118` to avoid collisions. No existing variant was renumbered,
+use `117` and `118`. No existing variant was renumbered,
 reordered, or reused. `register_alert` reports an unregistered key with
 `NotRegistered` (2) and a non-positive target price with `NotPositiveAmount`
 (6).
@@ -96,6 +95,43 @@ unregistered key, `SelfTransfer` (26) for a handover to the wallet that already
 manages the key, `Unauthorized` (18) for a caller that is not the current owner,
 `TimelockNotElapsed` (74) for execution before the 24h timelock, and `Overflow`
 (3) on timestamp arithmetic.
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `124` | `NoDeprecationProposed` | No notice-period deprecation has been proposed for the supplied key | Triggered when attempting to execute or query deprecation for a key without a proposed notice period. |
+| `125` | `DeprecationAlreadyProposed` | A notice-period deprecation has already been proposed for the supplied key | Triggered when proposing key deprecation on a key that already has an active deprecation notice. |
+| `126` | `DeprecationNoticePeriodActive` | Key deprecation execution was attempted before the notice period elapsed | Triggered in `execute_deprecation` when the current timestamp is earlier than the end of the notice period. |
+| `127` | `InvalidNoticePeriod` | The notice period in days is invalid (zero or above protocol ceiling) | Triggered when proposing deprecation with an out-of-range notice period. |
+| `128` | `DeprecationAlreadyExecuted` | The key's notice-period deprecation has already been executed | Triggered when attempting an operation on a key whose notice-period deprecation has already finalised. |
+
+**Backward compatibility for 124-128**: these codes are appended after the
+previously highest code (`123`, `TransferAlreadyAccepted`). No existing variant
+was renumbered, reordered, or reused.
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `129` | `SelfDelegation` | Attempted vote delegation to self | Triggered by `delegate_votes` when `holder == delegate_wallet`. |
+| `130` | `AlreadyDelegated` | Key already has an active vote delegation | Triggered by `delegate_votes` when the holder has already delegated voting weight for this key; revoke first to re-delegate. |
+| `131` | `NoDelegation` | No active vote delegation found to revoke | Triggered by `revoke_delegation` when the caller has no active delegation for this key. |
+| `132` | `CannotReDelegate` | Re-delegation or chained delegation is rejected | Triggered by `delegate_votes` when a delegate tries to delegate their weight or a delegator tries to receive delegation (delegation chain limited to 1 level). |
+| `133` | `NotAHolder` | Caller holds zero keys for this creator | Triggered by `delegate_votes` when the caller has no liquid keys for the specified creator key. |
+
+**Backward compatibility for 129-133**: these five codes are appended after the
+previously highest code (`128`, `DeprecationAlreadyExecuted`). No existing variant
+was renumbered, reordered, or reused. Vote delegation (Issue #1116) reuses
+`PollError::Unauthorized` (32) in governance voting when a delegator attempts
+to vote directly.
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `138` | `ParityDeviationExceeded` | The two sides of an atomic swap deviate in value by more than the caller's tolerance | Triggered in [`atomic_swap`](../creator-keys/src/lib.rs) when the two sides' values differ by more than `max_parity_deviation_bps` basis points of the larger side; a tolerance of `0` requires an exact match. |
+
+**Backward compatibility for 138**: this code is appended after the previously
+highest code (`137`, `InvalidPollOption`). No existing variant was renumbered,
+reordered, or reused. The atomic-swap guard reuses existing codes where they
+already describe the failure: `SelfTransfer` (26) when both legs name the same
+key, `ZeroTransferAmount` (27) for a zero-quantity leg, and `Overflow` (3) on
+value arithmetic.
 
 ---
 
