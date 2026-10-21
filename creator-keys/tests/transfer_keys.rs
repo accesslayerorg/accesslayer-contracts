@@ -27,6 +27,7 @@ fn test_transfer_keys_sender_balance_decreases() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -56,6 +57,7 @@ fn test_transfer_keys_recipient_balance_increases() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -93,6 +95,7 @@ fn test_transfer_keys_total_supply_unchanged() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -119,6 +122,7 @@ fn test_transfer_keys_buy_quote_unchanged_after_transfer() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -162,6 +166,7 @@ fn test_transfer_keys_sell_quote_unchanged_after_transfer() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -191,6 +196,7 @@ fn test_transfer_keys_holder_count_unaffected_when_sender_zero_but_recipient_new
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -235,6 +241,7 @@ fn test_transfer_keys_holder_count_increments_when_recipient_new() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender_a, &100, &None);
     client.buy_key(&creator, &sender_b, &100, &None);
@@ -271,6 +278,7 @@ fn test_transfer_keys_self_transfer_reverts() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -302,6 +310,7 @@ fn test_transfer_keys_zero_amount_reverts() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
 
@@ -328,6 +337,7 @@ fn test_transfer_keys_exceeding_balance_reverts() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -380,6 +390,7 @@ fn test_transfer_keys_self_transfer_sender_balance_unchanged() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &sender, &100, &None);
@@ -413,6 +424,7 @@ fn test_transfer_keys_self_transfer_total_supply_unchanged() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -458,6 +470,7 @@ fn test_transfer_keys_preserves_other_holders() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &sender, &100, &None);
     client.buy_key(&creator, &bystander, &100, &None);
@@ -469,5 +482,147 @@ fn test_transfer_keys_preserves_other_holders() {
         client.get_key_balance(&creator, &bystander),
         2,
         "bystander balance must be unchanged"
+    );
+}
+
+#[test]
+fn test_transfer_updates_sender_and_recipient_balances_supply_unchanged() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let _admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+    for _ in 0..10 {
+        client.buy_key(&creator, &sender, &100, &None);
+    }
+
+    let supply_before = client.get_total_key_supply(&creator);
+    assert_eq!(
+        supply_before, 10,
+        "sender must hold exactly 10 keys before transfer"
+    );
+    assert_eq!(
+        client.get_key_balance(&creator, &sender),
+        10,
+        "sender balance must be 10 before transfer"
+    );
+    assert_eq!(
+        client.get_key_balance(&creator, &recipient),
+        0,
+        "recipient balance must be 0 before transfer"
+    );
+
+    client.transfer_keys(&creator, &sender, &recipient, &4);
+
+    assert_eq!(
+        client.get_key_balance(&creator, &sender),
+        6,
+        "sender balance must be decremented by transferred amount (10 - 4 = 6)"
+    );
+    assert_eq!(
+        client.get_key_balance(&creator, &recipient),
+        4,
+        "recipient balance must be incremented by transferred amount (0 + 4 = 4)"
+    );
+    assert_eq!(
+        client.get_total_key_supply(&creator),
+        supply_before,
+        "total supply must be unchanged after transfer (still 10)"
+    );
+}
+
+#[test]
+fn test_transfer_keys_holder_count_decrements_when_sender_transfers_all_to_existing_holder() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let _admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &recipient, &100, &None);
+
+    let holders_before = client.get_creator_holder_count(&creator);
+    assert_eq!(holders_before, 2);
+
+    client.transfer_keys(&creator, &sender, &recipient, &1);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 0);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+    assert_eq!(
+        client.get_creator_holder_count(&creator),
+        holders_before - 1,
+        "holder count must decrease when sender transfers all keys to an existing holder"
+    );
+}
+
+#[test]
+fn test_transfer_keys_holder_count_unchanged_after_partial_transfer() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let _admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &recipient, &100, &None);
+
+    let holders_before = client.get_creator_holder_count(&creator);
+    assert_eq!(holders_before, 2);
+
+    client.transfer_keys(&creator, &sender, &recipient, &1);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 1);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+    assert_eq!(
+        client.get_creator_holder_count(&creator),
+        holders_before,
+        "holder count must remain unchanged when sender retains keys"
     );
 }

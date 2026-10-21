@@ -29,6 +29,7 @@ fn buy_at_max_supply_is_rejected_with_overflow_and_no_state_corruption() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Seed supply at the ceiling to simulate "many sequential buys" cheaply.

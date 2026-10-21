@@ -8,7 +8,7 @@ use contract_test_env::{
     DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 use creator_keys::ContractError;
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address};
 
 #[test]
 fn test_claim_dividend_no_claimable_fails() {
@@ -103,7 +103,7 @@ fn test_double_claim_fails_with_no_claimable() {
 fn test_claim_dividend_while_paused_fails() {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
-    set_pricing_and_fees(
+    let admin = set_pricing_and_fees(
         &env,
         &client,
         100,
@@ -117,8 +117,6 @@ fn test_claim_dividend_while_paused_fails() {
     let distributor = Address::generate(&env);
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
 
-    let admin = Address::generate(&env);
-    client.set_protocol_admin(&admin, &admin);
     client.pause(&admin);
 
     let result = client.try_claim_dividend(&creator, &buyer);
@@ -145,6 +143,9 @@ fn test_claim_dividend_after_sell_captures_pending() {
     distribute_test_dividend(&client, &creator, &distributor, amount);
 
     // Seller exits; settlement should save dividends to pending.
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &buyer, &None);
 
     // After selling all keys, holder can still claim previously earned dividends.

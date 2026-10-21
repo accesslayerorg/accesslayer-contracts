@@ -36,6 +36,7 @@ fn test_is_creator_registered_returns_true_after_registration() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert!(client.is_creator_registered(&creator));
@@ -55,6 +56,7 @@ fn test_is_creator_registered_is_read_only() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -91,6 +93,7 @@ fn test_is_creator_registered_different_creators_independent() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert!(client.is_creator_registered(&alice));
@@ -120,6 +123,7 @@ fn test_register_creator_duplicate_fails() {
         &None,
         &None,
         &None,
+        &None,
     );
     // Second registration with the same address should fail with error
     let result = client.try_register_creator(
@@ -127,6 +131,7 @@ fn test_register_creator_duplicate_fails() {
             creator: creator.clone(),
             handle: handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -156,6 +161,7 @@ fn test_register_creator_duplicate_different_handle_fails() {
         &None,
         &None,
         &None,
+        &None,
     );
     // Re-registering with a different handle should still fail
     let result = client.try_register_creator(
@@ -163,6 +169,7 @@ fn test_register_creator_duplicate_different_handle_fails() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice_v2"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -193,12 +200,14 @@ fn test_register_creator_different_addresses_succeeds() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.register_creator(
         &creator_keys::RegisterCreatorParams {
             creator: bob.clone(),
             handle: String::from_str(&env, "bob"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -230,6 +239,7 @@ fn test_register_creator_accepts_min_handle_length() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert!(client.is_creator_registered(&creator));
@@ -250,6 +260,7 @@ fn test_register_creator_accepts_max_handle_length() {
             creator: creator.clone(),
             handle: String::from_str(&env, &max_handle),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -280,6 +291,7 @@ fn test_register_creator_rejects_handle_shorter_than_min() {
         &None,
         &None,
         &None,
+        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::HandleTooShort)));
 }
@@ -304,6 +316,7 @@ fn test_register_creator_rejects_handle_longer_than_max() {
         &None,
         &None,
         &None,
+        &None,
     );
     assert_eq!(result, Err(Ok(ContractError::HandleTooLong)));
 }
@@ -323,6 +336,7 @@ fn test_register_creator_rejects_invalid_characters_in_handle() {
             creator: creator.clone(),
             handle: invalid_handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -354,6 +368,7 @@ fn test_register_creator_max_length_handle_succeeds() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert!(client.is_creator_registered(&creator));
@@ -374,6 +389,7 @@ fn test_register_creator_handle_one_over_max_rejected() {
             creator: creator.clone(),
             handle: over_max_handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,

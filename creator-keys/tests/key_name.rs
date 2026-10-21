@@ -23,6 +23,7 @@ fn test_get_key_name_success() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let name = client.get_key_name(&creator);

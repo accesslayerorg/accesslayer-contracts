@@ -6,7 +6,7 @@
 
 use creator_keys::{events, CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger as _},
     Address, Env, IntoVal, String, Symbol, Val,
 };
 
@@ -36,6 +36,7 @@ fn test_sell_event_seller_address_matches_caller() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Buyer purchases keys
@@ -43,12 +44,23 @@ fn test_sell_event_seller_address_matches_caller() {
 
     // Clear event log and then perform the sell
     env.events().all(); // Clear existing events
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &seller, &None);
 
     // Extract and verify the sell event
     let event_log = env.events().all();
     let (_, topics, _) = event_log
-        .last()
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            let name: Symbol = topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .unwrap_or_default()
+                .into_val(&env);
+            name == events::SELL_EVENT_NAME
+        })
         .expect("sell event should be present in event log");
 
     // Verify event name is sell
@@ -100,13 +112,29 @@ fn test_sell_event_seller_address_field_is_non_zero() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &seller, &KEY_PRICE, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &seller, &None);
 
     // Verify the seller address field is present and non-zero
     let event_log = env.events().all();
-    let (_, topics, _) = event_log.last().expect("sell event should be present");
+    let (_, topics, _) = event_log
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .map(|v| {
+                    let name: Symbol = v.into_val(&env);
+                    name == events::SELL_EVENT_NAME
+                })
+                .unwrap_or(false)
+        })
+        .expect("sell event should be present");
 
     let seller_field: Option<Val> = topics.get(events::TOPIC_BUYER_INDEX);
     assert!(

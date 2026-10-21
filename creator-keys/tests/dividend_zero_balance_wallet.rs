@@ -10,6 +10,7 @@ use contract_test_env::{
     register_test_creator, set_pricing_and_fees, test_env_with_auths, DEFAULT_PROTOCOL_BPS,
 };
 use soroban_sdk::testutils::Address as _;
+use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::Address;
 
 #[test]
@@ -27,6 +28,9 @@ fn test_zero_balance_wallet_receives_no_dividend() {
     // Wallet B buys 1 key then sells it all (zero balance)
     let wallet_b = Address::generate(&env);
     client.buy_key(&creator, &wallet_b, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &wallet_b, &None);
 
     // Wallet B now has zero balance, wallet A has 2 keys
@@ -81,6 +85,9 @@ fn test_zero_balance_wallet_after_partial_sell() {
     let wallet_b = Address::generate(&env);
     client.buy_key(&creator, &wallet_b, &100, &None);
     client.buy_key(&creator, &wallet_b, &100, &None);
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &wallet_b, &None);
     client.sell_key(&creator, &wallet_b, &None);
 
@@ -124,6 +131,9 @@ fn test_two_zero_balance_wallets_with_one_holder() {
     client.buy_key(&creator, &wallet_c, &100, &None);
 
     // Wallets B and C sell all keys
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &wallet_b, &None);
     client.sell_key(&creator, &wallet_c, &None);
 

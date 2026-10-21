@@ -9,7 +9,7 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
     DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
-use soroban_sdk::{testutils::Address as _, Address};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address};
 
 #[test]
 fn test_new_buyer_after_distribution_earns_no_retroactive_dividends() {
@@ -82,6 +82,9 @@ fn test_sell_all_then_rebuy_starts_fresh_on_pending() {
     distribute_test_dividend(&client, &creator, &distributor, 10_000);
 
     // Sell all keys — settlement captures earned into pending.
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
     client.sell_key(&creator, &holder, &None);
     let pending_after_sell = compute_expected_holder_dividend(10_000, 1, 1, DEFAULT_PROTOCOL_BPS);
 

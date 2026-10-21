@@ -30,6 +30,7 @@ fn creator_can_create_poll_and_view_empty_result() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let question = String::from_str(&env, "Should we launch premium content?");
@@ -62,6 +63,7 @@ fn holder_vote_uses_liquid_key_balance_as_weight() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -108,6 +110,7 @@ fn changing_vote_before_expiry_updates_tally() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let holder = Address::generate(&env);
@@ -132,6 +135,57 @@ fn changing_vote_before_expiry_updates_tally() {
 }
 
 #[test]
+fn changing_vote_before_expiry_removes_previous_weight_without_double_counting() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    let holder = Address::generate(&env);
+    for _ in 0..10 {
+        client.buy_key(&creator, &holder, &100, &None);
+    }
+
+    let poll_id = client.create_poll(
+        &creator,
+        &String::from_str(&env, "Pick one"),
+        &poll_options(&env),
+        &10,
+    );
+
+    client.cast_vote(&creator, &holder, &poll_id, &0);
+
+    let after_first_vote = client.get_poll_result(&creator, &poll_id);
+    assert_eq!(after_first_vote.vote_counts.get(0).unwrap(), 10);
+    assert_eq!(after_first_vote.vote_counts.get(1).unwrap(), 0);
+    assert_eq!(after_first_vote.total_weight, 10);
+
+    client.cast_vote(&creator, &holder, &poll_id, &1);
+
+    let after_revote = client.get_poll_result(&creator, &poll_id);
+    assert_eq!(after_revote.vote_counts.get(0).unwrap(), 0);
+    assert_eq!(after_revote.vote_counts.get(1).unwrap(), 10);
+    assert_eq!(after_revote.total_weight, 10);
+}
+
+#[test]
 fn vote_after_expiry_reverts_with_poll_expired() {
     let env = Env::default();
     env.mock_all_auths();
@@ -147,6 +201,7 @@ fn vote_after_expiry_reverts_with_poll_expired() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,
@@ -193,6 +248,7 @@ fn non_holder_vote_reverts_with_not_a_holder() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let non_holder = Address::generate(&env);
@@ -205,6 +261,167 @@ fn non_holder_vote_reverts_with_not_a_holder() {
 
     let result = client.try_cast_vote(&creator, &non_holder, &poll_id, &0);
     assert_eq!(result, Err(Ok(PollError::NotAHolder)));
+}
+
+#[test]
+fn zero_liquid_balance_after_sell_reverts_with_not_a_holder() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    let holder = Address::generate(&env);
+    client.buy_key(&creator, &holder, &100, &None);
+
+    let poll_id = client.create_poll(
+        &creator,
+        &String::from_str(&env, "Pick one"),
+        &poll_options(&env),
+        &10,
+    );
+
+    let before = client.get_poll_result(&creator, &poll_id);
+
+    let mut l = env.ledger().get();
+    l.sequence_number += 1;
+    env.ledger().set(l);
+    client.sell_key(&creator, &holder, &None);
+
+    let result = client.try_cast_vote(&creator, &holder, &poll_id, &0);
+    assert_eq!(result, Err(Ok(PollError::NotAHolder)));
+
+    let after = client.get_poll_result(&creator, &poll_id);
+    assert_eq!(after.total_weight, before.total_weight);
+    assert_eq!(
+        after.vote_counts.get(0).unwrap(),
+        before.vote_counts.get(0).unwrap()
+    );
+    assert_eq!(
+        after.vote_counts.get(1).unwrap(),
+        before.vote_counts.get(1).unwrap()
+    );
+}
+
+#[test]
+fn zero_liquid_balance_after_transfer_reverts_with_not_a_holder() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    let holder = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    client.buy_key(&creator, &holder, &100, &None);
+    client.buy_key(&creator, &holder, &100, &None);
+
+    let poll_id = client.create_poll(
+        &creator,
+        &String::from_str(&env, "Pick one"),
+        &poll_options(&env),
+        &10,
+    );
+
+    let before = client.get_poll_result(&creator, &poll_id);
+
+    client.transfer_keys(&creator, &holder, &recipient, &2);
+
+    let result = client.try_cast_vote(&creator, &holder, &poll_id, &0);
+    assert_eq!(result, Err(Ok(PollError::NotAHolder)));
+
+    let after = client.get_poll_result(&creator, &poll_id);
+    assert_eq!(after.total_weight, before.total_weight);
+    assert_eq!(
+        after.vote_counts.get(0).unwrap(),
+        before.vote_counts.get(0).unwrap()
+    );
+    assert_eq!(
+        after.vote_counts.get(1).unwrap(),
+        before.vote_counts.get(1).unwrap()
+    );
+}
+
+#[test]
+fn staked_keys_zero_liquid_balance_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    let holder = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    client.buy_key(&creator, &holder, &100, &None);
+    client.buy_key(&creator, &holder, &100, &None);
+    client.buy_key(&creator, &holder, &100, &None);
+
+    client.transfer_keys(&creator, &holder, &recipient, &3);
+
+    assert_eq!(client.get_key_balance(&creator, &holder), 0);
+
+    let poll_id = client.create_poll(
+        &creator,
+        &String::from_str(&env, "Pick one"),
+        &poll_options(&env),
+        &10,
+    );
+
+    let result = client.try_cast_vote(&creator, &holder, &poll_id, &0);
+    assert_eq!(result, Err(Ok(PollError::NotAHolder)));
+
+    let result = client.get_poll_result(&creator, &poll_id);
+    assert_eq!(result.total_weight, 0);
+    assert_eq!(result.vote_counts.get(0).unwrap(), 0);
+    assert_eq!(result.vote_counts.get(1).unwrap(), 0);
 }
 
 #[test]
@@ -228,6 +445,7 @@ fn invalid_vote_option_reverts() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let holder = Address::generate(&env);
@@ -242,4 +460,93 @@ fn invalid_vote_option_reverts() {
 
     let result = client.try_cast_vote(&creator, &holder, &poll_id, &2);
     assert_eq!(result, Err(Ok(PollError::InvalidOption)));
+}
+
+// ── Regression: #541 ─────────────────────────────────────────────────────────
+// When a voter changes their vote the weight must be moved from the old option
+// to the new one atomically — no double-counting, no weight leak.
+
+#[test]
+fn regression_vote_change_moves_weight_between_options_without_double_counting() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    client.set_key_price(&admin, &100);
+
+    let creator = Address::generate(&env);
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Wallet A acquires exactly 10 keys — vote weight will be 10.
+    let voter = Address::generate(&env);
+    for _ in 0..10 {
+        client.buy_key(&creator, &voter, &100, &None);
+    }
+
+    let poll_id = client.create_poll(
+        &creator,
+        &String::from_str(&env, "Regression poll"),
+        &poll_options(&env),
+        &20,
+    );
+
+    // Initial state: no votes cast.
+    let before = client.get_poll_result(&creator, &poll_id);
+    assert_eq!(before.vote_counts.get(0).unwrap(), 0);
+    assert_eq!(before.vote_counts.get(1).unwrap(), 0);
+    assert_eq!(before.total_weight, 0);
+
+    // Voter casts first vote for option 0.
+    client.cast_vote(&creator, &voter, &poll_id, &0);
+
+    let after_first = client.get_poll_result(&creator, &poll_id);
+    assert_eq!(
+        after_first.vote_counts.get(0).unwrap(),
+        10,
+        "option 0 should hold the weight after first vote"
+    );
+    assert_eq!(
+        after_first.vote_counts.get(1).unwrap(),
+        0,
+        "option 1 should be empty after first vote"
+    );
+    assert_eq!(
+        after_first.total_weight, 10,
+        "total weight should equal the voter's balance"
+    );
+
+    // Voter changes their vote to option 1.
+    client.cast_vote(&creator, &voter, &poll_id, &1);
+
+    let after_change = client.get_poll_result(&creator, &poll_id);
+    // Option 0 must have been decremented by exactly 10.
+    assert_eq!(
+        after_change.vote_counts.get(0).unwrap(),
+        0,
+        "option 0 tally must drop to 0 after vote change"
+    );
+    // Option 1 must have been incremented by exactly 10.
+    assert_eq!(
+        after_change.vote_counts.get(1).unwrap(),
+        10,
+        "option 1 tally must rise to 10 after vote change"
+    );
+    // Total weight across all options must be unchanged — no double-counting.
+    assert_eq!(
+        after_change.total_weight, 10,
+        "total vote weight must remain unchanged after vote change"
+    );
 }

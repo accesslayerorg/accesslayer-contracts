@@ -23,6 +23,7 @@ fn test_get_creator_fee_recipient_returns_creator_address() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     assert_eq!(client.get_creator_fee_recipient(&creator), creator);
@@ -42,6 +43,7 @@ fn test_get_creator_fee_recipient_is_read_only() {
             creator: creator.clone(),
             handle: String::from_str(&env, "alice"),
         },
+        &None,
         &None,
         &None,
         &None,

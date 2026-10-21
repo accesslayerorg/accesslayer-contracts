@@ -23,6 +23,7 @@ fn test_get_key_symbol_success() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     let symbol = client.get_key_symbol(&creator);

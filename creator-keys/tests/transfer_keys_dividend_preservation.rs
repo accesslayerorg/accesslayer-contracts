@@ -27,6 +27,7 @@ fn test_transfer_keys_preserves_claimable_dividends() {
         },
         &None,
         &None,
+        &None,
         &Some(CurvePreset::Flat),
         &None,
         &None,

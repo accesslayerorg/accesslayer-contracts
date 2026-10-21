@@ -23,6 +23,7 @@ fn test_zero_creator_bps_full_payment_to_creator_after_protocol_fee() {
     // contract allows (PROTOCOL_BPS_MAX = 5000). creator_bps=0 is not valid because
     // creator_bps + protocol_bps must equal 10000 and protocol_bps cannot exceed 5000.
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &5000u32, &5000u32);
 
     // Verify fee config is set correctly
@@ -70,6 +71,7 @@ fn test_zero_creator_bps_with_partial_protocol_fee() {
     // Set up: 0% creator fee, 20% protocol fee (0 bps creator, 2000 bps protocol)
     // This means creator gets 80% and protocol gets 20%
     let admin = soroban_sdk::Address::generate(&env);
+    client.set_protocol_admin(&admin, &admin);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     // Verify fee config

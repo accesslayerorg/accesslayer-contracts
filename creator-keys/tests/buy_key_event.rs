@@ -1,7 +1,7 @@
 //! Tests verifying that the buy-key event includes the payment amount.
 
 use creator_keys::{events, CreatorKeysContract, CreatorKeysContractClient};
-use soroban_sdk::{testutils::Address as _, testutils::Events, Env, IntoVal, String};
+use soroban_sdk::{testutils::Address as _, testutils::Events, Env, IntoVal, String, Symbol};
 
 #[test]
 fn test_buy_key_event_includes_payment_amount() {
@@ -26,17 +26,31 @@ fn test_buy_key_event_includes_payment_amount() {
         &None,
         &None,
         &None,
+        &None,
     );
     let supply = client.buy_key(&creator, &buyer, &150i128, &None);
     assert_eq!(supply, 1);
 
     let events = env.events().all();
-    // Last event is the buy event
-    let buy_event = events.last().unwrap();
-    // Data is (supply, payment)
-    let (event_supply, event_payment): (u32, i128) = buy_event.2.into_val(&env);
-    assert_eq!(event_supply, 1u32);
-    assert_eq!(event_payment, 150i128);
+    let buy_event = events
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .map(|v| {
+                    let name: Symbol = v.into_val(&env);
+                    name == events::BUY_EVENT_NAME
+                })
+                .unwrap_or(false)
+        })
+        .unwrap();
+    let event_data: events::KeysBoughtEvent = buy_event.2.into_val(&env);
+    assert_eq!(event_data.buyer, buyer);
+    assert_eq!(event_data.creator_id, creator);
+    assert_eq!(event_data.quantity, 1u32);
+    assert_eq!(event_data.price_paid, 100i128);
+    assert_eq!(event_data.ledger, env.ledger().sequence());
 }
 
 #[test]
@@ -62,11 +76,24 @@ fn test_buy_key_event_topics_include_creator_and_buyer() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &buyer, &200i128, &None);
 
     let events = env.events().all();
-    let buy_event = events.last().unwrap();
+    let buy_event = events
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(events::TOPIC_EVENT_NAME_INDEX)
+                .map(|v| {
+                    let name: Symbol = v.into_val(&env);
+                    name == events::BUY_EVENT_NAME
+                })
+                .unwrap_or(false)
+        })
+        .unwrap();
 
     // Topics: (symbol "buy", creator address, buyer address)
     let topic_symbol: soroban_sdk::Symbol = buy_event

@@ -6,6 +6,8 @@ For quote-specific storage behavior (`get_buy_quote`, `get_sell_quote`), see [qu
 
 For Soroban TTL and rent-bump expectations specific to creator profiles and holder balances, see [creator-state-storage-ttl.md](./creator-state-storage-ttl.md).
 
+For key staking storage keys and the data model, see [key-staking-storage.md](./key-staking-storage.md).
+
 ## Overview
 
 Access Layer contracts use Soroban's persistent storage to maintain creator profiles, key balances, and protocol configuration. Understanding these storage invariants is critical for contributors working on contract logic.
@@ -36,9 +38,33 @@ pub enum DataKey {
 | `FeeConfig`                    | Global             | `FeeConfig`      | Stores protocol-wide fee split configuration               |
 | `KeyPrice`                     | Global             | `i128`           | Stores the fixed price for all keys across all creators    |
 | `KeyBalance(Address, Address)` | Per-creator-holder | `u32`            | Stores how many keys a holder owns for a specific creator  |
+| `HolderRegistry(Address)`      | Per-creator        | `Vec<Address>`   | Append-only list of wallets that have held keys for a creator |
 | `TreasuryAddress`              | Global             | `Address`        | Protocol treasury address for fee routing                  |
 | `AdminAddress`                 | Global             | `Address`        | Protocol admin address for configuration                   |
 | `ProtocolFeeRecipient`         | Global             | `Address`        | Protocol fee recipient address                             |
+| `PendingUpgradeWasm`           | Global             | `BytesN<32>`     | WASM hash staged for the next timelocked upgrade           |
+| `LastAppliedWasm`              | Global             | `BytesN<32>`     | WASM hash applied by the most recent timelocked upgrade    |
+| `PreviousWasm`                 | Global             | `BytesN<32>`     | WASM hash in effect immediately before `LastAppliedWasm`   |
+| `UpgradeApprovalVote(Address, u32)` | Per-action    | `bool`           | One admin's multi-sig approval vote for upgrade `action_id` |
+| `RewardRate(Address)`          | Per-pool           | `RewardRate`     | Stores creator-configured LP reward rate and updated_at timestamp |
+
+### Timelocked Upgrade Storage-Key Notes
+
+| Field | Storage Key | Read Ownership | Write Ownership |
+| ----- | ----------- | -------------- | --------------- |
+| Live logic build | `DataKey::LastAppliedWasm` (`constants::storage::LAST_APPLIED_WASM`) | `get_logic_address` | `execute_action` (admin-auth, timelock elapsed, threshold met) |
+| Staged upgrade target | `DataKey::PendingUpgradeWasm` (`constants::storage::PENDING_UPGRADE_WASM`) | `get_upgrade_target` | `upgrade` stages it; `execute_action` or `cancel_action` clears it |
+| Prior logic build | `DataKey::PreviousWasm` (`constants::storage::PREVIOUS_WASM`) | `get_previous_wasm` | `execute_action` (admin-auth, timelock elapsed, threshold met) |
+| Upgrade approvals | `DataKey::UpgradeApprovalVote` (`constants::storage::upgrade_approval_vote`) | `get_upgrade_approvals` | `approve_upgrade` sets, `approve_upgrade`; `execute_action` and `cancel_action` clear |
+
+**Invariants**:
+
+- `PendingUpgradeWasm` is present only while an `Upgrade` action is queued. It must be cleared on both execution and cancellation, so a stale hash can never be applied by a later action.
+- `LastAppliedWasm` only changes through `execute_action`. There is deliberately no ungated setter and no rollback entrypoint — an incident is reversed by proposing a fresh timelocked upgrade back to `get_previous_wasm`.
+- `UpgradeApprovalVote` keys are scoped by `action_id` and cleared on execution and cancellation, so a vote can never be inherited by a subsequent upgrade.
+- `PreviousWasm` is only overwritten once a second upgrade has been applied; it is `None` before that.
+
+**Storage layout / backward compatibility**: all four keys are additive `DataKey` variants holding values that no existing key reads. Deploys that omit this change are unaffected, and a contract upgraded from an earlier build keeps every pre-existing key untouched — `execute_action` swaps only WASM code, never storage. No migration step is required in either direction.
 
 ### Fee Configuration Storage-Key Notes
 
@@ -46,8 +72,67 @@ pub enum DataKey {
 | ----- | ----------- | -------------- | --------------- |
 | Protocol fee split (`creator_bps`, `protocol_bps`) | `DataKey::FeeConfig` (`constants::storage::FEE_CONFIG`) | `get_fee_config`, `get_protocol_fee_view`, `get_creator_fee_bps`, `get_creator_treasury_share`, quote methods through shared readers | `set_fee_config` (admin-auth only) |
 | Protocol fee recipient | `DataKey::ProtocolFeeRecipient` (`constants::storage::PROTOCOL_FEE_RECIPIENT`) | `get_protocol_fee_recipient` | `set_protocol_fee_recipient` (admin-auth only) |
+| Graduated milestone fee reduction (#1076) | `DataKey::KeyMilestones(Address)` (`constants::storage::key_milestones`) | `get_current_milestone`, `check_and_apply_milestone` | `set_milestones` (admin-auth only) writes the configured tiers; `check_and_apply_milestone` writes the applied tier only when a newly reached tier lowers the fee |
 
 `set_fee_config` uses the shared `fee::assert_valid_fee_bps` guard to keep key writes aligned with the current constants (`BPS_MAX = 10_000`, `PROTOCOL_BPS_MAX = 5_000`) before persisting the config.
+
+**Storage layout / backward compatibility**: `DataKey::KeyMilestones(Address)` is an additive `DataKey` variant appended at the end, so all existing variant discriminants are unchanged. No existing key is read or modified, and no migration is required in either direction.
+
+### Price Alert Storage-Key Notes
+
+Price alerts (issue #1030) use their own `PriceAlertDataKey` enum in [`creator-keys/src/price_alerts.rs`](../creator-keys/src/price_alerts.rs), like the other feature modules. All entries are persistent and extended to the full `CREATOR_TTL_LEDGERS` window on write.
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| Active alerts on a key | `PriceAlertDataKey::KeyAlerts(key_id)` | `Vec<PriceAlert>` | every buy and sell on `key_id`, `get_alerts`, `register_alert`, `cancel_alert` | `register_alert` appends; a crossing buy/sell or `cancel_alert` removes |
+| A wallet's alert references | `PriceAlertDataKey::WalletAlerts(wallet)` | `Vec<PriceAlertRef>` | `get_alerts`, `register_alert`, `cancel_alert` | `register_alert`, `cancel_alert` (wallet-auth) |
+| Last issued alert id | `PriceAlertDataKey::NextAlertId` | `u64` | `register_alert` | `register_alert` |
+
+**Invariants**:
+
+- `KeyAlerts(key_id)` is the single source of truth for whether an alert is active. An alert is active if and only if it is in that vector. The entry is removed once it is empty, and holds at most `MAX_ACTIVE_ALERTS_PER_KEY` (16) alerts.
+- A buy or sell reads only `KeyAlerts` for the key it traded, and writes it only if an alert fired. Firing does **not** touch `WalletAlerts`, so a trade's alert cost stays at one ledger entry however many wallets it fires for.
+- `WalletAlerts(wallet)` may therefore reference alerts that have already fired. `get_alerts` resolves each reference against `KeyAlerts` and drops the stale ones; `register_alert` and `cancel_alert` rewrite the entry with only active references. Its length never exceeds `MAX_ACTIVE_ALERTS_PER_WALLET` (10).
+- Alert ids are never reused. A fired or cancelled id can never become active again.
+- A trade that reads `KeyAlerts` extends its TTL, so a key that keeps trading keeps its alerts live.
+
+**Storage layout / backward compatibility**: the keys are new and additive. No existing key is read or changed, so no migration is needed in either direction.
+
+### LP Reward Rate Storage-Key Notes
+
+LP reward rate management (issue #1032) uses `DataKey::RewardRate(Address)` in [`creator-keys/src/lp_reward.rs`](../creator-keys/src/lp_reward.rs).
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| LP reward rate (`rate_bps`, `updated_at`) | `lp_reward::DataKey::RewardRate(key_id)` | `RewardRate` | `get_reward_rate`, `set_reward_rate` | `set_reward_rate` (creator-auth only) |
+
+**Invariants**:
+
+- `RewardRate(key_id)` stores the configured reward rate in basis points (`1..=5000`) and the ledger timestamp of the update.
+- Unset pools return zero defaults (`rate_bps = 0`, `updated_at = 0`) before any rate is set.
+- Rate changes are prospective only; existing positions' `reward_debt` snapshots remain untouched.
+
+**Storage layout / backward compatibility**: `DataKey::RewardRate(Address)` is an additive storage key with a zero default. No existing storage key is read or modified, and no migration is required.
+
+### Key Ownership Handover Storage-Key Notes (#1098)
+
+Key ownership handover (issue #1098) uses its own `OwnershipDataKey` enum in [`creator-keys/src/key_ownership_transfer.rs`](../creator-keys/src/key_ownership_transfer.rs), like the other feature modules. All entries are persistent and extended to the full `CREATOR_TTL_LEDGERS` window on write.
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| Wallet that currently manages a key | `OwnershipDataKey::Owner(key_id)` | `Address` (absent = `key_id`, the registered creator) | `get_key_owner`, and the owner checks in `propose_transfer` / `cancel_transfer` / `execute_transfer` | `execute_transfer` |
+| A proposal record | `OwnershipDataKey::Proposal(proposal_id)` | `OwnershipTransferProposal` | `get_transfer_proposal`, `accept_transfer`, `execute_transfer`, `cancel_transfer` | `propose_transfer`, `accept_transfer` write; `execute_transfer` and `cancel_transfer` delete |
+| The key's single live proposal | `OwnershipDataKey::ActiveProposal(key_id)` | `u32` proposal id | `propose_transfer` | `propose_transfer` writes; `execute_transfer` and `cancel_transfer` delete |
+| Next proposal id to issue | `OwnershipDataKey::NextProposalId` | `u32` (ids start at `0`) | `propose_transfer` | `propose_transfer` |
+
+**Invariants**:
+
+- `Owner(key_id)` is absent until a handover executes, so every pre-existing reader that treats the registered creator as the owner keeps seeing `key_id` itself. It only ever changes through `execute_transfer`.
+- At most one live proposal exists per key: `ActiveProposal(key_id)` is written with every proposal and cleared on execution or cancellation, so a stale proposal can never execute over a newer one. A proposal whose 48h window passed without acceptance is dropped and replaced by the next `propose_transfer` for that key.
+- `Proposal(proposal_id)` is deleted on both execution and cancellation, so ids are never reused against live state and `get_transfer_proposal` reports `TransferProposalNotFound` for consumed ids.
+- Proposal ids are globally sequential and monotonic (`NextProposalId`), independent of `key_id`, so two keys never share a proposal id.
+
+**Storage layout / backward compatibility**: the keys are new and additive and live outside `DataKey`, so no existing key is read or changed and no migration is needed in either direction.
 
 ## Storage Invariants
 
@@ -83,6 +168,21 @@ These invariants must hold true after every contract operation:
 - When selling a key, decrement both `profile.supply` and `KeyBalance(creator, seller)`
 - When processing a creator buyback, decrement both `profile.supply` and `KeyBalance(creator, creator)` by the burned amount
 - Never modify supply without updating the corresponding balance
+
+### Holder registry invariants
+
+`HolderRegistry(creator)` is an append-only list of addresses that have received
+keys through purchases, transfers, airdrops, or claimed allocations. Every
+balance-credit path adds the recipient only if they are not already present.
+Selling or transferring all keys out never removes an address. The registry
+uses persistent storage and its TTL is extended to the full creator TTL window
+on every read of an existing entry and every write.
+
+The storage key is additive, so no migration is required for existing state.
+Soroban storage cannot enumerate the full set of historical `KeyBalance`
+holders on upgrade; consequently, the registry tracks holders from their first
+successful balance credit after this version is deployed and does not backfill
+pre-upgrade history.
 
 **Invariant**: For any registered creator, `profile.holder_count == count of non-zero KeyBalance(creator, *)`.
 

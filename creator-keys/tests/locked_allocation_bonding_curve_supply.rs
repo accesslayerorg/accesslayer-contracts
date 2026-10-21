@@ -55,6 +55,7 @@ fn setup(
         &None,
         &None,
         &None,
+        &None,
     );
 
     let creator_no_alloc = Address::generate(env);
@@ -63,6 +64,7 @@ fn setup(
             creator: creator_no_alloc.clone(),
             handle: String::from_str(env, "bob"),
         },
+        &None,
         &None,
         &None,
         &None,

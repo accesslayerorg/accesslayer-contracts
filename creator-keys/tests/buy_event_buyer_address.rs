@@ -35,24 +35,21 @@ fn test_buy_event_buyer_address_matches_caller() {
         &None,
         &None,
         &None,
+        &None,
     );
 
-    // Clear any prior events then perform the buy
-    env.events().all(); // clear
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
 
     // Extract and verify the buy event
     let event_log = env.events().all();
     let (_, topics, _) = event_log
-        .last()
+        .iter()
+        .rev()
+        .find_map(|(_, topics, data)| {
+            let name: Symbol = topics.get(events::TOPIC_EVENT_NAME_INDEX)?.into_val(&env);
+            (name == events::BUY_EVENT_NAME).then_some(((), topics, data))
+        })
         .expect("buy event should be present in event log");
-
-    // Verify event name is buy
-    let event_name: Symbol = topics
-        .get(events::TOPIC_EVENT_NAME_INDEX)
-        .expect("event name topic should be present")
-        .into_val(&env);
-    assert_eq!(event_name, events::BUY_EVENT_NAME);
 
     // Verify buyer address field matches caller
     let event_buyer: Address = topics
@@ -96,12 +93,20 @@ fn test_buy_event_buyer_address_field_is_non_zero() {
         &None,
         &None,
         &None,
+        &None,
     );
     client.buy_key(&creator, &buyer, &KEY_PRICE, &None);
 
     // Verify the buyer address field is present and matches expected
     let event_log = env.events().all();
-    let (_, topics, _) = event_log.last().expect("buy event should be present");
+    let (_, topics, _) = event_log
+        .iter()
+        .rev()
+        .find_map(|(_, topics, data)| {
+            let name: Symbol = topics.get(events::TOPIC_EVENT_NAME_INDEX)?.into_val(&env);
+            (name == events::BUY_EVENT_NAME).then_some(((), topics, data))
+        })
+        .expect("buy event should be present");
 
     let buyer_field: Option<Val> = topics.get(events::TOPIC_BUYER_INDEX);
     assert!(

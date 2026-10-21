@@ -8,6 +8,21 @@ For fee split math, see [fee-assumptions.md](./fee-assumptions.md). For integrat
 
 ## Quote methods
 
+### `query_price(creator: Address, supply: u64) → Result<i128, ContractError>`
+
+Pure read-only helper that computes the bonding curve price at any given supply step without mutating contract state or requiring authentication (#552).
+
+- **Returns**: Expected price in stroops for the given supply step, matching the exact value the buy function computes for that step (`base_price + slope * supply`).
+- **Authorization**: None required (public read-only query).
+- **Edge cases**:
+  - `supply == 0`: returns the base key price.
+  - `supply == 1`: returns `base_price + slope * 1`.
+  - Mid-range supply (e.g. `supply == 50`): returns `base_price + slope * 50`.
+  - Returns `Err(ContractError::KeyPriceNotSet)` if no key price has been configured.
+  - Returns `Err(ContractError::Overflow)` if supply exceeds `u32::MAX` or calculation overflows.
+
+---
+
 ### `get_buy_quote(creator: Address) → Result<QuoteResponse, ContractError>`
 
 Returns the current quote for purchasing one key for a creator.
@@ -91,7 +106,60 @@ The following invariants are guaranteed for successful quote responses:
 
 ### Units and Precision
 - All monetary values are raw `i128` integers in the base unit (stroops or protocol-defined).
-- No on-chain decimal scaling is performed. Callers should use `get_key_decimals()` for display formatting.
+
+## Dynamic Fee Methods
+
+### `get_current_fee_bps(key_id: Address) → Result<u32, ContractError>`
+
+Returns the fee in basis points selected for a registered key from its rolling
+24-hour gross volume. It does not write buckets or emit events. Unknown keys
+return `NotRegistered`. Default tiers and 5-minute bucket boundary behavior
+are described in [fee-assumptions.md](./fee-assumptions.md).
+
+### `get_key_rolling_volume(key_id: Address) → Result<i128, ContractError>`
+
+Returns the key's current rolling gross trade volume in raw curve-price base
+units. Expired buckets are ignored without being deleted, so this is read-only.
+
+### `get_volume_brackets() → Vec<VolumeBracket>`
+
+Returns configured brackets, or the default three brackets when none have
+been stored.
+
+## Aggregated Key Stats
+
+### `get_key_stats(key_id: Address) → Result<KeyStatsView, ContractError>`
+
+Returns a single-call snapshot of all key-level fields for a registered creator. Server sync and admin snapshot endpoints can use this instead of multiple individual reads to reduce RPC round trips.
+
+Bumps the TTL on every storage entry it reads so that a cold read keeps all state alive without a separate `refresh_ttl` call.
+
+| Field | Type | Semantics |
+|---|---|---|
+| `current_price` | `i128` | Next-purchase price in stroops: the fixed auction price when an auction is active (`supply < auction_supply`), otherwise the bonding-curve price at the current supply. `0` if no key price has been set. |
+| `circulating_supply` | `u32` | Keys currently in circulation (does not include locked/unclaimed allocations). |
+| `holder_count` | `u32` | Number of distinct wallets holding at least one key. |
+| `trading_paused` | `bool` | `true` if either the per-key pause or the global emergency pause is active. |
+| `supply_cap` | `u32` | Hard supply ceiling set by the creator. `0` means uncapped. |
+| `holder_cap_bps` | `u32` | Per-wallet holding cap in basis points (e.g. `1000` = 10% of supply). `0` means uncapped. |
+| `circuit_breaker_threshold_bps` | `u32` | Price-jump threshold that triggers the circuit breaker. Defaults to `30` when never explicitly configured. |
+| `lockup_duration_seconds` | `u64` | Sell lockup window in seconds; `0` means no lockup is configured. |
+| `launch_penalty_bps` | `u32` | Basis points applied as an early-sell penalty inside the launch window; `0` means no penalty. |
+| `buy_cooldown_ledgers` | `u32` | Per-wallet buy cooldown in ledgers; `0` means no cooldown. |
+| `max_buy_quantity` | `u32` | Per-transaction buy quantity cap; `0` means no limit. |
+| `has_auction` | `bool` | `true` when a pre-launch auction is currently configured. |
+| `auction_price` | `i128` | Fixed auction price per key in stroops. `0` when `has_auction` is `false`. |
+| `auction_supply` | `u32` | Total keys available at the fixed auction price. `0` when `has_auction` is `false`. |
+| `auction_sold` | `u32` | Keys already sold through the auction. `0` when `has_auction` is `false`. |
+
+**TTL behaviour:** Every storage entry read by this function has its TTL extended to at least `TTL_MIN_EXTENSION_LEDGERS` (~30 days). Optional entries that have never been written to storage are skipped (guarded with `.has()`) to avoid a `MissingValue` panic.
+
+**Edge cases:**
+- Returns `Err(ContractError::NotRegistered)` for any `key_id` that has never been registered — the 404-equivalent for callers.
+- All optional numeric fields (`supply_cap`, `holder_cap_bps`, `launch_penalty_bps`, `buy_cooldown_ledgers`, `max_buy_quantity`) return `0` when not configured.
+- `circuit_breaker_threshold_bps` returns the default value `30` when the threshold has never been explicitly set.
+- `current_price` is `0` when `KEY_PRICE` has not been written to storage (contract not fully initialised).
+- Never panics regardless of which optional per-key settings are absent.
 
 ---
 
@@ -103,13 +171,7 @@ Returns the current total supply of keys for `creator`.
 
 - Returns `0` for unregistered creators (no panic).
 - Precision: integer key count; no decimals at the supply level.
-- Equivalent to `read_key_balance` helper output.
 
----
-
-### `get_creator_supply(creator: Address) → Result<u32, ContractError>`
-
-Returns the supply for a registered creator.
 
 - Returns `Err(ContractError::NotRegistered)` for unknown creators — use `get_total_key_supply` if you need a zero-safe fallback.
 
@@ -121,6 +183,16 @@ Returns the number of keys `wallet` holds for `creator`.
 
 - Returns `0` if either `creator` is unregistered or `wallet` has never bought a key.
 - No error variant; always returns a `u32`.
+
+---
+
+### `get_holder_registry(key_id: Address) → Vec<Address>`
+
+Returns the append-only list of wallet addresses that have held keys for `key_id`.
+An address remains in the list after its balance reaches zero, and subsequent
+purchases or transfers do not add duplicate entries. Keys without a registry
+return an empty vector. Reads of an existing registry extend its persistent
+storage TTL.
 
 ---
 
@@ -147,13 +219,7 @@ Returns the number of distinct addresses holding at least one key for `creator`.
 - Decrements when a holder sells their last key.
 
 ---
-
-## Creator profile methods
-
-### `get_creator(creator: Address) → Result<CreatorProfile, ContractError>`
-
 Returns the full profile for a registered creator.
-
 - Returns `Err(ContractError::NotRegistered)` for unregistered creators.
 - `CreatorProfile.supply` equals `get_total_key_supply` output.
 
@@ -201,13 +267,7 @@ Returns `true` if a creator profile exists for `creator`, `false` otherwise.
 ---
 
 ## Fee configuration methods
-
-### `get_protocol_fee_view(env: Env) → ProtocolFeeView`
-
-Returns a non-optional protocol fee configuration snapshot.
-
 | Field | Type | Semantics |
-|---|---|---|
 | `creator_bps` | `u32` | Creator share in basis points (`0–10000`). |
 | `protocol_bps` | `u32` | Protocol share in basis points. |
 | `is_configured` | `bool` | `true` once `set_fee_config` has been called. |
@@ -289,6 +349,17 @@ Returns accrued creator fee balance for the creator's fee recipient after buy ex
 
 ---
 
+### `get_current_milestone(key_id: Address) → Result<(u32, u32), ContractError>`
+
+Returns the active graduated supply milestone tier and the fee currently in effect for `key_id` (#1076).
+
+- Returns `(tier, fee_bps)` where `tier` is the 1-based count of milestone tiers reached (`0` when none) and `fee_bps` is the fee in basis points currently in effect.
+- Tiers are applied in ascending supply order and the fee only ever moves downward, so a supply drop never raises the fee.
+- Returns `Err(ContractError::NotRegistered)` for unregistered keys.
+- Does not mutate state.
+
+---
+
 ### `is_protocol_config_initialized(env: Env) → bool`
 
 Returns `true` if a protocol fee configuration has been stored; `false` otherwise.
@@ -329,9 +400,141 @@ Returns the configured protocol admin address, or `None` if not yet set.
 
 ---
 
+### `check_lockup(wallet: Address, key_id: Address) → (bool, u64)`
+
+Returns `(locked, seconds_remaining)` for the wallet's investor lock-up on the
+specified key. `seconds_remaining` is zero when no lock-up exists or the
+inclusive unlock timestamp has been reached.
+
+---
+
 ### `get_protocol_fee_recipient(env: Env) → Option<Address>`
 
 Returns the configured protocol fee recipient address, or `None` if not yet set.
+
+---
+
+### `get_reputation(env: Env, creator: Address) → ReputationView`
+
+Returns a creator's reputation score together with the per-reason counters that
+produced it (`keys_launched`, `milestones_reached`, `governance_participation`,
+`trade_activity`, `deprecations`) and a signed per-reason breakdown.
+
+The score saturates at zero: a penalty that would push it below zero floors at
+zero rather than reverting, so `new_score` is authoritative and the breakdown
+does not always re-sum to the score once flooring has occurred.
+
+---
+
+### `get_allowance(env: Env, owner: Address, spender: Address, key_id: Address) → u32`
+
+Returns the remaining transfer allowance `owner` granted to `spender` for
+`key_id`, or `0` when none exists. `transfer_from` decrements this in the same
+call that moves the keys, and removes the entry once it reaches zero.
+
+---
+
+### `get_sell_tax_bps(env: Env, creator: Address) → u32`
+
+Returns a creator's configured sell tax in basis points, or `0` when unset.
+Capped at `MAX_SELL_TAX_BPS` when set through `set_sell_tax_bps`.
+
+---
+
+### `get_buyback_pool_balance(env: Env) → (i128, Option<Address>)`
+
+Returns the accumulated buyback balance in the contract's internal ledger and
+the configured pool address. The address is `None` until an admin calls
+`set_buyback_pool_address`; until then collected tax is still accounted in the
+first element.
+
+---
+
+### `get_escalation_config(env: Env) → Option<EscalationConfig>`
+
+Returns the active poll quorum-escalation policy, or `None` when the protocol
+admin has never configured one. A config with `max_extensions == 0` reads back
+as `Some` but is treated as disabled.
+
+---
+
+### `get_escalation_status(env: Env, creator: Address, poll_id: u32) → EscalationView`
+
+Returns a proposal's deadline, extensions consumed and allowed, remaining
+ledgers, current participation in basis points of circulating supply, the
+creator's `quorum_bps`, whether an extension would currently qualify
+(`eligible`), and whether the budget is spent (`exhausted`).
+
+`eligible` requires a configured quorum the proposal has not already reached
+plus participation of at least `threshold_bps` of that requirement.
+`exhausted` is `false` when escalation is disabled, which distinguishes "no
+configured budget" from "a spent budget".
+
+---
+
+## Trusted forwarder read methods
+
+### `get_nonce(wallet: Address) → u64`
+
+Returns the trusted-forwarder nonce for `wallet`, which is the `nonce` the wallet's next `forward_buy` must carry and sign.
+
+- Starts at `0` for wallets with no forwarded history.
+- Increases by exactly one after each successful `forward_buy`. A failed `forward_buy` reverts, so the nonce is unchanged.
+- Nonces are per wallet: one wallet's forwarded buys never change another's.
+- Stored in persistent storage under `DataKey::ForwarderNonce(wallet)`.
+
+**Edge cases:**
+- Never panics and requires no authorization. A wallet with no entry returns `0`.
+- When the entry exists, the read extends its TTL to the full `CREATOR_TTL_LEDGERS` window. When it does not exist, nothing is written and no TTL is touched, since there is no entry to extend (`extend_ttl` on a missing key traps).
+
+---
+
+## Price alert read methods
+
+### `get_alerts(wallet: Address) → Vec<PriceAlert>`
+
+Returns `wallet`'s active price alerts in registration order. Each `PriceAlert` carries `alert_id`, `wallet`, `key_id`, `direction` (`Above` / `Below`), `target_price` (raw `i128`, same units as the key price) and `created_ledger`.
+
+- Only active alerts are returned. An alert disappears from the result in the same transaction that fires it (`alert_trg`) or cancels it (`alert_cxl`).
+- At most `MAX_ACTIVE_ALERTS_PER_WALLET` (10) entries.
+
+**Edge cases:**
+- Never panics and requires no authorization. A wallet that never registered an alert returns an empty vector.
+- Read-only: references to alerts that have fired are filtered out here and only pruned from storage the next time the wallet calls `register_alert` or `cancel_alert`.
+
+---
+
+## LP reward read methods
+
+### `get_reward_rate(key_id: Address) → RewardRate`
+
+Returns the current reward rate and the timestamp at which it was last set for `key_id`'s LP pool.
+
+| Field | Type | Semantics |
+|---|---|---|
+| `rate_bps` | `u32` | Reward rate in basis points (e.g., `500` = 5.00%). Returns `0` if not set. |
+| `updated_at` | `u64` | Ledger timestamp (in seconds) of the last update. Returns `0` if not set. |
+
+**Edge cases:**
+- Never panics and requires no authorization.
+- Returns `{ rate_bps: 0, updated_at: 0 }` for any key where `set_reward_rate` has not been called, or if `key_id` is unregistered.
+
+---
+
+## Liquidity depth read methods (#1133)
+
+### `get_depth(key_id: Address, levels: u32) → LiquidityDepth`
+
+Returns the top `levels` bid and ask price levels with individual and cumulative volume for `key_id`.
+
+- `bids`: Sorted descending (highest bid price first).
+- `asks`: Sorted ascending (lowest ask price first).
+- `cumulative_volume`: Monotonically increasing sum of volume from the top of the book down to that level.
+- When `levels == 0` or no depth exists for `key_id`, returns empty vectors for both bids and asks.
+
+### `get_price_level_volume(key_id: Address, price: i128, side: OrderSide) → i128`
+
+Returns the active volume at a specific price level for `key_id` and `side`. Returns `0` if no volume exists at that level.
 
 ---
 
@@ -340,3 +543,4 @@ Returns the configured protocol fee recipient address, or `None` if not yet set.
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.
 
 Basis points fields (`creator_bps`, `protocol_bps`) are in units of `1/10000` (e.g., `1000` = 10%). The sum `creator_bps + protocol_bps` always equals `10000` when a valid fee config is stored.
+

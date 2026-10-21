@@ -33,6 +33,7 @@ fn test_creator_details_identical_across_three_consecutive_reads() {
         &None,
         &None,
         &None,
+        &None,
     );
 
     // Perform three consecutive reads with NO state changes between them
@@ -146,6 +147,7 @@ fn test_creator_details_no_storage_writes_during_reads() {
             creator: creator.clone(),
             handle: handle.clone(),
         },
+        &None,
         &None,
         &None,
         &None,

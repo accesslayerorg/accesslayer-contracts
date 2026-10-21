@@ -66,7 +66,7 @@ fn test_fee_config_update_does_not_affect_other_creator() {
     let key_price = 1000_i128;
     let creator_bps = 9000;
     let protocol_bps = 1000;
-    set_pricing_and_fees(&env, &client, key_price, creator_bps, protocol_bps);
+    let admin = set_pricing_and_fees(&env, &client, key_price, creator_bps, protocol_bps);
 
     // Register two creators
     let creator1 = register_test_creator(&env, &client, "alice");
@@ -77,7 +77,6 @@ fn test_fee_config_update_does_not_affect_other_creator() {
     let quote2_initial = client.get_buy_quote(&creator2);
 
     // Update global fee config
-    let admin = Address::generate(&env);
     client.set_fee_config(&admin, &8000u32, &2000u32);
 
     // Both creators should see the new fee config (since it's global)
