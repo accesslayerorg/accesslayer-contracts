@@ -5424,16 +5424,15 @@ fn compute_twap_seconds(env: &Env, creator: &Address, window_seconds: u64) -> Op
 
     // Find the cumulative price-time at `effective_start` by scanning the buffer
     // for the snapshot immediately at or before that timestamp.
-    let cumulative_at_start: i128;
     let first = buf.get(0).unwrap();
 
-    if effective_start <= first.timestamp {
+    let cumulative_at_start: i128 = if effective_start <= first.timestamp {
         // The window starts at or before the very first snapshot. Back-project
         // from the first snapshot using its own price.
         let back_delta = (first.timestamp.saturating_sub(effective_start)) as i128;
-        cumulative_at_start = first
+        first
             .cumulative
-            .saturating_sub(first.price.saturating_mul(back_delta));
+            .saturating_sub(first.price.saturating_mul(back_delta))
     } else {
         // Walk from the end: find the last snapshot whose timestamp <= effective_start.
         let mut found_cumulative = first.cumulative;
@@ -5451,9 +5450,8 @@ fn compute_twap_seconds(env: &Env, creator: &Address, window_seconds: u64) -> Op
             }
         }
         let fwd_delta = (effective_start.saturating_sub(found_timestamp)) as i128;
-        cumulative_at_start =
-            found_cumulative.saturating_add(found_price.saturating_mul(fwd_delta));
-    }
+        found_cumulative.saturating_add(found_price.saturating_mul(fwd_delta))
+    };
 
     let total_time = (now.saturating_sub(effective_start)) as i128;
     if total_time <= 0 {
