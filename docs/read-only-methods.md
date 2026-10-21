@@ -538,6 +538,45 @@ Returns the active volume at a specific price level for `key_id` and `side`. Ret
 
 ---
 
+## Protocol-wide trade cooldown read methods (#1175)
+
+### `get_trade_cooldown(env: Env) → u64`
+
+Returns the configured protocol-wide per-wallet trade cooldown in seconds, or `0`
+when no window is configured. `0` means the cooldown is disabled, which is the
+default until the protocol admin calls `set_trade_cooldown`.
+
+- Never panics and requires no authorization.
+- The window never exceeds `MAX_TRADE_COOLDOWN_SECS` (86 400 s = 24 h).
+
+---
+
+### `get_trade_cooldown_remaining(env: Env, wallet: Address) → u64`
+
+Returns the number of seconds `wallet` still has to wait before it may trade
+again.
+
+- Returns `0` when the cooldown is disabled, when the wallet has never traded,
+  or when the window has already elapsed.
+- While the window is open, the value is exact:
+  `cooldown_secs - (now - last_trade_timestamp)`.
+- This is the value the rejected trade's `TradeCooldownBlockedEvent` carries
+  (`seconds_remaining`), so a client can show the wait time before submitting
+  the trade.
+
+---
+
+### `get_wallet_last_trade_timestamp(env: Env, wallet: Address) → u64`
+
+Returns the Unix timestamp of `wallet`'s most recent successful trade, or `0`
+when the wallet has not traded since the protocol-wide cooldown was introduced.
+
+- Never panics and requires no authorization.
+- The timestamp is written only after a trade settles, so a reverted trade
+  leaves it unchanged.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.

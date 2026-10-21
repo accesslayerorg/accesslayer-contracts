@@ -134,6 +134,24 @@ Key ownership handover (issue #1098) uses its own `OwnershipDataKey` enum in [`c
 
 **Storage layout / backward compatibility**: the keys are new and additive and live outside `DataKey`, so no existing key is read or changed and no migration is needed in either direction.
 
+### Protocol-Wide Trade Cooldown Storage-Key Notes (#1175)
+
+The protocol-wide per-wallet trade cooldown (issue #1175) uses its own `TradeCooldownDataKey` enum in [`creator-keys/src/protocol_trade_cooldown.rs`](../creator-keys/src/protocol_trade_cooldown.rs), like the other feature modules. All entries are persistent and extended to the full `CREATOR_TTL_LEDGERS` window on write.
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| Configured cooldown window (seconds) | `TradeCooldownDataKey::CooldownSecs` | `u64` (`0` = disabled) | every buy and sell, `get_trade_cooldown`, `get_trade_cooldown_remaining` | `set_trade_cooldown` (admin-auth only) |
+| A wallet's last trade timestamp | `TradeCooldownDataKey::LastTrade(wallet)` | `u64` (absent = never traded) | every buy and sell, `get_trade_cooldown_remaining`, `get_wallet_last_trade_timestamp` | the trade paths, after the trade settles |
+
+**Invariants**:
+
+- `CooldownSecs` is the single source of truth for the protocol-wide window. `0` (or an absent entry) disables the cooldown, and the window never exceeds `MAX_TRADE_COOLDOWN_SECS` (86 400 s = 24 h).
+- `LastTrade(wallet)` is written **after** a trade settles, and only for the wallet that traded. A reverted trade never leaves a timestamp behind, so a failed attempt cannot consume a wallet's window.
+- The window follows the wallet, not the key: the timestamp is keyed by wallet only, so trading a second creator's key inside the window is rejected as well.
+- One logical trade consumes one window. A multi-key purchase (`buy_keys`, `bundle_buy`) or a batch (`batch_buy`, `batch_sell`) writes the timestamp once for the whole operation, not once per key.
+
+**Storage layout / backward compatibility**: the keys are new and additive and live outside `DataKey`, so no existing key is read or changed and no migration is needed in either direction. The creator-scoped cooldown of issue #974 keeps its own keys (`DataKey::CooldownDuration`, `DataKey::LastTradeTimestamp`) and is untouched.
+
 ## Storage Invariants
 
 These invariants must hold true after every contract operation:
