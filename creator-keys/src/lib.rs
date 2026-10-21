@@ -2174,6 +2174,12 @@ pub enum DataKey {
     KeyMilestones(Address),
     /// Investor lock-up expiry timestamp, keyed by `(wallet, key_id)`.
     InvestorLockup(Address, Address),
+    /// Per-creator bonding curve intercept override -> `i128`.
+    CreatorCurveIntercept(Address),
+    /// Pending creator curve update, keyed by proposal id.
+    CurveUpdateProposal(u32),
+    /// Next creator curve update proposal id.
+    CurveUpdateNextId,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3745,6 +3751,13 @@ fn resolve_curve_slope(env: &Env, creator: &Address) -> i128 {
     read_creator_slope(env, creator).unwrap_or_else(|| read_curve_slope(env))
 }
 
+fn resolve_curve_intercept(env: &Env, creator: &Address, fallback: i128) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CreatorCurveIntercept(creator.clone()))
+        .unwrap_or(fallback)
+}
+
 fn read_protocol_fee_config(env: &Env) -> Option<fee::FeeConfig> {
     env.storage()
         .persistent()
@@ -4552,13 +4565,15 @@ fn compute_bonding_curve_price(
     base_price: i128,
     supply: u32,
 ) -> Result<i128, ContractError> {
+    let base_price = resolve_curve_intercept(env, creator, base_price);
+
     if let Some(milestones) = read_graduated_curve(env, creator) {
-        let slope = read_curve_slope(env);
+        let slope = resolve_curve_slope(env, creator);
         return compute_graduated_curve_price(&milestones, base_price, slope, supply);
     }
 
     if let Some(exponent) = read_curve_exponent(env, creator) {
-        let slope = read_curve_slope(env);
+        let slope = resolve_curve_slope(env, creator);
         let supply_exp = checked_pow_i128(supply as i128, exponent)?;
         let supply_component = slope
             .checked_mul(supply_exp)
