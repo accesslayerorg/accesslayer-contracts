@@ -3,7 +3,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
-    String, Vec,
+    String, Symbol, Vec,
 };
 pub mod bootstrapping;
 pub mod events;
