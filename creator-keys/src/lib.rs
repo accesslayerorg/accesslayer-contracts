@@ -296,6 +296,8 @@ pub enum ContractError {
     /// The two sides of an atomic swap deviate in value by more than the
     /// caller's `max_parity_deviation_bps` tolerance.
     ParityDeviationExceeded = 138,
+    /// The wallet already has the requested role for this creator key.
+    RoleAlreadyAssigned = 139,
 }
 
 impl ContractError {
@@ -1893,6 +1895,16 @@ pub enum CreatorLifecycle {
     Restoring = 2,
 }
 
+/// Named permissions that may be granted for a creator key.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+#[repr(u32)]
+pub enum AccessRole {
+    Moderator = 0,
+    Distributor = 1,
+    Analyst = 2,
+}
+
 /// Snapshot of a creator's operational state, written by `archive_creator` and
 /// replayed into the live profile by `complete_restore` (#709).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1959,6 +1971,8 @@ pub enum DataKey {
     /// Wallet addresses the protocol admin has barred from buying, selling,
     /// or registering as a creator.
     Blacklisted(Address),
+    /// Role assignment keyed by creator key, wallet, and named role.
+    Role(Address, Address, AccessRole),
     /// Archive retention policy configuration.
     RetentionPolicy,
     /// Protocol-wide ledger sequence at (and after) which buys are rejected.
@@ -6285,6 +6299,63 @@ pub struct CreatorKeysContract;
 
 #[contractimpl]
 impl CreatorKeysContract {
+    /// Grants a named role for a creator key to a wallet.
+    pub fn grant_role(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        role: AccessRole,
+    ) -> Result<(), ContractError> {
+        key_id.require_auth();
+        read_registered_creator_profile(&env, &key_id)?;
+
+        let role_key = DataKey::Role(key_id.clone(), wallet.clone(), role);
+        if env.storage().persistent().has(&role_key) {
+            return Err(ContractError::RoleAlreadyAssigned);
+        }
+
+        env.storage().persistent().set(&role_key, &true);
+        env.events().publish(
+            (Symbol::new(&env, "RoleGranted"), key_id, wallet),
+            role,
+        );
+        Ok(())
+    }
+
+    /// Revokes a named role. Repeating the operation is intentionally idempotent.
+    pub fn revoke_role(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        role: AccessRole,
+    ) -> Result<(), ContractError> {
+        key_id.require_auth();
+        read_registered_creator_profile(&env, &key_id)?;
+
+        let role_key = DataKey::Role(key_id.clone(), wallet.clone(), role);
+        if env.storage().persistent().has(&role_key) {
+            env.storage().persistent().remove(&role_key);
+            env.events().publish(
+                (Symbol::new(&env, "RoleRevoked"), key_id, wallet),
+                role,
+            );
+        }
+        Ok(())
+    }
+
+    /// Returns whether a wallet currently holds a role for a creator key.
+    pub fn has_role(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        role: AccessRole,
+    ) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Role(key_id, wallet, role))
+            .unwrap_or(false)
+    }
+
     /// Registers a new creator profile. This is a contract initialization
     /// entrypoint; the contract has no single `initialize` call, so the
     /// init-time parameter validation lives on the individual setters.
@@ -12591,6 +12662,16 @@ impl CreatorKeysContract {
         amount: i128,
     ) -> Result<(), ContractError> {
         distributor.require_auth();
+        if distributor != creator
+            && !Self::has_role(
+                env.clone(),
+                creator.clone(),
+                distributor.clone(),
+                AccessRole::Distributor,
+            )
+        {
+            return Err(ContractError::Unauthorized);
+        }
         assert_not_paused(&env)?;
 
         if amount <= 0 {
@@ -22747,3 +22828,4 @@ mod test_community_polls;
 mod test_issue_1056;
 #[cfg(test)]
 mod test_issue_1177;
+
