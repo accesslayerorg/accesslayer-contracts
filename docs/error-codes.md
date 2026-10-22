@@ -122,6 +122,8 @@ was renumbered, reordered, or reused. Vote delegation (Issue #1116) reuses
 `PollError::Unauthorized` (32) in governance voting when a delegator attempts
 to vote directly.
 
+### Atomic swap parity (Issue #1192)
+
 | Code | Variant | Description | Trigger Condition |
 | :--- | :--- | :--- | :--- |
 | `138` | `ParityDeviationExceeded` | The two sides of an atomic swap deviate in value by more than the caller's tolerance | Triggered in [`atomic_swap`](../creator-keys/src/lib.rs) when the two sides' values differ by more than `max_parity_deviation_bps` basis points of the larger side; a tolerance of `0` requires an exact match. |
@@ -132,6 +134,20 @@ reordered, or reused. The atomic-swap guard reuses existing codes where they
 already describe the failure: `SelfTransfer` (26) when both legs name the same
 key, `ZeroTransferAmount` (27) for a zero-quantity leg, and `Overflow` (3) on
 value arithmetic.
+
+### Key-level freeze / unfreeze (Issue #1174)
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `139` | `KeyFrozen` | The key is frozen and cannot trade | Triggered in every buy, sell and transfer path (including `batch_buy`, `batch_buy_v2`, `batch_sell`, `batch_sell_v2`, `swap`, `transfer_keys`, `batch_transfer_keys` and `reinvest_dividend`) when the key's status is `KeyStatus::Frozen`. |
+| `140` | `KeyAlreadyFrozen` | The key is already frozen | Triggered in `freeze` when the key's status is already `KeyStatus::Frozen`. |
+| `141` | `KeyNotFrozen` | The key is not frozen | Triggered in `unfreeze` when the key's status is `KeyStatus::Active`. |
+
+**Backward compatibility for 139-141**: these three codes are appended after the
+previously highest code (`138`, `ParityDeviationExceeded`). No existing variant
+was renumbered, reordered, or reused. `transfer_from` reports the frozen state
+through `AllowanceError::KeyFrozen` (12) because that entrypoint returns
+`AllowanceError` rather than `ContractError`.
 
 ---
 
@@ -197,6 +213,7 @@ Returned by [`approve`](../creator-keys/src/lib.rs) and
 | `9` | `HoldingCapExceeded` | The recipient would exceed the creator's per-wallet holding cap | Triggered when the post-transfer recipient balance exceeds the cap. |
 | `10` | `ZeroAddress` | The recipient address was the zero address | Triggered in `transfer_from` when `to` is the zero address. |
 | `11` | `CooldownActive` | The sender is still inside the creator's post-buy cooldown window | Triggered in `transfer_from` when the sender's last buy is within the creator's `cooldown_ledgers`, mirroring `transfer_keys`. |
+| `12` | `KeyFrozen` | The key is frozen and cannot be transferred | Triggered in `transfer_from` when the key's status is `KeyStatus::Frozen` (#1174). |
 
 `transfer_from` enforces the same invariants as the direct `transfer_keys`
 path, including the cooldown window, so a spender cannot route keys around a
@@ -322,6 +339,9 @@ try {
 ### Trading & Slippage
 - `InsufficientPayment` (4) applies to buys when payment is less than total price + fees.
 - `InsufficientBalance` (9) applies to sells, transfers, and buybacks when caller balance is insufficient.
+  Both `batch_sell` and `batch_sell_v2` report (9) when an order asks for more keys than the caller
+  holds — including when the excess only appears by summing several orders for the same creator —
+  and the whole call is rolled back. `SellUnderflow` (10) stays reserved for arithmetic underflow.
 - `SlippageExceeded` (16) indicates market movement between quote generation and execution. Refresh quotes and retry with wider slippage bounds.
 
 ### Governance Polls

@@ -7,6 +7,7 @@ use soroban_sdk::{
 };
 pub mod bootstrapping;
 pub mod events;
+pub use events::{SlippageExceeded, SlippageExceededEvent};
 pub mod quote_view_errors;
 pub mod vesting;
 
@@ -23,6 +24,7 @@ pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
 
+pub mod key_freeze;
 pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
@@ -296,6 +298,13 @@ pub enum ContractError {
     /// The two sides of an atomic swap deviate in value by more than the
     /// caller's `max_parity_deviation_bps` tolerance.
     ParityDeviationExceeded = 138,
+    // --- Key-level freeze / unfreeze (Issue #1174) ---
+    /// The key is frozen, so the attempted buy, sell or transfer is rejected.
+    KeyFrozen = 139,
+    /// The key is already frozen; unfreeze it before freezing it again.
+    KeyAlreadyFrozen = 140,
+    /// The key is not frozen, so there is nothing to unfreeze.
+    KeyNotFrozen = 141,
 }
 
 impl ContractError {
@@ -432,6 +441,8 @@ pub enum AllowanceError {
     ZeroAddress = 10,
     /// The sender is still inside the creator's post-buy cooldown window.
     CooldownActive = 11,
+    /// The key is frozen, so the transfer is rejected.
+    KeyFrozen = 12,
 }
 
 /// Errors raised by the sell-tax entrypoints
@@ -4443,6 +4454,20 @@ fn assert_max_slippage_bps(
                     (soroban_sdk::symbol_short!("imp_ex"), creator.clone()),
                     (actual_bps, max_bps),
                 );
+                let payload = events::SlippageExceeded {
+                    quoted_price: reference_price,
+                    executed_price: execution_price_after_fees,
+                    slippage_bps: actual_bps,
+                };
+                env.events()
+                    .publish(events::slippage_exceeded_topics(creator), payload.clone());
+                env.events().publish(
+                    (
+                        soroban_sdk::Symbol::new(env, "SlippageExceeded"),
+                        creator.clone(),
+                    ),
+                    payload,
+                );
                 return Err(ContractError::SlippageExceeded);
             }
         }
@@ -6886,6 +6911,29 @@ impl CreatorKeysContract {
         Self::buy_key_with_slippage(env, key_id, buyer, payment, max_price, max_slippage_bps)
     }
 
+    /// Sells a key for `key_id`.
+    /// Alias to [`Self::sell_key`].
+    pub fn sell(
+        env: Env,
+        key_id: Address,
+        seller: Address,
+        min_proceeds: Option<i128>,
+    ) -> Result<u32, ContractError> {
+        Self::sell_key(env, key_id, seller, min_proceeds)
+    }
+
+    /// Sells a key for `key_id` with caller-specified slippage tolerance.
+    /// Alias to [`Self::sell_key_with_slippage`].
+    pub fn sell_with_slippage(
+        env: Env,
+        key_id: Address,
+        seller: Address,
+        min_proceeds: Option<i128>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
+        Self::sell_key_with_slippage(env, key_id, seller, min_proceeds, max_slippage_bps)
+    }
+
     pub fn buy_key(
         env: Env,
         creator: Address,
@@ -7009,6 +7057,7 @@ impl CreatorKeysContract {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
@@ -7584,6 +7633,7 @@ impl CreatorKeysContract {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
@@ -8092,6 +8142,7 @@ impl CreatorKeysContract {
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
         assert_position_not_frozen(&env, &creator, &seller)?;
@@ -11584,6 +11635,7 @@ impl CreatorKeysContract {
         for order in orders.iter() {
             let (creator, quantity, max_price) = order;
             emergency_pause::assert_trading_allowed(&env, &creator)?;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
 
             if quantity == 0 {
                 return Err(ContractError::NotPositiveAmount);
@@ -12713,6 +12765,9 @@ impl CreatorKeysContract {
             return Err(ContractError::NotPositiveAmount);
         }
 
+        // A frozen key rejects both swap directions (#1174).
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
+
         // Enforce per-key trade size limits before any price computation so a
         // rejected trade reverts without side effects. When no limit is stored
         // for this key the check is skipped.
@@ -13815,6 +13870,7 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         from.require_auth();
         assert_not_paused(&env)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_position_not_frozen(&env, &creator, &from)?;
 
         if amount == 0 {
@@ -13966,6 +14022,7 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         from.require_auth();
         assert_not_paused(&env)?;
+        key_freeze::assert_key_not_frozen(&env, &creator)?;
         assert_position_not_frozen(&env, &creator, &from)?;
 
         if transfers.len() > MAX_BATCH_TRANSFER_SIZE {
@@ -16792,6 +16849,7 @@ impl CreatorKeysContract {
         for order in orders.iter() {
             let (creator, quantity) = order;
             emergency_pause::assert_trading_allowed(&env, &creator)?;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
             if quantity == 0 {
                 return Err(ContractError::NotPositiveAmount);
             }
@@ -16939,6 +16997,7 @@ impl CreatorKeysContract {
 
         for order in orders.iter() {
             let (creator, quantity, min_proceeds) = order;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
             if quantity == 0 {
                 return Err(ContractError::NotPositiveAmount);
             }
@@ -16957,6 +17016,20 @@ impl CreatorKeysContract {
             let mut order_proceeds: i128 = 0;
             let mut i = 0u32;
             while i < quantity {
+                // Check the seller's balance before touching supply. A holder
+                // asking for more keys than they own is a user error and must
+                // report `InsufficientBalance` exactly like `batch_sell()`;
+                // decrementing supply first made a zeroed supply reach
+                // `checked_sub(1)` and surface the internal `SellUnderflow`
+                // instead. `SellUnderflow` therefore stays reserved for a
+                // genuinely inconsistent state (balance held, supply already 0).
+                let balance_key = constants::storage::holder_balance_key(&creator, &seller);
+                let current_balance: u32 =
+                    env.storage().persistent().get(&balance_key).unwrap_or(0);
+                if current_balance == 0 {
+                    return Err(ContractError::InsufficientBalance);
+                }
+
                 let sell_supply = profile
                     .supply
                     .checked_sub(1)
@@ -16964,13 +17037,6 @@ impl CreatorKeysContract {
                 let curve_price =
                     compute_bonding_curve_price(&env, &creator, base_price, sell_supply)?;
                 let price = apply_spread(&env, &creator, curve_price)?;
-
-                let balance_key = constants::storage::holder_balance_key(&creator, &seller);
-                let current_balance: u32 =
-                    env.storage().persistent().get(&balance_key).unwrap_or(0);
-                if current_balance == 0 {
-                    return Err(ContractError::InsufficientBalance);
-                }
 
                 let staked_balance_key = constants::storage::staked_balance(&creator, &seller);
                 let staked_balance: u32 = env
@@ -17170,6 +17236,7 @@ impl CreatorKeysContract {
         for i in 0..orders.len() {
             let (creator, qty) = orders.get(i).unwrap();
             emergency_pause::assert_trading_allowed(&env, &creator)?;
+            key_freeze::assert_key_not_frozen(&env, &creator)?;
             if qty == 0 {
                 return Err(ContractError::NotPositiveAmount);
             }
@@ -17533,6 +17600,8 @@ impl CreatorKeysContract {
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &caller)?;
         assert_before_global_deadline(&env)?;
+        // A frozen key rejects the reinvestment buy (#1174).
+        key_freeze::assert_key_not_frozen(&env, &key_id)?;
 
         let claimable = compute_claimable_dividend(&env, &key_id, &caller);
         if claimable <= 0 {
@@ -19553,6 +19622,8 @@ impl CreatorKeysContract {
     ) -> Result<(), AllowanceError> {
         spender.require_auth();
         assert_not_paused(&env).map_err(|_| AllowanceError::ProtocolPaused)?;
+        // A frozen key rejects delegated transfers too (#1174).
+        key_freeze::assert_key_not_frozen(&env, &key_id).map_err(|_| AllowanceError::KeyFrozen)?;
 
         if amount == 0 {
             return Err(AllowanceError::ZeroAmount);
@@ -20109,6 +20180,11 @@ impl CreatorKeysContract {
         lp_id: u64,
     ) -> Result<lp_reward::LpPosition, lp_reward::LpRewardError> {
         lp_reward::get_lp_position(&env, lp_id)
+    }
+
+    /// Returns pending rewards for a given LP position.
+    pub fn get_lp_rewards(env: Env, lp_id: u64) -> Result<i128, lp_reward::LpRewardError> {
+        lp_reward::get_lp_rewards(&env, lp_id)
     }
 
     /// Accrues fee rewards to key pair pool proportional to trading volume.
@@ -23111,5 +23187,7 @@ pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
 mod test_community_polls;
 #[cfg(test)]
 mod test_issue_1056;
+#[cfg(test)]
+mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
