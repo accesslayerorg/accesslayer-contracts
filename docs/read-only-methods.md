@@ -445,6 +445,15 @@ Returns the trusted-forwarder nonce for `wallet`, which is the `nonce` the walle
 - Never panics and requires no authorization. A wallet with no entry returns `0`.
 - When the entry exists, the read extends its TTL to the full `CREATOR_TTL_LEDGERS` window. When it does not exist, nothing is written and no TTL is touched, since there is no entry to extend (`extend_ttl` on a missing key traps).
 
+**Consumption (action handlers only):**
+
+Action handlers authorize the wallet first and then call the internal `consume_nonce(wallet, nonce)` gate. It validates `nonce` against the current value and increments it to `nonce + 1` in a single storage step, before the action performs any work:
+
+- Only the exact current nonce is accepted. A replayed nonce (below the stored value) or a future nonce (above it) returns `NonceAlreadyUsed` and changes nothing.
+- The nonce is invalidated as soon as it is consumed, so a second action queued with the same nonce cannot also succeed. If the handler fails after consuming, the whole invocation reverts, including the increment, and the nonce is usable again.
+- `consume_nonce` is deliberately not a contract entrypoint: exposing it would let any caller burn another wallet's nonce and invalidate its pending signed actions.
+- The forwarded action event (`fwd_buy`, topics `(fwd_buy, forwarder, buyer)`) carries the consumed `nonce` in its payload as the last field, so indexers can audit each consumed nonce against `get_nonce`.
+
 ---
 
 ## Precision and units

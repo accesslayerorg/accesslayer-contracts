@@ -9,12 +9,12 @@ mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, register_test_creator};
 use creator_keys::constants::storage;
-use creator_keys::{ContractError, CreatorKeysContractClient, CREATOR_TTL_LEDGERS};
+use creator_keys::{events, ContractError, CreatorKeysContractClient, CREATOR_TTL_LEDGERS};
 use ed25519_dalek::{Signer, SigningKey};
 use soroban_sdk::testutils::storage::Persistent;
-use soroban_sdk::testutils::{Address as _, Ledger, MockAuth, MockAuthInvoke};
+use soroban_sdk::testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke};
 use soroban_sdk::xdr::{FromXdr, ToXdr};
-use soroban_sdk::{Address, Bytes, BytesN, Env, IntoVal, InvokeError};
+use soroban_sdk::{Address, Bytes, BytesN, Env, IntoVal, InvokeError, Symbol, TryIntoVal};
 
 const KEY_PRICE: i128 = 100;
 
@@ -633,4 +633,96 @@ fn rejected_forward_buy_rolls_back_nonce_ttl_bump() {
         Err(Ok(ContractError::NonceAlreadyUsed))
     );
     assert_eq!(s.nonce_ttl(&buyer.address), CREATOR_TTL_LEDGERS - 1_000);
+}
+
+// ── action-executed event audit trail ────────────────────────────────────────
+
+/// Returns the latest forwarded-buy event visible to the harness, if any.
+/// `forward_buy` also emits the underlying `buy` event, so the payload is
+/// selected by topic name rather than position.
+fn last_forwarded_buy(env: &Env) -> Option<events::ForwardedBuyEvent> {
+    let mut found = None;
+    for (_contract, topics, data) in env.events().all().iter() {
+        let name: Symbol = topics.get(0).unwrap().try_into_val(env).unwrap();
+        if name == events::FORWARDED_BUY_EVENT_NAME {
+            found = Some(data.try_into_val(env).unwrap());
+        }
+    }
+    found
+}
+
+#[test]
+fn forwarded_action_event_carries_consumed_nonce() {
+    let env = Env::default();
+    let s = setup(&env);
+    let buyer = wallet(&env, 1);
+
+    assert_eq!(s.forward(&buyer, 0), Ok(Ok(())));
+    let first = last_forwarded_buy(&env).expect("forwarded buy event");
+    assert_eq!(first.nonce, 0);
+    assert_eq!(first.forwarder, s.forwarder);
+    assert_eq!(first.buyer, buyer.address);
+    assert_eq!(first.creator_id, s.creator);
+    assert_eq!(first.quantity, 1);
+
+    assert_eq!(s.forward(&buyer, 1), Ok(Ok(())));
+    let second = last_forwarded_buy(&env).expect("forwarded buy event");
+    assert_eq!(second.nonce, 1);
+}
+
+#[test]
+fn forwarded_action_event_topics_name_forwarder_and_buyer() {
+    let env = Env::default();
+    let s = setup(&env);
+    let buyer = wallet(&env, 1);
+    assert_eq!(s.forward(&buyer, 0), Ok(Ok(())));
+
+    let mut matched = false;
+    for (_contract, topics, data) in env.events().all().iter() {
+        let name: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+        if name != events::FORWARDED_BUY_EVENT_NAME {
+            continue;
+        }
+        let topic_forwarder: Address = topics.get(1).unwrap().try_into_val(&env).unwrap();
+        let topic_buyer: Address = topics.get(2).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(topic_forwarder, s.forwarder);
+        assert_eq!(topic_buyer, buyer.address);
+        let payload: events::ForwardedBuyEvent = data.try_into_val(&env).unwrap();
+        assert_eq!(payload.nonce, 0);
+        matched = true;
+    }
+    assert!(matched, "no forwarded buy event published");
+}
+
+// ── concurrent consumption ───────────────────────────────────────────────────
+
+/// Two independently signed actions cannot both spend the same nonce: the
+/// nonce gate is a single check-and-increment, so the first submission to be
+/// applied consumes the value and the second is rejected as a replay even
+/// though its signed payload is different.
+#[test]
+fn same_nonce_cannot_be_consumed_by_two_pending_actions() {
+    let env = Env::default();
+    let s = setup(&env);
+    let buyer = wallet(&env, 1);
+
+    // Both actions are signed against the same current nonce before either is
+    // submitted, exactly as a relayer batching two queued submissions would.
+    let first_signature = s.signature(&buyer, 1, 0);
+    let second_signature = s.signature(&buyer, 2, 0);
+
+    assert_eq!(s.try_forward(&buyer, 1, 0, &first_signature), Ok(Ok(())));
+    assert_eq!(
+        s.try_forward(&buyer, 2, 0, &second_signature),
+        Err(Ok(ContractError::NonceAlreadyUsed))
+    );
+
+    // Only the first action was applied and the nonce moved exactly once.
+    assert_eq!(s.client.get_nonce(&buyer.address), 1);
+    assert_eq!(s.client.get_key_balance(&s.creator, &buyer.address), 1);
+
+    // Re-signing the pending action against the advanced nonce lets it through.
+    let retried = s.signature(&buyer, 2, 1);
+    assert_eq!(s.try_forward(&buyer, 2, 1, &retried), Ok(Ok(())));
+    assert_eq!(s.client.get_nonce(&buyer.address), 2);
 }

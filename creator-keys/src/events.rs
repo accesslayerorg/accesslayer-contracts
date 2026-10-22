@@ -299,6 +299,14 @@ pub struct KeysBoughtEvent {
 }
 
 /// Stable forwarded-buy event payload for downstream indexers.
+///
+/// This is the action-executed event for the trusted-forwarder handler: it is
+/// published only after `consume_nonce` accepted and invalidated `nonce`, so the
+/// nonce here is exactly the one the buyer signed for this action.
+///
+/// Event shape:
+/// - topics: `(FORWARDED_BUY_EVENT_NAME, forwarder, buyer)`
+/// - data: `ForwardedBuyEvent`
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct ForwardedBuyEvent {
@@ -312,6 +320,9 @@ pub struct ForwardedBuyEvent {
     pub quantity: u32,
     /// Ledger sequence number at the time of the forwarded purchase.
     pub ledger: u32,
+    /// Nonce consumed by this action, for replay auditing. Appended after
+    /// `ledger` so existing consumers keep their field positions.
+    pub nonce: u64,
 }
 
 /// Stable sell event payload for downstream indexers.

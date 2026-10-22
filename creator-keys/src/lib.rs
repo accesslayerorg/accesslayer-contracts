@@ -4230,17 +4230,35 @@ fn read_forwarder_nonce(env: &Env, wallet: &Address) -> u64 {
     }
 }
 
-/// Advances `wallet`'s trusted-forwarder nonce by one and extends the entry's
-/// TTL to the full [`CREATOR_TTL_LEDGERS`] window.
+/// Validates `nonce` against `wallet`'s trusted-forwarder nonce and consumes
+/// it, returning the value the wallet's next action must carry.
 ///
-/// Returns [`ContractError::Overflow`] instead of wrapping if the nonce is
-/// already `u64::MAX`. Runs inside the `forward_buy` invocation, so a later
-/// failure in that call reverts the increment together with every other write.
-fn increment_forwarder_nonce(env: &Env, wallet: &Address) -> Result<u64, ContractError> {
+/// This is the single gate every nonce-consuming action handler must call. The
+/// check and the write happen in one step on the same storage entry, so two
+/// actions racing for the same nonce cannot both observe it as unused: only the
+/// action whose nonce equals the stored value advances it, and every later
+/// action carrying that nonce is rejected with
+/// [`ContractError::NonceAlreadyUsed`]. Replayed nonces are below the stored
+/// value and future nonces are above it; both fail the same check.
+///
+/// The write happens before the handler performs any external work, so the
+/// nonce is invalidated immediately. If the handler fails afterwards, the whole
+/// invocation reverts, including this write, and the nonce becomes usable again.
+///
+/// The entry's TTL is extended to the full [`CREATOR_TTL_LEDGERS`] window and
+/// [`ContractError::Overflow`] is returned instead of wrapping at `u64::MAX`.
+///
+/// Deliberately not a contract entrypoint: callers must have authorized
+/// `wallet` first (via `require_auth` or a verified signature), otherwise any
+/// address could burn another wallet's nonce and invalidate its pending signed
+/// actions.
+fn consume_nonce(env: &Env, wallet: &Address, nonce: u64) -> Result<u64, ContractError> {
     let key = constants::storage::forwarder_nonce(wallet);
-    let next = read_forwarder_nonce(env, wallet)
-        .checked_add(1)
-        .ok_or(ContractError::Overflow)?;
+    let current = read_forwarder_nonce(env, wallet);
+    if nonce != current {
+        return Err(ContractError::NonceAlreadyUsed);
+    }
+    let next = current.checked_add(1).ok_or(ContractError::Overflow)?;
     env.storage().persistent().set(&key, &next);
     extend_key_ttl_to_full_window(env, &key);
     Ok(next)
@@ -17402,7 +17420,10 @@ impl CreatorKeysContract {
     ///    with a host crypto error.
     /// 3. `nonce` must equal [`Self::get_nonce`] for `buyer`, otherwise
     ///    [`ContractError::NonceAlreadyUsed`] (both replayed and future nonces).
-    /// 4. The buyer's nonce is incremented and its TTL extended.
+    /// 4. The buyer's nonce is consumed: it is checked against the stored
+    ///    value, incremented and its TTL extended in one step (see
+    ///    `consume_nonce`). The consumed nonce is emitted in the
+    ///    [`events::ForwardedBuyEvent`] for auditability.
     /// 5. The purchase executes. If it fails, the whole invocation reverts,
     ///    including the nonce increment, so the nonce can be reused.
     ///
@@ -17459,10 +17480,7 @@ impl CreatorKeysContract {
 
         // Replay protection: only the wallet's current nonce is accepted, and it
         // is consumed before any other state changes (checks-effects-interactions).
-        if nonce != read_forwarder_nonce(&env, &buyer) {
-            return Err(ContractError::NonceAlreadyUsed);
-        }
-        increment_forwarder_nonce(&env, &buyer)?;
+        consume_nonce(&env, &buyer, nonce)?;
 
         // Resolve the per-key price from the bonding curve and compute
         // total payment for the requested quantity.
@@ -17493,6 +17511,7 @@ impl CreatorKeysContract {
                 creator_id: creator,
                 quantity,
                 ledger: env.ledger().sequence(),
+                nonce,
             },
         );
 
