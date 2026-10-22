@@ -6315,10 +6315,8 @@ impl CreatorKeysContract {
         }
 
         env.storage().persistent().set(&role_key, &true);
-        env.events().publish(
-            (Symbol::new(&env, "RoleGranted"), key_id, wallet),
-            role,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "RoleGranted"), key_id, wallet), role);
         Ok(())
     }
 
@@ -6335,21 +6333,14 @@ impl CreatorKeysContract {
         let role_key = DataKey::Role(key_id.clone(), wallet.clone(), role);
         if env.storage().persistent().has(&role_key) {
             env.storage().persistent().remove(&role_key);
-            env.events().publish(
-                (Symbol::new(&env, "RoleRevoked"), key_id, wallet),
-                role,
-            );
+            env.events()
+                .publish((Symbol::new(&env, "RoleRevoked"), key_id, wallet), role);
         }
         Ok(())
     }
 
     /// Returns whether a wallet currently holds a role for a creator key.
-    pub fn has_role(
-        env: Env,
-        key_id: Address,
-        wallet: Address,
-        role: AccessRole,
-    ) -> bool {
+    pub fn has_role(env: Env, key_id: Address, wallet: Address, role: AccessRole) -> bool {
         env.storage()
             .persistent()
             .get(&DataKey::Role(key_id, wallet, role))
