@@ -126,6 +126,11 @@ to vote directly.
 
 | Code | Variant | Description | Trigger Condition |
 | :--- | :--- | :--- | :--- |
+| `134` | `InvalidImpactTolerance` | The requested price-impact tolerance exceeds 10 000 bps (100%). | Triggered by `get_max_buy` / `get_max_sell` when `max_impact_bps` / `min_impact_bps` is above the allowed maximum. |
+
+**Backward compatibility for 134**: this code is appended after the previously
+highest code (`133`, `NotAHolder`). No existing variant was renumbered,
+reordered, or reused.
 | `138` | `ParityDeviationExceeded` | The two sides of an atomic swap deviate in value by more than the caller's tolerance | Triggered in [`atomic_swap`](../creator-keys/src/lib.rs) when the two sides' values differ by more than `max_parity_deviation_bps` basis points of the larger side; a tolerance of `0` requires an exact match. |
 
 **Backward compatibility for 138**: this code is appended after the previously
