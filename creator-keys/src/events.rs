@@ -456,6 +456,38 @@ pub fn buy_event_topics(creator: &Address, buyer: &Address) -> (Symbol, Address,
     (BUY_EVENT_NAME, creator.clone(), buyer.clone())
 }
 
+/// Event name for a multi-buy completion (atomic multi-creator purchase).
+pub const MULTI_BUY_COMPLETED_EVENT_NAME: Symbol = symbol_short!("mbuy_done");
+
+/// Stable field order for multi-buy completed event payloads.
+pub const MULTI_BUY_COMPLETED_DATA_FIELDS: [&str; 4] =
+    ["buyer", "leg_count", "total_cost", "ledger"];
+
+/// Stable multi-buy completed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(MULTI_BUY_COMPLETED_EVENT_NAME, buyer)`
+/// - data: `MultiBuyCompletedEvent`
+///
+/// Emitted exactly once, only after every leg of a `multi_buy` succeeded.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MultiBuyCompletedEvent {
+    /// Buyer that executed the multi-buy.
+    pub buyer: Address,
+    /// Number of legs executed.
+    pub leg_count: u32,
+    /// Sum of all per-leg gross costs (including fees).
+    pub total_cost: i128,
+    /// Ledger sequence at completion.
+    pub ledger: u32,
+}
+
+/// Shared multi-buy completed event topics tuple.
+pub fn multi_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
+    (MULTI_BUY_COMPLETED_EVENT_NAME, buyer.clone())
+}
+
 /// Shared peer-to-peer transfer event topics tuple.
 pub fn transfer_event_topics(creator: &Address, from: &Address) -> (Symbol, Address, Address) {
     (TRANSFER_EVENT_NAME, creator.clone(), from.clone())
