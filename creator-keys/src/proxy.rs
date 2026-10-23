@@ -40,6 +40,54 @@ pub struct UpgradeExecuted {
 
 pub const UPGRADE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("upg_exec");
 
+/// Gate types supported by the content gating layer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum GateType {
+    /// Requires any non-zero balance.
+    Holder,
+    /// Requires an active subscription.
+    Subscriber,
+    /// Requires balance of at least `min_balance`.
+    Threshold,
+}
+
+/// Gate configuration parameters.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct GateConfig {
+    pub gate_type: GateType,
+    pub min_balance: i128,
+}
+
+#[derive(Clone)]
+#[contracttype]
+pub enum GateDataKey {
+    Creator(u64),
+    Gate(u64),
+}
+
+/// Emitted when access is granted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AccessGranted {
+    pub wallet: Address,
+    pub key_id: u64,
+    pub gate_type: GateType,
+}
+
+/// Emitted when access is denied.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AccessDenied {
+    pub wallet: Address,
+    pub key_id: u64,
+    pub gate_type: GateType,
+}
+
+pub const ACCESS_GRANTED_EVENT_NAME: Symbol = symbol_short!("acc_grnt");
+pub const ACCESS_DENIED_EVENT_NAME: Symbol = symbol_short!("acc_deny");
+
 #[contract]
 pub struct BondingCurveProxy;
 
@@ -164,6 +212,81 @@ impl BondingCurveProxy {
             .instance()
             .get(&ProxyDataKey::Admin)
             .ok_or(ProxyError::NotInitialized)
+    }
+
+    /// Configures the access gate for a key. Only the key creator may call this.
+    pub fn set_gate(
+        env: Env,
+        caller: Address,
+        key_id: u64,
+        config: GateConfig,
+    ) -> Result<(), ProxyError> {
+        caller.require_auth();
+        let creator: Address = env
+            .storage()
+            .persistent()
+            .get(&GateDataKey::Creator(key_id))
+            .ok_or(ProxyError::Unauthorized)?;
+        if caller != creator {
+            return Err(ProxyError::Unauthorized);
+        }
+        env.storage()
+            .persistent()
+            .set(&GateDataKey::Gate(key_id), &config);
+        Ok(())
+    }
+
+    /// Returns the current gate configuration for a key.
+    pub fn get_gate_config(env: Env, key_id: u64) -> Result<GateConfig, ProxyError> {
+        env.storage()
+            .persistent()
+            .get(&GateDataKey::Gate(key_id))
+            .ok_or(ProxyError::NotInitialized)
+    }
+
+    /// Checks whether `wallet` may access gated content for `key_id`.
+    /// `balance` and `is_subscriber` are supplied by the caller's verified
+    /// view of the bonding curve state. Emits `AccessGranted` or `AccessDenied`.
+    pub fn check_access(
+        env: Env,
+        wallet: Address,
+        key_id: u64,
+        balance: i128,
+        is_subscriber: bool,
+    ) -> Result<bool, ProxyError> {
+        let config: GateConfig = env
+            .storage()
+            .persistent()
+            .get(&GateDataKey::Gate(key_id))
+            .ok_or(ProxyError::NotInitialized)?;
+
+        let allowed = match config.gate_type {
+            GateType::Holder => balance > 0,
+            GateType::Subscriber => is_subscriber,
+            GateType::Threshold => balance >= config.min_balance,
+        };
+
+        if allowed {
+            env.events().publish(
+                (ACCESS_GRANTED_EVENT_NAME, wallet.clone(), key_id),
+                AccessGranted {
+                    wallet,
+                    key_id,
+                    gate_type: config.gate_type,
+                },
+            );
+        } else {
+            env.events().publish(
+                (ACCESS_DENIED_EVENT_NAME, wallet.clone(), key_id),
+                AccessDenied {
+                    wallet,
+                    key_id,
+                    gate_type: config.gate_type,
+                },
+            );
+        }
+
+        Ok(allowed)
     }
 
     /// Fallback dispatcher: delegates call to current implementation.
