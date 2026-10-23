@@ -1,18 +1,5 @@
 [workspace]
-members = [
-    "creator-keys",
-    "creator-keys-factory",
-    "referral-contract",
-    "lp-reward-contract",
-    "key-staking-contract",
-    "multisig-admin",
-    "nonce-registry",
-    "launch-auction",
-    "key-liquidity-depth",
-    "seasonal-rewards",
-    "auto-invest-registry",
-    "key-analytics",
-]
+members = ["creator-keys", "creator-keys-factory", "referral-contract", "lp-reward-contract", "key-staking-contract", "multisig-admin", "nonce-registry", "launch-auction", "vesting-contract", "badge-contract", "leaderboard-contract", "holder-rewards", "key-tipping"]
 resolver = "2"
 
 [workspace.package]
@@ -40,3 +27,4 @@ lto = true
 # covers both `cargo build` and `cargo test` invocations.
 [profile.dev]
 debug = 0
+
