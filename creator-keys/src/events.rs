@@ -4959,3 +4959,28 @@ pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
 pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
     (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }
+
+/// Event name emitted when a sell is blocked because the bonding curve price
+/// is at or below the key's configured price floor.
+pub const PRICE_FLOOR_TRIGGERED_EVENT_NAME: Symbol = symbol_short!("pf_trig");
+
+/// Stable payload for a price floor trigger event.
+///
+/// Event shape:
+/// - topics: `(PRICE_FLOOR_TRIGGERED_EVENT_NAME, key_id)`
+/// - data: `PriceFloorTriggeredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceFloorTriggeredEvent {
+    /// Key whose sell was blocked.
+    pub key_id: Address,
+    /// Spot price at the time of the attempted sell.
+    pub attempted_price: i128,
+    /// Configured floor price for the key.
+    pub floor: i128,
+}
+
+/// Shared price floor triggered event topics tuple.
+pub fn price_floor_triggered_topics(key_id: &Address) -> (Symbol, Address) {
+    (PRICE_FLOOR_TRIGGERED_EVENT_NAME, key_id.clone())
+}
