@@ -266,8 +266,8 @@ pub enum ContractError {
     CircuitBreakerTripped = 102,
     InvalidSignature = 103,
     NonceAlreadyUsed = 104,
-    /// The requested holder cap is above the currently stored cap; the cap can
-    /// only be tightened (reduced), never raised above the value set at launch.
+    /// A holder or supply cap is above its currently stored value; caps can
+    /// only be tightened (reduced), never raised after being set.
     CapCannotIncrease = 105,
     /// The requested holder cap is below the minimum of 100 bps (1% of supply).
     CapTooLow = 106,
@@ -15338,6 +15338,64 @@ impl CreatorKeysContract {
                 cap,
             },
         );
+
+        Ok(())
+    }
+
+    /// Sets an initial supply cap or reduces an existing cap for a creator's
+    /// keys. Only the creator may call this method. A cap cannot be removed,
+    /// increased, or lowered below the current supply. Existing caps emit a
+    /// [`events::MaxSupplyUpdatedEvent`] when reduced; an initial cap emits
+    /// [`events::SupplyCapSetEvent`].
+    pub fn set_max_supply(
+        env: Env,
+        creator: Address,
+        max_supply: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        let profile = read_registered_creator_profile(&env, &creator)?;
+
+        if max_supply == 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+
+        let cap_key = constants::storage::max_supply(&creator);
+        let existing: Option<u32> = env.storage().persistent().get(&cap_key);
+
+        if profile.supply > max_supply {
+            return Err(ContractError::SupplyCapExceeded);
+        }
+
+        match existing {
+            None => {
+                env.storage().persistent().set(&cap_key, &max_supply);
+                env.events().publish(
+                    events::supply_cap_set_topics(&creator),
+                    events::SupplyCapSetEvent {
+                        creator_id: creator,
+                        cap: max_supply,
+                    },
+                );
+            }
+            Some(old_max_supply) => {
+                if max_supply > old_max_supply {
+                    return Err(ContractError::CapCannotIncrease);
+                }
+                if max_supply == old_max_supply {
+                    return Ok(());
+                }
+
+                env.storage().persistent().set(&cap_key, &max_supply);
+                env.events().publish(
+                    events::max_supply_updated_topics(&creator),
+                    events::MaxSupplyUpdatedEvent {
+                        creator_id: creator,
+                        old_max_supply,
+                        new_max_supply: max_supply,
+                    },
+                );
+            }
+        }
 
         Ok(())
     }

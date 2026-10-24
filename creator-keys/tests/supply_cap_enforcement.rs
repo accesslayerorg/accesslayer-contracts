@@ -1,4 +1,4 @@
-//! Integration tests for configurable supply cap enforcement (#997).
+//! Integration tests for configurable supply cap enforcement (#997, #1099).
 //!
 //! Covered acceptance criteria:
 //! 1. A buy that would push post-trade supply past the cap is blocked.
@@ -10,14 +10,19 @@
 //! 5. A configured cap of `0` is treated as unlimited: buys keep growing
 //!    supply past any small ceiling, and `get_supply_info` reports cap `0`
 //!    with unbounded remaining.
+//! 6. A creator may lower, but not raise, an existing cap; reductions emit a
+//!    `MaxSupplyUpdated` event and cannot go below current supply.
 //!
-//! Caps are immutable once set, so each scenario registers its own creator
-//! and then applies that key's cap via `set_supply_cap`.
+//! Each scenario registers its own creator and applies the initial cap with
+//! `set_supply_cap` before exercising it.
 
 mod contract_test_env;
 
 use contract_test_env::{register_creator_keys, set_pricing_and_fees, test_env_with_auths};
-use creator_keys::events::{SupplyCapReachedEvent, SUPPLY_CAP_REACHED_EVENT_NAME};
+use creator_keys::events::{
+    MaxSupplyUpdatedEvent, SupplyCapReachedEvent, MAX_SUPPLY_UPDATED_EVENT_NAME,
+    SUPPLY_CAP_REACHED_EVENT_NAME,
+};
 use creator_keys::{
     ContractError, CreatorKeysContractClient, CurvePreset, KeyMetadata, RegisterCreatorParams,
 };
@@ -91,6 +96,69 @@ fn supply_cap_reached_events(env: &Env) -> Vec<SupplyCapReachedEvent> {
         }
     }
     found
+}
+
+fn max_supply_updated_events(env: &Env) -> Vec<MaxSupplyUpdatedEvent> {
+    let mut found = Vec::new(env);
+    for (_, topics, data) in env.events().all().iter() {
+        let name: Symbol = topics.get(0).unwrap().into_val(env);
+        if name == MAX_SUPPLY_UPDATED_EVENT_NAME {
+            found.push_back(data.into_val(env));
+        }
+    }
+    found
+}
+
+#[test]
+fn test_set_max_supply_reduces_cap_and_emits_update_event() {
+    let env = test_env_with_auths();
+    let (client, admin) = setup(&env);
+    let creator = register_capped_key(&env, &client, &admin, "lower_cap", 10);
+
+    client.set_max_supply(&creator, &7);
+
+    let info = client.get_supply_info(&creator);
+    assert_eq!(info.supply, 0);
+    assert_eq!(info.cap, 7);
+    assert_eq!(info.remaining, 7);
+
+    let events = max_supply_updated_events(&env);
+    assert_eq!(events.len(), 1);
+    let event = events.get(0).unwrap();
+    assert_eq!(event.creator_id, creator);
+    assert_eq!(event.old_max_supply, 10);
+    assert_eq!(event.new_max_supply, 7);
+}
+
+#[test]
+fn test_set_max_supply_rejects_increase() {
+    let env = test_env_with_auths();
+    let (client, admin) = setup(&env);
+    let creator = register_capped_key(&env, &client, &admin, "raise_cap", 10);
+
+    assert_eq!(
+        client.try_set_max_supply(&creator, &11),
+        Err(Ok(ContractError::CapCannotIncrease))
+    );
+    assert_eq!(client.get_supply_info(&creator).cap, 10);
+    assert!(max_supply_updated_events(&env).is_empty());
+}
+
+#[test]
+fn test_set_max_supply_cannot_drop_below_current_supply() {
+    let env = test_env_with_auths();
+    let (client, admin) = setup(&env);
+    let creator = register_capped_key(&env, &client, &admin, "below_supply", 3);
+    let buyer = Address::generate(&env);
+    buy_one(&client, &creator, &buyer);
+    buy_one(&client, &creator, &buyer);
+
+    assert_eq!(
+        client.try_set_max_supply(&creator, &1),
+        Err(Ok(ContractError::SupplyCapExceeded))
+    );
+    assert_eq!(client.get_supply_info(&creator).cap, 3);
+    assert!(max_supply_updated_events(&env).is_empty());
 }
 
 // ---------------------------------------------------------------------------
