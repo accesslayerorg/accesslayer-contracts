@@ -2600,6 +2600,7 @@ pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
 /// Event name emitted when a creator deprecates their key.
 pub const KEY_DEPRECATED_EVENT_NAME: Symbol = symbol_short!("key_dep");
 
+
 /// Event name emitted when a holder redeems keys on a deprecated key.
 pub const KEYS_REDEEMED_EVENT_NAME: Symbol = symbol_short!("key_rdm");
 
