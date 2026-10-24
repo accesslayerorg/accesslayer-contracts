@@ -4966,13 +4966,8 @@ pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
 pub const SOCIAL_METADATA_UPDATED_EVENT_NAME: Symbol = symbol_short!("soc_upd");
 
 /// Stable field order for social metadata updated event payloads.
-pub const SOCIAL_METADATA_UPDATED_DATA_FIELDS: [&str; 5] = [
-    "key_id",
-    "display_name",
-    "bio",
-    "avatar_cid",
-    "links",
-];
+pub const SOCIAL_METADATA_UPDATED_DATA_FIELDS: [&str; 5] =
+    ["key_id", "display_name", "bio", "avatar_cid", "links"];
 
 /// Optional social links attached to a creator key's social metadata.
 ///
