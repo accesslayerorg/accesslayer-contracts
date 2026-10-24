@@ -261,6 +261,10 @@ pub const DELEGATION_REVOKED_EVENT_NAME: Symbol = symbol_short!("dlg_rev");
 
 /// Event name for a performance bond being forfeited to the protocol treasury.
 pub const BOND_FORFEITED_EVENT_NAME: Symbol = symbol_short!("bond_forf");
+
+/// Event name for a co-creator being added to a creator key.
+pub const CO_CREATOR_ADDED_EVENT_NAME: Symbol = symbol_short!("cc_add");
+
 /// Topic index for the event name in common event topic tuples.
 pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
 
@@ -269,6 +273,9 @@ pub const TOPIC_CREATOR_INDEX: u32 = 1;
 
 /// Topic index for the buyer/seller/actor address in common event topic tuples.
 pub const TOPIC_BUYER_INDEX: u32 = 2;
+
+/// Stable field order for co-creator added event payloads.
+pub const CO_CREATOR_ADDED_DATA_FIELDS: [&str; 3] = ["key_id", "wallet", "role"];
 
 /// Stable field order for bond forfeited event payloads.
 pub const BOND_FORFEITED_DATA_FIELDS: [&str; 4] = ["key_id", "reason", "amount", "ledger"];
@@ -297,6 +304,30 @@ pub struct BondForfeitedEvent {
 /// Shared bond forfeited event topics tuple.
 pub fn bond_forfeited_topics(key_id: &Address) -> (Symbol, Address) {
     (BOND_FORFEITED_EVENT_NAME, key_id.clone())
+}
+
+/// Stable co-creator added event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(CO_CREATOR_ADDED_EVENT_NAME, key_id, wallet)`
+/// - data: `CoCreatorAddedEvent`
+///
+/// Emitted inside `add_co_creator` when the primary creator grants a wallet a
+/// co-creator role on their key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorAddedEvent {
+    /// Creator key the co-creator was added to.
+    pub key_id: Address,
+    /// Wallet granted the co-creator role.
+    pub wallet: Address,
+    /// Permission tier granted to the wallet.
+    pub role: CoCreatorRole,
+}
+
+/// Shared co-creator added event topics tuple.
+pub fn co_creator_added_topics(key_id: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (CO_CREATOR_ADDED_EVENT_NAME, key_id.clone(), wallet.clone())
 }
 
 /// Stable field order for registration event payloads.
@@ -2526,6 +2557,8 @@ pub struct CoCreatorRemovedEvent {
     pub creator_id: Address,
     /// Address of the co-creator that was removed.
     pub co_creator: Address,
+    /// Permission tier the co-creator held when removed.
+    pub role: crate::CoCreatorRole,
 }
 
 /// Shared co-creator removed event topics tuple.
@@ -2539,6 +2572,9 @@ pub fn co_creator_removed_topics(
         co_creator.clone(),
     )
 }
+
+/// Stable field order for co-creator removed event payloads.
+pub const CO_CREATOR_REMOVED_DATA_FIELDS: [&str; 3] = ["creator_id", "co_creator", "role"];
 
 /// Event name for dividend reinvestment.
 pub const DIVIDEND_REINVESTED_EVENT_NAME: Symbol = symbol_short!("div_reinv");
