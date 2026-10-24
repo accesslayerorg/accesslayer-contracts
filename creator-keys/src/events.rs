@@ -2840,26 +2840,6 @@ pub fn swap_slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
     (SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
 }
 
-/// Event name for a trade rejected by its slippage tolerance check (#1172).
-pub const SLIPPAGE_EXCEEDED_EVENT_NAME: Symbol = symbol_short!("slip_ex");
-
-/// Emitted when trade execution breaches the caller's slippage tolerance (#1172).
-/// Includes the quoted price, executed price, and slippage in basis points.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct SlippageExceeded {
-    pub quoted_price: i128,
-    pub executed_price: i128,
-    pub slippage_bps: u32,
-}
-
-pub type SlippageExceededEvent = SlippageExceeded;
-
-/// Shared slippage-exceeded event topics tuple.
-pub fn slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
-    (SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
-}
-
 /// Event name for a completed cross-key atomic swap.
 pub const ATOMIC_SWAP_EVENT_NAME: Symbol = symbol_short!("atom_swap");
 
@@ -4828,134 +4808,87 @@ pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
     (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
 }
 
-// --- Key retirement with admin-funded holder buyback at floor price (Issue #1111) ---
+// ============================================================================
+// Subscription tiers
+// ============================================================================
 
-/// Event name emitted when admin proposes a key retirement with a 7-day notice window.
-pub const RETIREMENT_PROPOSED_EVENT_NAME: Symbol = symbol_short!("ret_prop");
+/// Event name emitted when a creator defines or updates a subscription tier.
+pub const TIER_CREATED_EVENT_NAME: Symbol = symbol_short!("tier_new");
 
-/// Event name emitted when execute_retirement buys back all outstanding supply.
-pub const RETIREMENT_EXECUTED_EVENT_NAME: Symbol = symbol_short!("ret_exec");
-
-/// Stable field order for the `ret_prop` event payload.
-pub const RETIREMENT_PROPOSED_DATA_FIELDS: [&str; 5] = [
+/// Stable field order for tier-created event payloads.
+pub const TIER_CREATED_DATA_FIELDS: [&str; 5] = [
     "key_id",
-    "buyback_price",
-    "reason",
-    "window_ends_at",
-    "ledger",
+    "tier_id",
+    "fee_per_period",
+    "period_seconds",
+    "label",
 ];
 
-/// Stable field order for the `ret_exec` event payload.
-pub const RETIREMENT_EXECUTED_DATA_FIELDS: [&str; 5] = [
+/// Stable tier-created event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TIER_CREATED_EVENT_NAME, key_id, tier_id)`
+/// - data: `TierCreatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TierCreatedEvent {
+    /// Creator key the tier belongs to.
+    pub key_id: Address,
+    /// Tier identifier, scoped to the key.
+    pub tier_id: u32,
+    /// Fee charged per subscription period, in stroops.
+    pub fee_per_period: i128,
+    /// Length of one subscription period, in seconds.
+    pub period_seconds: u64,
+    /// Human-readable tier label.
+    pub label: String,
+}
+
+/// Shared tier-created event topics tuple.
+pub fn tier_created_topics(key_id: &Address, tier_id: u32) -> (Symbol, Address, u32) {
+    (TIER_CREATED_EVENT_NAME, key_id.clone(), tier_id)
+}
+
+/// Event name emitted when a wallet subscribes to (or renews) a tier.
+pub const SUBSCRIBED_EVENT_NAME: Symbol = symbol_short!("subscribed");
+
+/// Stable field order for subscribed event payloads.
+pub const SUBSCRIBED_DATA_FIELDS: [&str; 6] = [
     "key_id",
-    "total_supply_bought_back",
-    "total_amount_paid",
-    "buyback_price",
-    "ledger",
+    "tier_id",
+    "subscriber",
+    "fee_paid",
+    "expires_at",
+    "renewal",
 ];
 
-/// Stable retirement-proposed event payload for downstream indexers.
+/// Stable subscribed event payload for downstream indexers.
 ///
 /// Event shape:
-/// - topics: `(RETIREMENT_PROPOSED_EVENT_NAME, key_id)`
-/// - data: `RetirementProposedEvent`
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct RetirementProposedEvent {
-    /// Key (creator address) proposed for retirement.
-    pub key_id: Address,
-    /// Fixed XLM buyback price per key guaranteed to all holders.
-    pub buyback_price: i128,
-    /// Human-readable reason supplied by the admin.
-    pub reason: String,
-    /// Unix timestamp after which `execute_retirement` is allowed.
-    pub window_ends_at: u64,
-    /// Ledger sequence at which the proposal was recorded.
-    pub ledger: u32,
-}
-
-/// Shared retirement-proposed event topics tuple.
-pub fn retirement_proposed_topics(key_id: &Address) -> (Symbol, Address) {
-    (RETIREMENT_PROPOSED_EVENT_NAME, key_id.clone())
-}
-
-/// Stable retirement-executed event payload for downstream indexers.
+/// - topics: `(SUBSCRIBED_EVENT_NAME, key_id, subscriber)`
+/// - data: `SubscribedEvent`
 ///
-/// Event shape:
-/// - topics: `(RETIREMENT_EXECUTED_EVENT_NAME, key_id)`
-/// - data: `RetirementExecutedEvent`
+/// `renewal` is `true` when the subscription extended an existing active
+/// window (expiry is computed from `max(now, current_expiry)`) and `false`
+/// for a fresh subscription.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
-pub struct RetirementExecutedEvent {
-    /// Key that was retired.
+pub struct SubscribedEvent {
+    /// Creator key the subscription is for.
     pub key_id: Address,
-    /// Total supply bought back across all holders.
-    pub total_supply_bought_back: u32,
-    /// Total XLM paid out to holders during buyback.
-    pub total_amount_paid: i128,
-    /// Per-key buyback price used for all payouts.
-    pub buyback_price: i128,
-    /// Ledger sequence at which the buyback executed.
-    pub ledger: u32,
+    /// Tier the wallet subscribed to.
+    pub tier_id: u32,
+    /// Wallet that paid for the subscription.
+    pub subscriber: Address,
+    /// Fee transferred to the creator earnings ledger.
+    pub fee_paid: i128,
+    /// Unix timestamp at which the subscription expires.
+    pub expires_at: u64,
+    /// Whether this call extended an existing active subscription.
+    pub renewal: bool,
 }
 
-/// Shared retirement-executed event topics tuple.
-pub fn retirement_executed_topics(key_id: &Address) -> (Symbol, Address) {
-    (RETIREMENT_EXECUTED_EVENT_NAME, key_id.clone())
-}
-
-// --- Key-level freeze / unfreeze (#1174) ---
-
-/// Event name emitted when a key is frozen by its multi-sig admins.
-pub const KEY_FROZEN_EVENT_NAME: Symbol = symbol_short!("key_frz");
-
-/// Event name emitted when a key's freeze is lifted by its multi-sig admins.
-pub const KEY_UNFROZEN_EVENT_NAME: Symbol = symbol_short!("key_unfrz");
-
-/// Stable payload for a key freeze event.
-///
-/// Event shape:
-/// - topics: `(KEY_FROZEN_EVENT_NAME, key_id)`
-/// - data: `KeyFrozenEvent`
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct KeyFrozenEvent {
-    /// Address of the frozen key.
-    pub key_id: Address,
-    /// The admin that authorized the freeze.
-    pub admin_wallet: Address,
-    /// Reason supplied by the admin.
-    pub reason: String,
-    /// Ledger timestamp of the freeze, in seconds.
-    pub timestamp: u64,
-    /// Ledger sequence at the time of the freeze.
-    pub ledger: u32,
-}
-
-/// Stable payload for a key unfreeze event.
-///
-/// Event shape:
-/// - topics: `(KEY_UNFROZEN_EVENT_NAME, key_id)`
-/// - data: `KeyUnfrozenEvent`
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct KeyUnfrozenEvent {
-    /// Address of the released key.
-    pub key_id: Address,
-    /// The admin that authorized the release.
-    pub admin_wallet: Address,
-    /// Ledger timestamp of the release, in seconds.
-    pub timestamp: u64,
-    /// Ledger sequence at the time of the release.
-    pub ledger: u32,
-}
-
-/// Shared key-frozen event topics tuple.
-pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
-    (KEY_FROZEN_EVENT_NAME, key_id.clone())
-}
-
-/// Shared key-unfrozen event topics tuple.
-pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
-    (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
+/// Shared subscribed event topics tuple.
+pub fn subscribed_topics(key_id: &Address, subscriber: &Address) -> (Symbol, Address, Address) {
+    (SUBSCRIBED_EVENT_NAME, key_id.clone(), subscriber.clone())
 }

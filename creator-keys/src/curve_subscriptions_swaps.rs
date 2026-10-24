@@ -18,6 +18,23 @@ pub struct KeySubscription {
     pub is_active: bool,
 }
 
+/// Per-tier configuration defined by a creator for gated access.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SubscriptionTier {
+    pub fee_per_period: i128,
+    pub period_seconds: u64,
+    pub label: Symbol,
+}
+
+/// Recorded subscription for a (key, wallet, tier) triplet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TierSubscription {
+    pub expires_at: u64,
+    pub is_active: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct PaymentAssetConfig {
@@ -27,13 +44,19 @@ pub struct PaymentAssetConfig {
     pub is_enabled: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum EmdevelopaDataKey {
     CurveMigration(Address),
     Subscription(Address, Address), // (creator, subscriber)
     PaymentAsset(Address),
     PaymentAssetList,
+    /// (key_id, tier_id) -> SubscriptionTier
+    Tier(Address, Symbol),
+    /// (key_id, wallet, tier_id) -> TierSubscription
+    TierSub(Address, Address, Symbol),
+    /// key_id -> creator earnings ledger (i128)
+    CreatorEarnings(Address),
 }
 
 pub const CURVE_MIGRATION_PROPOSED_EVENT: Symbol = symbol_short!("mig_prop");
@@ -42,6 +65,7 @@ pub const SUBSCRIPTION_GRANTED_EVENT: Symbol = symbol_short!("sub_grant");
 pub const SUBSCRIPTION_RENEWED_EVENT: Symbol = symbol_short!("sub_renew");
 pub const ATOMIC_SWAP_EXECUTED_EVENT: Symbol = symbol_short!("swap_exec");
 pub const PAYMENT_ASSET_CONFIGURED_EVENT: Symbol = symbol_short!("asset_cfg");
+pub const TIER_CREATED_EVENT: Symbol = symbol_short!("tier_cre");
 
 /// #941: Propose bonding curve parameters upgrade with timelock.
 pub fn propose_curve_migration(
@@ -164,6 +188,118 @@ pub fn is_subscribed(
         }
     }
     false
+}
+
+/// Create a subscription tier for a key. Only the key creator may create tiers.
+pub fn create_tier(
+    env: &Env,
+    creator: &Address,
+    key_id: &Address,
+    tier_id: Symbol,
+    fee_per_period: i128,
+    period_seconds: u64,
+    label: Symbol,
+) -> Result<(), ContractError> {
+    creator.require_auth();
+    if fee_per_period < 0 || period_seconds == 0 {
+        return Err(ContractError::InvalidFeeConfig);
+    }
+
+    let tier = SubscriptionTier {
+        fee_per_period,
+        period_seconds,
+        label,
+    };
+
+    env.storage().instance().set(
+        &EmdevelopaDataKey::Tier(key_id.clone(), tier_id.clone()),
+        &tier,
+    );
+
+    env.events().publish(
+        (TIER_CREATED_EVENT, key_id.clone(), tier_id),
+        (fee_per_period, period_seconds),
+    );
+
+    Ok(())
+}
+
+/// Subscribe to a tier. Transfers the tier fee to the creator and records the
+/// subscription expiry. Renewal extends from max(now, current_expiry).
+pub fn subscribe(
+    env: &Env,
+    key_id: &Address,
+    wallet: &Address,
+    tier_id: Symbol,
+    payment_token: &Address,
+) -> Result<u64, ContractError> {
+    wallet.require_auth();
+
+    let tier: SubscriptionTier = env
+        .storage()
+        .instance()
+        .get(&EmdevelopaDataKey::Tier(key_id.clone(), tier_id.clone()))
+        .ok_or(ContractError::Unauthorized)?;
+
+    let now = env.ledger().timestamp();
+    let sub_key = EmdevelopaDataKey::TierSub(key_id.clone(), wallet.clone(), tier_id.clone());
+
+    let existing: Option<TierSubscription> = env.storage().instance().get(&sub_key);
+    let base = match &existing {
+        Some(prev) if prev.expires_at > now => prev.expires_at,
+        _ => now,
+    };
+    let expires_at = base + tier.period_seconds;
+
+    // Transfer the tier fee from the subscriber to the key creator.
+    if tier.fee_per_period > 0 {
+        let token = soroban_sdk::token::Client::new(env, payment_token);
+        token.transfer(wallet, key_id, &tier.fee_per_period);
+
+        // Credit the creator earnings ledger.
+        let earnings_key = EmdevelopaDataKey::CreatorEarnings(key_id.clone());
+        let current: i128 = env.storage().instance().get(&earnings_key).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&earnings_key, &(current + tier.fee_per_period));
+    }
+
+    let sub = TierSubscription {
+        expires_at,
+        is_active: true,
+    };
+    env.storage().instance().set(&sub_key, &sub);
+
+    let event = if existing.is_some() {
+        SUBSCRIPTION_RENEWED_EVENT
+    } else {
+        SUBSCRIPTION_GRANTED_EVENT
+    };
+    env.events()
+        .publish((event, key_id.clone(), wallet.clone(), tier_id), expires_at);
+
+    Ok(expires_at)
+}
+
+/// Returns true only within the active subscription window for the given tier.
+pub fn is_tier_subscribed(env: &Env, key_id: &Address, wallet: &Address, tier_id: Symbol) -> bool {
+    let sub_key = EmdevelopaDataKey::TierSub(key_id.clone(), wallet.clone(), tier_id);
+    if let Some(sub) = env
+        .storage()
+        .instance()
+        .get::<_, TierSubscription>(&sub_key)
+    {
+        return sub.is_active && env.ledger().timestamp() < sub.expires_at;
+    }
+    false
+}
+
+/// Returns the creator earnings accumulated from subscription fees.
+pub fn get_creator_earnings(env: &Env, key_id: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&EmdevelopaDataKey::CreatorEarnings(key_id.clone()))
+        .unwrap_or(0)
 }
 
 /// #945: Execute cross-key atomic swap between two parties.
