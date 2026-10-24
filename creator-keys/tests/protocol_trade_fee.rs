@@ -174,13 +174,17 @@ fn test_admin_can_update_fee_rate_and_treasury_address() {
     let first_treasury = Address::generate(&env);
     s.client
         .set_protocol_fee(&s.admin, &Some(500), &first_treasury);
+    assert_eq!(
+        s.client.get_protocol_trade_fee(),
+        (500, Some(first_treasury.clone()))
+    );
 
     let buyer = Address::generate(&env);
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         s.client.get_treasury_balance(),
-        5,
-        "500 bps of a 100 stroop buy is 5 stroops"
+        1,
+        "the initial 150 bps dynamic bracket charges 1 stroop on a 100 stroop trade"
     );
     assert_eq!(
         s.client.get_treasury_address(),
@@ -190,12 +194,16 @@ fn test_admin_can_update_fee_rate_and_treasury_address() {
     let second_treasury = Address::generate(&env);
     s.client
         .set_protocol_fee(&s.admin, &Some(200), &second_treasury);
+    assert_eq!(
+        s.client.get_protocol_trade_fee(),
+        (200, Some(second_treasury.clone()))
+    );
 
     s.client.buy_key(&s.creator, &buyer, &KEY_PRICE, &None);
     assert_eq!(
         s.client.get_treasury_balance(),
-        7,
-        "only the new 200 bps rate applies to later trades"
+        2,
+        "the 100 bps bracket at 100 units charges 1 stroop on the next trade"
     );
     assert_eq!(
         s.client.get_treasury_address(),

@@ -21,6 +21,7 @@ The contracts layer is responsible for:
 * Soroban SDK
 * Stellar
 
+
 ## Workspace layout
 
 * [Cargo.toml](./Cargo.toml): Rust workspace configuration

@@ -39,6 +39,7 @@ This document describes the assumptions, behavior, and integration points for cr
 - **Initialization**: Fee config must be set explicitly via `set_fee_config` before `compute_fees_for_payment` can be used.
 - **Admin**: `set_fee_config` requires authorization of the `admin` address. Admin key management is out of scope for this module.
 - **Graduated milestone fee reduction (#1076)**: `set_milestones` configures an additional per-key scheduled fee (`MilestoneTier { supply, fee_bps }`). It does not change the global `FeeConfig` split; the milestone fee is tracked separately per key, applied post-swap by `check_and_apply_milestone`, only ever moves downward, and is readable via `get_current_milestone`.
+- **Volume discount tiers (#549)**: Discount tiers are evaluated in ascending order of minimum volume threshold (`volume_threshold`), where the last matching tier wins so the lowest fee rate applies. Updating tiers takes effect on the next trade (non-retroactive), and earned tiers are retained. See [volume-discount-tiers.md](./volume-discount-tiers.md) for full evaluation rules and worked examples.
 
 ## Contract Interface
 
@@ -72,3 +73,42 @@ Clients can call `get_fee_config` and `compute_fees_for_payment` (or a view that
 ### Indexing
 
 Server/indexer can rely on fee breakdown in events for analytics and display. No additional off-chain computation is required for fee display.
+
+## Per-Key Dynamic Swap Fee (#1056)
+
+The separate protocol trade fee collected by `buy_key` / `sell_key` uses
+per-key rolling gross trading volume. The key identifier is the registered
+creator address, and trade volume uses the raw `i128` base units already used
+for curve prices and fee calculations; no token-decimal conversion is applied.
+Buys count the gross curve price executed, and sells count gross proceeds
+before fees. Failed or reverted transactions record no volume because volume
+writes share Soroban transaction atomicity with settlement.
+
+The default brackets are `< 100` units = 150 bps, `100..=1,000` = 100 bps,
+and `> 1,000` = 75 bps. Admins may replace these with strictly increasing
+minimum-volume thresholds (first threshold must be zero), each carrying a fee
+from 0 through 10,000 bps. Bracket updates preserve accumulated volume.
+
+The fee for a trade is selected from volume immediately before that trade;
+that trade's gross volume is recorded after fee collection. A trade that
+crosses a boundary uses the old rate, and the next trade uses the new rate.
+The bracket rate replaces the nonzero rate configured with `set_protocol_fee`;
+that existing configuration is still required to activate collection and
+provide a treasury destination. An explicitly configured rate of zero keeps
+trade fee collection disabled.
+
+Volume uses 5-minute timestamp buckets in per-key persistent storage. A bucket
+is counted only when its start timestamp is within the exact 86,400-second
+cutoff. This bounded model never includes activity older than 24 hours, but
+can conservatively undercount activity in the oldest partially overlapping
+bucket by up to five minutes. At exactly the 24-hour boundary it remains
+eligible; once the cutoff passes its bucket start it is excluded.
+
+`get_current_fee_bps(key_id)` and `get_key_rolling_volume(key_id)` are
+read-only. `FeeAdjusted` is emitted when a later successful trade detects a
+changed rate, including changes due to volume expiry or a bracket update. An
+expiry event reports the rolling volume before the current trade is added; a
+crossing event caused by that trade reports volume after it is added. A
+contract cannot execute solely because time passed, so expiry events occur
+only when a later successful trade observes the change. No event is emitted
+when the fee remains unchanged.

@@ -11,8 +11,10 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_key_price_for_tests, set_test_timestamp,
     test_env_with_auths,
 };
-use creator_keys::events::{self, LOCKUP_BLOCKED_EVENT_NAME};
-use creator_keys::ContractError;
+use creator_keys::events::{
+    self, LOCKUP_BLOCKED_EVENT_NAME, LOCKUP_CREATED_EVENT_NAME, LOCKUP_RELEASED_EVENT_NAME,
+};
+use creator_keys::{ContractError, SwapDirection};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger as _},
     Address, Env, IntoVal, Symbol,
@@ -57,6 +59,28 @@ fn lockup_blocked_events(env: &Env) -> soroban_sdk::Vec<events::LockupBlockedEve
     for (_, topics, data) in env.events().all().iter() {
         let name: Symbol = topics.get(0).unwrap().into_val(env);
         if name == LOCKUP_BLOCKED_EVENT_NAME {
+            found.push_back(data.into_val(env));
+        }
+    }
+    found
+}
+
+fn investor_lockup_created_events(env: &Env) -> soroban_sdk::Vec<events::LockupCreatedEvent> {
+    let mut found = soroban_sdk::Vec::new(env);
+    for (_, topics, data) in env.events().all().iter() {
+        let name: Symbol = topics.get(0).unwrap().into_val(env);
+        if name == LOCKUP_CREATED_EVENT_NAME {
+            found.push_back(data.into_val(env));
+        }
+    }
+    found
+}
+
+fn investor_lockup_released_events(env: &Env) -> soroban_sdk::Vec<events::LockupReleasedEvent> {
+    let mut found = soroban_sdk::Vec::new(env);
+    for (_, topics, data) in env.events().all().iter() {
+        let name: Symbol = topics.get(0).unwrap().into_val(env);
+        if name == LOCKUP_RELEASED_EVENT_NAME {
             found.push_back(data.into_val(env));
         }
     }
@@ -212,4 +236,103 @@ fn test_lockup_is_inactive_until_configured() {
     client.sell_key(&creator, &trader, &None);
     assert_eq!(client.get_total_key_supply(&creator), 0);
     assert!(lockup_blocked_events(&env).is_empty());
+}
+
+#[test]
+fn test_investor_lockup_blocks_swap_until_unlock_timestamp() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let admin = set_key_price_for_tests(&env, &client, KEY_PRICE);
+    client.set_protocol_admin(&admin, &admin);
+    let creator = register_test_creator(&env, &client, "alice");
+    set_test_timestamp(&env, BASE_TIMESTAMP);
+
+    let wallet = Address::generate(&env);
+    client.buy_key(&creator, &wallet, &KEY_PRICE, &None);
+
+    let unlock_timestamp = BASE_TIMESTAMP + 3_600;
+    client.create_lockup(&wallet, &creator, &unlock_timestamp);
+    assert_eq!(
+        client.check_lockup(&wallet, &creator),
+        (true, 3_600),
+        "check_lockup returns the remaining seconds"
+    );
+
+    advance_sequence(&env);
+    assert_eq!(
+        client.try_swap(&creator, &wallet, &1u32, &SwapDirection::Sell, &0u32),
+        Err(Ok(ContractError::LockupActive))
+    );
+    assert_eq!(
+        client.try_sell_key(&creator, &wallet, &None),
+        Err(Ok(ContractError::LockupActive)),
+        "the direct sell entrypoint enforces the same investor lock-up"
+    );
+    assert_eq!(client.get_total_key_supply(&creator), 1);
+
+    set_test_timestamp(&env, unlock_timestamp);
+    advance_sequence(&env);
+    assert_eq!(client.check_lockup(&wallet, &creator), (false, 0));
+    client.swap(&creator, &wallet, &1u32, &SwapDirection::Sell, &0u32);
+    let released = investor_lockup_released_events(&env);
+    assert_eq!(client.get_total_key_supply(&creator), 0);
+
+    assert_eq!(released.len(), 1);
+    let payload = released.get(0).unwrap();
+    assert_eq!(payload.wallet, wallet);
+    assert_eq!(payload.key_id, creator);
+    assert_eq!(payload.unlock_timestamp, unlock_timestamp);
+    assert_eq!(payload.released_at, unlock_timestamp);
+}
+
+#[test]
+fn test_emergency_unlock_is_admin_only_and_emits_release_event() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let admin = set_key_price_for_tests(&env, &client, KEY_PRICE);
+    client.set_protocol_admin(&admin, &admin);
+    let creator = register_test_creator(&env, &client, "alice");
+    set_test_timestamp(&env, BASE_TIMESTAMP);
+
+    let wallet = Address::generate(&env);
+    client.buy_key(&creator, &wallet, &KEY_PRICE, &None);
+    let unlock_timestamp = BASE_TIMESTAMP + 3_600;
+    client.create_lockup(&wallet, &creator, &unlock_timestamp);
+
+    let impostor = Address::generate(&env);
+    assert_eq!(
+        client.try_emergency_unlock(&impostor, &wallet, &creator),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    client.emergency_unlock(&admin, &wallet, &creator);
+
+    let released = investor_lockup_released_events(&env);
+    assert_eq!(client.check_lockup(&wallet, &creator), (false, 0));
+    assert_eq!(released.len(), 1);
+    let payload = released.get(0).unwrap();
+    assert_eq!(payload.wallet, wallet);
+    assert_eq!(payload.key_id, creator);
+    assert_eq!(payload.unlock_timestamp, unlock_timestamp);
+    assert_eq!(payload.released_at, BASE_TIMESTAMP);
+
+    advance_sequence(&env);
+    client.swap(&creator, &wallet, &1u32, &SwapDirection::Sell, &0u32);
+    assert_eq!(client.get_total_key_supply(&creator), 0);
+}
+
+#[test]
+fn test_investor_lockup_creation_emits_wallet_key_and_timestamp() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+    let wallet = Address::generate(&env);
+    let key_id = Address::generate(&env);
+    let unlock_timestamp = BASE_TIMESTAMP + 7_200;
+
+    client.create_lockup(&wallet, &key_id, &unlock_timestamp);
+    let created = investor_lockup_created_events(&env);
+    assert_eq!(created.len(), 1);
+    let payload = created.get(0).unwrap();
+    assert_eq!(payload.wallet, wallet);
+    assert_eq!(payload.key_id, key_id);
+    assert_eq!(payload.unlock_timestamp, unlock_timestamp);
 }

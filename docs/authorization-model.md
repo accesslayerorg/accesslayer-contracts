@@ -29,6 +29,14 @@ Sets the global fee split between creators and the protocol.
 - **Constraints**: `creator_bps + protocol_bps` must equal `10000`. `protocol_bps` must not exceed `5000` (`PROTOCOL_BPS_MAX`).
 - **No-op**: Returns `Ok(())` without writing if the new config matches the stored config.
 
+### `set_volume_brackets(admin: Address, brackets: Vec<VolumeBracket>) -> Result<(), ContractError>`
+
+Replaces the per-key rolling-volume swap fee brackets without clearing recorded volume.
+
+- **Auth**: `admin.require_auth()` and the stored protocol admin check.
+- **Constraints**: First threshold must be zero; subsequent minimum volumes must be strictly increasing; fee values must be at most 10,000 bps; one to five brackets are accepted.
+- **Behavior**: Applies immediately to fee queries and the next trade. A newly detected event is emitted by the next successful trade for that key.
+
 ---
 
 ### `set_key_price(admin: Address, price: i128) -> Result<(), ContractError>`
@@ -119,6 +127,48 @@ Sets the per-pool reward rate (in basis points) for `key_id`'s LP pool.
 
 ---
 
+## Key admin functions
+
+These functions are authorized by an admin of the key itself: a member of the
+key's multi-sig admin set (configured with `set_multisig_admins`) or the
+protocol admin.
+
+### `freeze(key_id: Address, reason: String, admin: Address) -> Result<(), ContractError>`
+
+Freezes the key: buys, sells and transfers of that key are rejected with
+`KeyFrozen` until the key is released. The action is appended to the audit log
+returned by `get_freeze_log`.
+
+- **Auth**: `admin.require_auth()`
+- **Constraints**:
+  - `admin` must be a member of the key's multi-sig admin set, or the protocol
+    admin, otherwise `Unauthorized`
+  - `key_id` must be a registered creator, otherwise `NotRegistered`
+  - the key must not already be frozen, otherwise `KeyAlreadyFrozen`
+- **Emits**: `KeyFrozen` (`key_frz`).
+
+### `unfreeze(key_id: Address, admin: Address) -> Result<(), ContractError>`
+
+Releases a frozen key, restoring buy, sell and transfer.
+
+- **Auth**: `admin.require_auth()`
+- **Constraints**: same authority check as `freeze`; the key must be frozen,
+  otherwise `KeyNotFrozen`
+- **Emits**: `KeyUnfrozen` (`key_unfrz`).
+
+`freeze_key(admin, key_id, reason)` and `unfreeze_key(admin, key_id)` are
+aliases of the two entrypoints above with the admin argument first.
+
+### Read-only views
+
+| Method | Returns |
+|---|---|
+| `get_freeze_log(key_id: Address)` | `Vec<FreezeLogEntry>` |
+| `get_key_status(key_id: Address)` | `KeyStatus` |
+| `is_key_frozen(key_id: Address)` | `bool` |
+
+---
+
 ## Key holder functions
 
 These functions require authorization from the buyer or seller, not the creator whose keys are being traded.
@@ -153,6 +203,33 @@ Transfers `amount` keys from `from` to `to` for `creator`. Does not interact wit
 - **Fails**: `NotRegistered` if `creator` is not registered.
 - **State changes**: `KeyBalance(creator, from)` decremented, `KeyBalance(creator, to)` incremented. Creator supply and holder_count are unchanged.
 - See [key-transfer-authorization.md](./key-transfer-authorization.md) for full details.
+
+---
+
+### `delegate_votes(holder: Address, key_id: Address, delegate_wallet: Address) -> Result<(), ContractError>`
+
+Assigns the governance voting weight of `key_id` held by `holder` to `delegate_wallet` (proxy voting rights).
+
+- **Auth**: `holder.require_auth()` — only the key holder may delegate their voting weight.
+- **Constraints**:
+  - `holder` must currently hold at least 1 key of `key_id` (`ContractError::NotAHolder`).
+  - `holder` cannot delegate to itself (`ContractError::SelfDelegation`).
+  - `key_id` must not already be delegated by `holder`; re-delegations require revoking first (`ContractError::AlreadyDelegated`).
+  - Re-delegation is rejected bidirectionally (`ContractError::CannotReDelegate`): a delegate currently receiving voting weight cannot delegate, and a delegating holder cannot receive delegations.
+- **State changes**: Stores `VoteDelegationKey::Delegate(key_id, holder) -> delegate_wallet` and appends `holder` to `VoteDelegationKey::Delegators(key_id, delegate_wallet)`.
+- **Emits**: `VotingDelegated` (`vote_del`).
+
+---
+
+### `revoke_delegation(holder: Address, key_id: Address) -> Result<(), ContractError>`
+
+Revokes an existing proxy voting delegation for `key_id`, returning voting weight to `holder`.
+
+- **Auth**: `holder.require_auth()` — only the delegating holder may revoke their delegation.
+- **Constraints**:
+  - An active delegation must exist for `(key_id, holder)` (`ContractError::NoDelegation`).
+- **State changes**: Removes `VoteDelegationKey::Delegate(key_id, holder)` and removes `holder` from `VoteDelegationKey::Delegators(key_id, previous_delegate)`.
+- **Emits**: `DelegationRevoked` (`v_del_rev`).
 
 ---
 
@@ -217,6 +294,14 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `get_protocol_admin()` | `Option<Address>` |
 | `get_protocol_fee_recipient()` | `Option<Address>` |
 
+### Governance and vote delegation methods
+
+| Method | Returns |
+|---|---|
+| `get_voting_weight(wallet: Address, key_id: Address)` | `u32` |
+| `get_vote_delegate(holder: Address, key_id: Address)` | `Option<Address>` |
+| `get_vote_delegators(delegate: Address, key_id: Address)` | `Vec<Address>` |
+
 ---
 
 ## Summary table
@@ -226,15 +311,27 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `register_creator` | Creator | Yes |
 | `buyback` | Creator | Yes |
 | `set_reward_rate` | Creator | Yes |
+| `freeze` | Key multi-sig admin / protocol admin | Yes |
+| `unfreeze` | Key multi-sig admin / protocol admin | Yes |
 | `buy_key` | Key holder (buyer) | Yes |
 | `sell_key` | Key holder (seller) | Yes |
 | `transfer_keys` | Key holder (sender / `from`) | Yes |
+| `delegate_votes` | Key holder (`holder`) | Yes |
+| `revoke_delegation` | Key holder (`holder`) | Yes |
 | `set_fee_config` | Admin | Yes |
+| `set_volume_brackets` | Admin | Yes |
 | `set_key_price` | Admin | Yes |
 | `set_treasury_address` | Admin | Yes |
 | `set_protocol_admin` | Admin | Yes |
 | `set_milestones` | Admin | Yes |
 | `check_and_apply_milestone` | Open | Yes |
 | `get_current_milestone` | Open | No |
+| `get_voting_weight` | Open | No |
+| `get_vote_delegate` | Open | No |
+| `get_vote_delegators` | Open | No |
+| `get_freeze_log` | Open | No |
+| `get_key_status` | Open | No |
+| `is_key_frozen` | Open | No |
 | All `get_*` / `is_*` methods | Open | No |
 | `compute_fees_for_payment` | Open | No |
+

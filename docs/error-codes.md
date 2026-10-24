@@ -63,12 +63,98 @@ intentionally unassigned.
 | `108` | `KeyAlertLimitReached` | The key already has the maximum number of active price alerts | Triggered in [`price_alerts::register_alert`](../creator-keys/src/price_alerts.rs) when the key has `MAX_ACTIVE_ALERTS_PER_KEY` (16) active alerts from any wallets. |
 | `109` | `AlertNotFound` | No active price alert with that id belongs to the wallet | Triggered in [`price_alerts::cancel_alert`](../creator-keys/src/price_alerts.rs) when the id never existed, belongs to another wallet, or the alert has already fired or been cancelled. |
 | `110` | `AlreadyInitialized` | Protocol configuration has already been initialized | Triggered in [`initialize`](../creator-keys/src/lib.rs) when attempting to re-initialize an already-initialized contract. |
+| `111` | `BundleSizeExceeded` | A bundle contains too many items | Triggered by `bundle::buy_bundle` when the number of items exceeds `MAX_BUNDLE_ITEMS`. |
+| `112` | `BundleItemUnfilled` | A bundle item could not be filled completely | Triggered by `bundle::buy_bundle` when a requested item is partially filled. |
+| `113` | `StateRestoring` | The creator's archived state is being restored | Triggered when buying keys for a creator in the restoring lifecycle state. |
+| `114` | `InvalidLifecycleState` | The creator is in the wrong lifecycle state for the requested archive operation | Triggered by archive/restore lifecycle entrypoints when the creator state is incompatible. |
+| `115` | `AnnouncementPageSizeExceeded` | The requested announcement page exceeds the supported maximum size | Triggered when announcement pagination requests more records than the supported maximum. |
+| `116` | `AnnouncementRecordMissing` | An announcement index points to a record that is no longer available | Triggered when an announcement page references an absent record in stored pagination state. |
+| `117` | `LockupActive` | The wallet's keys are still inside an investor lock-up window | Triggered by `swap`, `sell_key`, `batch_sell`, or `batch_sell_v2` before the stored `unlock_timestamp`; call `check_lockup` for remaining seconds. |
+| `118` | `LockupNotFound` | No investor lock-up exists for the wallet and key | Triggered by `emergency_unlock` when no lock-up entry exists. |
+**Backward compatibility for 107-118**: these twelve codes
+are appended after the previously highest code (`106`, `CapTooLow`). Codes
+`115` and `116` are reserved for announcement errors; investor lock-up errors
+use `117` and `118`. No existing variant was renumbered,
+reordered, or reused. `register_alert` reports an unregistered key with
+`NotRegistered` (2) and a non-positive target price with `NotPositiveAmount`
+(6).
 
-**Backward compatibility for 107-110**: these codes
-are appended after the previously highest code (`106`, `CapTooLow`). No existing
-variant was renumbered, reordered, or reused. `register_alert` reports an
-unregistered key with `NotRegistered` (2) and a non-positive target price with
-`NotPositiveAmount` (6).
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `119` | `TransferProposalNotFound` | No ownership-transfer proposal has that id | Triggered in [`key_ownership_transfer::read_proposal`](../creator-keys/src/key_ownership_transfer.rs) when the proposal never existed or was already executed or cancelled. |
+| `120` | `TransferAlreadyPending` | The key already has a live ownership-transfer proposal | Triggered in [`key_ownership_transfer::propose_transfer`](../creator-keys/src/key_ownership_transfer.rs) when a second proposal is raised while one is still inside its 48h window or already accepted. An expired, never-accepted proposal is replaced instead of rejected. |
+| `121` | `TransferWindowExpired` | The proposal was not accepted within 48h | Triggered in [`key_ownership_transfer::accept_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `now >= expires_at` (`proposed_at + 172_800`). |
+| `122` | `TransferNotAccepted` | The proposal was executed before the new owner accepted | Triggered in [`key_ownership_transfer::execute_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `accepted_at` is `None`; this is also what an expired, unaccepted proposal reports. |
+| `123` | `TransferAlreadyAccepted` | The proposed new owner accepted the proposal twice | Triggered in [`key_ownership_transfer::accept_transfer`](../creator-keys/src/key_ownership_transfer.rs) when `accepted_at` is already set. |
+
+**Backward compatibility for 119-123**: these codes are appended after the
+previously highest code (`118`, `LockupNotFound`). No existing variant
+was renumbered, reordered, or reused. The ownership-handover flow reuses existing
+codes where they already describe the failure: `NotRegistered` (2) for an
+unregistered key, `SelfTransfer` (26) for a handover to the wallet that already
+manages the key, `Unauthorized` (18) for a caller that is not the current owner,
+`TimelockNotElapsed` (74) for execution before the 24h timelock, and `Overflow`
+(3) on timestamp arithmetic.
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `124` | `NoDeprecationProposed` | No notice-period deprecation has been proposed for the supplied key | Triggered when attempting to execute or query deprecation for a key without a proposed notice period. |
+| `125` | `DeprecationAlreadyProposed` | A notice-period deprecation has already been proposed for the supplied key | Triggered when proposing key deprecation on a key that already has an active deprecation notice. |
+| `126` | `DeprecationNoticePeriodActive` | Key deprecation execution was attempted before the notice period elapsed | Triggered in `execute_deprecation` when the current timestamp is earlier than the end of the notice period. |
+| `127` | `InvalidNoticePeriod` | The notice period in days is invalid (zero or above protocol ceiling) | Triggered when proposing deprecation with an out-of-range notice period. |
+| `128` | `DeprecationAlreadyExecuted` | The key's notice-period deprecation has already been executed | Triggered when attempting an operation on a key whose notice-period deprecation has already finalised. |
+
+**Backward compatibility for 124-128**: these codes are appended after the
+previously highest code (`123`, `TransferAlreadyAccepted`). No existing variant
+was renumbered, reordered, or reused.
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `129` | `SelfDelegation` | Attempted vote delegation to self | Triggered by `delegate_votes` when `holder == delegate_wallet`. |
+| `130` | `AlreadyDelegated` | Key already has an active vote delegation | Triggered by `delegate_votes` when the holder has already delegated voting weight for this key; revoke first to re-delegate. |
+| `131` | `NoDelegation` | No active vote delegation found to revoke | Triggered by `revoke_delegation` when the caller has no active delegation for this key. |
+| `132` | `CannotReDelegate` | Re-delegation or chained delegation is rejected | Triggered by `delegate_votes` when a delegate tries to delegate their weight or a delegator tries to receive delegation (delegation chain limited to 1 level). |
+| `133` | `NotAHolder` | Caller holds zero keys for this creator | Triggered by `delegate_votes` when the caller has no liquid keys for the specified creator key. |
+
+**Backward compatibility for 129-133**: these five codes are appended after the
+previously highest code (`128`, `DeprecationAlreadyExecuted`). No existing variant
+was renumbered, reordered, or reused. Vote delegation (Issue #1116) reuses
+`PollError::Unauthorized` (32) in governance voting when a delegator attempts
+to vote directly.
+
+### Atomic swap parity (Issue #1192)
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `138` | `ParityDeviationExceeded` | The two sides of an atomic swap deviate in value by more than the caller's tolerance | Triggered in [`atomic_swap`](../creator-keys/src/lib.rs) when the two sides' values differ by more than `max_parity_deviation_bps` basis points of the larger side; a tolerance of `0` requires an exact match. |
+
+**Backward compatibility for 138**: this code is appended after the previously
+highest code (`137`, `InvalidPollOption`). No existing variant was renumbered,
+reordered, or reused. The atomic-swap guard reuses existing codes where they
+already describe the failure: `SelfTransfer` (26) when both legs name the same
+key, `ZeroTransferAmount` (27) for a zero-quantity leg, and `Overflow` (3) on
+value arithmetic.
+
+### Key-level freeze / unfreeze (Issue #1174)
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `139` | `KeyFrozen` | The key is frozen and cannot trade | Triggered in every buy, sell and transfer path (including `batch_buy`, `batch_buy_v2`, `batch_sell`, `batch_sell_v2`, `swap`, `transfer_keys`, `batch_transfer_keys` and `reinvest_dividend`) when the key's status is `KeyStatus::Frozen`. |
+| `140` | `KeyAlreadyFrozen` | The key is already frozen | Triggered in `freeze` when the key's status is already `KeyStatus::Frozen`. |
+| `141` | `KeyNotFrozen` | The key is not frozen | Triggered in `unfreeze` when the key's status is `KeyStatus::Active`. |
+
+**Backward compatibility for 139-141**: these three codes are appended after the
+previously highest code (`138`, `ParityDeviationExceeded`). No existing variant
+was renumbered, reordered, or reused. `transfer_from` reports the frozen state
+through `AllowanceError::KeyFrozen` (12) because that entrypoint returns
+`AllowanceError` rather than `ContractError`.
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `148` | `CircuitBreakerActive` | Trading for the creator key is suspended by its circuit breaker | Triggered by `swap` when the configured circuit breaker reports the creator key as suspended. |
+
+**Backward compatibility for 148**: this code is appended after the key-retirement
+error codes (`142`-`147`). No existing variant was renumbered, reordered, or reused.
 
 ---
 
@@ -134,6 +220,7 @@ Returned by [`approve`](../creator-keys/src/lib.rs) and
 | `9` | `HoldingCapExceeded` | The recipient would exceed the creator's per-wallet holding cap | Triggered when the post-transfer recipient balance exceeds the cap. |
 | `10` | `ZeroAddress` | The recipient address was the zero address | Triggered in `transfer_from` when `to` is the zero address. |
 | `11` | `CooldownActive` | The sender is still inside the creator's post-buy cooldown window | Triggered in `transfer_from` when the sender's last buy is within the creator's `cooldown_ledgers`, mirroring `transfer_keys`. |
+| `12` | `KeyFrozen` | The key is frozen and cannot be transferred | Triggered in `transfer_from` when the key's status is `KeyStatus::Frozen` (#1174). |
 
 `transfer_from` enforces the same invariants as the direct `transfer_keys`
 path, including the cooldown window, so a spender cannot route keys around a
@@ -259,6 +346,9 @@ try {
 ### Trading & Slippage
 - `InsufficientPayment` (4) applies to buys when payment is less than total price + fees.
 - `InsufficientBalance` (9) applies to sells, transfers, and buybacks when caller balance is insufficient.
+  Both `batch_sell` and `batch_sell_v2` report (9) when an order asks for more keys than the caller
+  holds — including when the excess only appears by summing several orders for the same creator —
+  and the whole call is rolled back. `SellUnderflow` (10) stays reserved for arithmetic underflow.
 - `SlippageExceeded` (16) indicates market movement between quote generation and execution. Refresh quotes and retry with wider slippage bounds.
 
 ### Governance Polls
