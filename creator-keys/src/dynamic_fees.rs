@@ -1,7 +1,7 @@
 use crate::{events, read_registered_creator_profile, ContractError};
 use soroban_sdk::{contracttype, vec, Address, Env, Vec};
 
-pub const ROLLING_WINDOW_SECS: u64 = 86_400;
+pub const ROLLING_WINDOW_SECS: u64 = 2_592_000;
 pub const VOLUME_BUCKET_SECS: u64 = 300;
 pub const MAX_VOLUME_BUCKETS: u32 = 289;
 pub const DEFAULT_VOLUME_BRACKETS: u32 = 3;
@@ -12,6 +12,16 @@ pub struct VolumeBracket {
     /// Inclusive lower volume boundary, in the trade amount's raw base units.
     pub min_volume: i128,
     pub fee_bps: u32,
+}
+
+/// A discount tier applied to bonding curve fees for high-volume traders.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DiscountTier {
+    /// Inclusive lower 30-day volume boundary, in the trade amount's raw base units.
+    pub min_volume: i128,
+    /// Discount applied to the base fee, in basis points.
+    pub discount_bps: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,12 +44,24 @@ pub struct ActiveFeeTier {
     pub volume_to_next_tier: i128,
 }
 
+/// Snapshot of the discount tier currently applying to a wallet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ActiveDiscount {
+    /// Zero-based index into the configured discount tiers.
+    pub tier_index: u32,
+    pub discount_bps: u32,
+}
+
 #[derive(Clone)]
 #[contracttype]
 enum DataKey {
     VolumeBrackets,
     KeyVolumeBuckets(Address),
     LastFeeBps(Address),
+    DiscountTiers,
+    WalletVolumeBuckets(Address),
+    LastDiscountBps(Address),
 }
 
 pub fn default_volume_brackets(env: &Env) -> Vec<VolumeBracket> {
@@ -60,11 +82,40 @@ pub fn default_volume_brackets(env: &Env) -> Vec<VolumeBracket> {
     ]
 }
 
+pub fn default_discount_tiers(env: &Env) -> Vec<DiscountTier> {
+    vec![
+        env,
+        DiscountTier {
+            min_volume: 0,
+            discount_bps: 0,
+        },
+        DiscountTier {
+            min_volume: 1_000,
+            discount_bps: 500,
+        },
+        DiscountTier {
+            min_volume: 10_000,
+            discount_bps: 1_000,
+        },
+        DiscountTier {
+            min_volume: 100_000,
+            discount_bps: 2_000,
+        },
+    ]
+}
+
 pub fn read_volume_brackets(env: &Env) -> Vec<VolumeBracket> {
     env.storage()
         .persistent()
         .get(&DataKey::VolumeBrackets)
         .unwrap_or_else(|| default_volume_brackets(env))
+}
+
+pub fn read_discount_tiers(env: &Env) -> Vec<DiscountTier> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::DiscountTiers)
+        .unwrap_or_else(|| default_discount_tiers(env))
 }
 
 pub fn validate_volume_brackets(brackets: &Vec<VolumeBracket>) -> Result<(), ContractError> {
@@ -90,9 +141,38 @@ pub fn validate_volume_brackets(brackets: &Vec<VolumeBracket>) -> Result<(), Con
     Ok(())
 }
 
+pub fn validate_discount_tiers(tiers: &Vec<DiscountTier>) -> Result<(), ContractError> {
+    if tiers.is_empty() || tiers.len() > crate::MAX_FEE_TIERS {
+        return Err(ContractError::InvalidFeeConfig);
+    }
+    if tiers.get(0).map(|tier| tier.min_volume) != Some(0) {
+        return Err(ContractError::InvalidFeeConfig);
+    }
+
+    let mut previous_minimum = None;
+    for tier in tiers.iter() {
+        if tier.min_volume < 0 || tier.discount_bps > crate::fee::BPS_MAX {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+        if let Some(previous) = previous_minimum {
+            if tier.min_volume <= previous {
+                return Err(ContractError::InvalidFeeConfig);
+            }
+        }
+        previous_minimum = Some(tier.min_volume);
+    }
+    Ok(())
+}
+
 pub fn set_volume_brackets(env: &Env, brackets: &Vec<VolumeBracket>) {
     let key = DataKey::VolumeBrackets;
     env.storage().persistent().set(&key, brackets);
+    crate::extend_key_ttl_to_full_window(env, &key);
+}
+
+pub fn set_discount_tiers(env: &Env, tiers: &Vec<DiscountTier>) {
+    let key = DataKey::DiscountTiers;
+    env.storage().persistent().set(&key, tiers);
     crate::extend_key_ttl_to_full_window(env, &key);
 }
 
@@ -100,6 +180,13 @@ fn read_volume_buckets(env: &Env, key_id: &Address) -> Vec<VolumeBucket> {
     env.storage()
         .persistent()
         .get(&DataKey::KeyVolumeBuckets(key_id.clone()))
+        .unwrap_or(Vec::new(env))
+}
+
+fn read_wallet_volume_buckets(env: &Env, wallet: &Address) -> Vec<VolumeBucket> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::WalletVolumeBuckets(wallet.clone()))
         .unwrap_or(Vec::new(env))
 }
 
@@ -120,6 +207,10 @@ pub fn rolling_volume(env: &Env, key_id: &Address) -> Result<i128, ContractError
     rolling_volume_from(env, &read_volume_buckets(env, key_id))
 }
 
+pub fn wallet_rolling_volume(env: &Env, wallet: &Address) -> Result<i128, ContractError> {
+    rolling_volume_from(env, &read_wallet_volume_buckets(env, wallet))
+}
+
 /// Resolves the `(tier_index, fee_bps)` whose bracket contains `volume`.
 pub fn tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
     let brackets = read_volume_brackets(env);
@@ -135,6 +226,19 @@ pub fn tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
             break;
         }
         tier = (index as u32, bracket.fee_bps);
+    }
+    tier
+}
+
+/// Resolves the `(tier_index, discount_bps)` whose tier contains `volume`.
+pub fn discount_tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
+    let tiers = read_discount_tiers(env);
+    let mut tier = (0, tiers.get(0).map(|tier| tier.discount_bps).unwrap_or(0));
+    for (index, tier_entry) in tiers.iter().enumerate() {
+        if volume < tier_entry.min_volume {
+            break;
+        }
+        tier = (index as u32, tier_entry.discount_bps);
     }
     tier
 }
@@ -157,6 +261,19 @@ pub fn active_fee_tier(env: &Env, key_id: &Address) -> Result<ActiveFeeTier, Con
         rolling_volume,
         volume_to_next_tier,
     })
+}
+
+pub fn get_discount(env: &Env, wallet: &Address) -> Result<ActiveDiscount, ContractError> {
+    let rolling_volume = wallet_rolling_volume(env, wallet)?;
+    let (tier_index, discount_bps) = discount_tier_for_volume(env, rolling_volume);
+    Ok(ActiveDiscount {
+        tier_index,
+        discount_bps,
+    })
+}
+
+pub fn discount_bps_for_wallet(env: &Env, wallet: &Address) -> Result<u32, ContractError> {
+    Ok(get_discount(env, wallet)?.discount_bps)
 }
 
 pub fn current_fee_bps(env: &Env, key_id: &Address) -> Result<u32, ContractError> {
@@ -188,6 +305,28 @@ fn emit_fee_adjusted(
             new_tier_index: tier_for_volume(env, volume).0,
             previous_fee_bps,
             new_fee_bps,
+            rolling_volume: volume,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+}
+
+fn emit_discount_tier_changed(
+    env: &Env,
+    wallet: &Address,
+    previous_discount_bps: u32,
+    new_discount_bps: u32,
+    volume: i128,
+) {
+    env.events().publish(
+        (
+            events::VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME,
+            wallet.clone(),
+        ),
+        events::VolumeDiscountTierChangedEvent {
+            wallet: wallet.clone(),
+            previous_discount_bps,
+            new_discount_bps,
             rolling_volume: volume,
             timestamp: env.ledger().timestamp(),
         },
@@ -249,26 +388,5 @@ pub fn record_trade(env: &Env, key_id: &Address, volume: i128) -> Result<(), Con
     let bucket_key = DataKey::KeyVolumeBuckets(key_id.clone());
     env.storage().persistent().set(&bucket_key, &updated);
     crate::extend_key_ttl_to_full_window(env, &bucket_key);
-
-    let new_volume = rolling_volume_from(env, &updated)?;
-    let new_fee = fee_for_volume(env, new_volume);
-    if current_fee != new_fee {
-        emit_fee_adjusted(env, key_id, current_fee, new_fee, new_volume);
-    }
-
-    let last_fee_key = DataKey::LastFeeBps(key_id.clone());
-    env.storage().persistent().set(&last_fee_key, &new_fee);
-    crate::extend_key_ttl_to_full_window(env, &last_fee_key);
     Ok(())
-}
-
-pub fn volume_buckets(env: &Env, key_id: &Address) -> Vec<VolumeBucket> {
-    let cutoff = env.ledger().timestamp().saturating_sub(ROLLING_WINDOW_SECS);
-    let mut current = Vec::new(env);
-    for bucket in read_volume_buckets(env, key_id).iter() {
-        if bucket.bucket_start >= cutoff {
-            current.push_back(bucket);
-        }
-    }
-    current
 }

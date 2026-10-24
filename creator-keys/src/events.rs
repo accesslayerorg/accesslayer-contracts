@@ -19,6 +19,41 @@ use soroban_sdk::{
 /// Event name for protocol trade fee collected on a buy or sell.
 pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
 
+/// Event name for a wallet's volume discount tier transition.
+pub const VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("vdt_chg");
+
+/// Stable field order for volume discount tier changed event payloads.
+pub const VOLUME_DISCOUNT_TIER_CHANGED_DATA_FIELDS: [&str; 5] =
+    ["wallet", "old_tier", "new_tier", "discount_bps", "ledger"];
+
+/// Stable volume discount tier changed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME, wallet)`
+/// - data: `VolumeDiscountTierChangedEvent`
+///
+/// Emitted whenever a wallet's 30-day rolling trading volume crosses a
+/// configured discount threshold, moving it into a new tier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct VolumeDiscountTierChangedEvent {
+    /// Wallet whose discount tier changed.
+    pub wallet: Address,
+    /// Previous tier index (`0` = none).
+    pub old_tier: u32,
+    /// New tier index (`0` = none, `1` = bronze, `2` = silver, `3` = gold).
+    pub new_tier: u32,
+    /// Discount in basis points applied at the new tier.
+    pub discount_bps: u32,
+    /// Ledger sequence number at the time of the transition.
+    pub ledger: u32,
+}
+
+/// Shared volume discount tier changed event topics tuple.
+pub fn volume_discount_tier_changed_topics(wallet: &Address) -> (Symbol, Address) {
+    (VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME, wallet.clone())
+}
+
 /// Event name for a per-key dynamic trade fee bracket change.
 pub const FEE_ADJUSTED_EVENT_NAME: Symbol = symbol_short!("fee_adj");
 pub const FEE_ADJUSTED_DATA_FIELDS: [&str; 5] = [
