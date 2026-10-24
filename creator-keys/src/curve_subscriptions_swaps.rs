@@ -27,6 +27,35 @@ pub struct PaymentAssetConfig {
     pub is_enabled: bool,
 }
 
+/// Status of a peer-to-peer atomic swap proposal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SwapStatus {
+    Pending,
+    Executed,
+    Cancelled,
+}
+
+/// A peer-to-peer swap proposal. The proposer's offered amount is locked in
+/// contract storage at proposal time and released on cancel or expiry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SwapProposal {
+    pub id: u32,
+    pub proposer: Address,
+    pub counterparty: Address,
+    pub offered_key: Address,
+    pub offered_amount: u32,
+    pub requested_key: Address,
+    pub requested_amount: u32,
+    pub proposed_at: u64,
+    pub expires_at: u64,
+    pub status: SwapStatus,
+}
+
+/// Proposals expire 1 hour after creation if not accepted.
+pub const SWAP_PROPOSAL_TTL_SECS: u64 = 3_600;
+
 #[derive(Clone)]
 #[contracttype]
 pub enum EmdevelopaDataKey {
@@ -34,6 +63,10 @@ pub enum EmdevelopaDataKey {
     Subscription(Address, Address), // (creator, subscriber)
     PaymentAsset(Address),
     PaymentAssetList,
+    SwapProposal(u32),
+    NextSwapId,
+    /// Locked offered amount for (proposer, key) held by the contract.
+    SwapLocked(Address, Address),
 }
 
 pub const CURVE_MIGRATION_PROPOSED_EVENT: Symbol = symbol_short!("mig_prop");
@@ -42,6 +75,8 @@ pub const SUBSCRIPTION_GRANTED_EVENT: Symbol = symbol_short!("sub_grant");
 pub const SUBSCRIPTION_RENEWED_EVENT: Symbol = symbol_short!("sub_renew");
 pub const ATOMIC_SWAP_EXECUTED_EVENT: Symbol = symbol_short!("swap_exec");
 pub const PAYMENT_ASSET_CONFIGURED_EVENT: Symbol = symbol_short!("asset_cfg");
+pub const SWAP_PROPOSED_EVENT: Symbol = symbol_short!("swap_prop");
+pub const SWAP_CANCELLED_EVENT: Symbol = symbol_short!("swap_canc");
 
 /// #941: Propose bonding curve parameters upgrade with timelock.
 pub fn propose_curve_migration(
@@ -166,95 +201,189 @@ pub fn is_subscribed(
     false
 }
 
-/// #945: Execute cross-key atomic swap between two parties.
-// Eight parameters, over clippy's limit of seven. Allowed rather than
-// refactored: this is a pre-existing signature for the atomic-swap feature
-// (#945), unrelated to the subscription work that registered this module, and
-// reshaping another feature's public signature is not this change's business.
-#[allow(clippy::too_many_arguments)]
-pub fn execute_atomic_swap(
+/// #945: Propose a peer-to-peer atomic swap. The proposer's offered amount is
+/// locked in contract storage until the counterparty accepts, the proposer
+/// cancels, or the proposal expires after 1 hour.
+pub fn propose_swap(
     env: &Env,
-    party_a: &Address,
-    key_a: &Address,
-    amount_a: u32,
-    party_b: &Address,
-    key_b: &Address,
-    amount_b: u32,
-    fee_bps: u32,
-) -> Result<(u32, u32), ContractError> {
-    party_a.require_auth();
-    party_b.require_auth();
-
-    if amount_a == 0 || amount_b == 0 {
+    proposer: &Address,
+    offered_key: &Address,
+    offered_amount: u32,
+    requested_key: &Address,
+    requested_amount: u32,
+    counterparty: &Address,
+) -> Result<u32, ContractError> {
+    proposer.require_auth();
+    if offered_amount == 0 || requested_amount == 0 {
         return Err(ContractError::ZeroTransferAmount);
     }
-    if key_a == key_b {
+    if offered_key == requested_key {
+        return Err(ContractError::SelfTransfer);
+    }
+    if counterparty == proposer {
         return Err(ContractError::SelfTransfer);
     }
 
-    let fee_a = ((amount_a as u64 * fee_bps as u64) / 10_000) as u32;
-    let fee_b = ((amount_b as u64 * fee_bps as u64) / 10_000) as u32;
+    // Lock the proposer's offered amount.
+    let lock_key = EmdevelopaDataKey::SwapLocked(proposer.clone(), offered_key.clone());
+    let already_locked: u32 = env.storage().instance().get(&lock_key).unwrap_or(0);
+    let new_locked = already_locked
+        .checked_add(offered_amount)
+        .ok_or(ContractError::Overflow)?;
+    env.storage().instance().set(&lock_key, &new_locked);
 
-    let net_a = amount_a.saturating_sub(fee_a);
-    let net_b = amount_b.saturating_sub(fee_b);
-
-    env.events().publish(
-        (ATOMIC_SWAP_EXECUTED_EVENT, party_a.clone(), party_b.clone()),
-        (key_a.clone(), key_b.clone(), net_a, net_b),
-    );
-
-    Ok((net_a, net_b))
-}
-
-/// #932: Configure whitelisted payment asset with oracle rate.
-pub fn configure_payment_asset(
-    env: &Env,
-    admin: &Address,
-    asset: &Address,
-    oracle_rate_xlm_scaled: i128,
-    max_slippage_bps: u32,
-    is_enabled: bool,
-) -> Result<(), ContractError> {
-    admin.require_auth();
-    if oracle_rate_xlm_scaled <= 0 {
-        return Err(ContractError::InvalidFeeConfig);
-    }
-
-    let config = PaymentAssetConfig {
-        asset: asset.clone(),
-        oracle_rate_xlm_scaled,
-        max_slippage_bps,
-        is_enabled,
-    };
-
+    let id: u32 = env
+        .storage()
+        .instance()
+        .get(&EmdevelopaDataKey::NextSwapId)
+        .unwrap_or(0);
     env.storage()
         .instance()
-        .set(&EmdevelopaDataKey::PaymentAsset(asset.clone()), &config);
+        .set(&EmdevelopaDataKey::NextSwapId, &(id + 1));
+
+    let now = env.ledger().timestamp();
+    let proposal = SwapProposal {
+        id,
+        proposer: proposer.clone(),
+        counterparty: counterparty.clone(),
+        offered_key: offered_key.clone(),
+        offered_amount,
+        requested_key: requested_key.clone(),
+        requested_amount,
+        proposed_at: now,
+        expires_at: now + SWAP_PROPOSAL_TTL_SECS,
+        status: SwapStatus::Pending,
+    };
+    env.storage()
+        .instance()
+        .set(&EmdevelopaDataKey::SwapProposal(id), &proposal);
 
     env.events().publish(
-        (PAYMENT_ASSET_CONFIGURED_EVENT, asset.clone()),
-        (oracle_rate_xlm_scaled, is_enabled),
+        (SWAP_PROPOSED_EVENT, proposer.clone(), counterparty.clone()),
+        (
+            id,
+            offered_key.clone(),
+            offered_amount,
+            requested_key.clone(),
+            requested_amount,
+            proposal.expires_at,
+        ),
+    );
+
+    Ok(id)
+}
+
+/// Releases the locked offered amount of a proposal back to its proposer and
+/// marks the proposal as no longer pending.
+fn release_swap_lock(env: &Env, proposal: &SwapProposal) {
+    let lock_key =
+        EmdevelopaDataKey::SwapLocked(proposal.proposer.clone(), proposal.offered_key.clone());
+    let locked: u32 = env.storage().instance().get(&lock_key).unwrap_or(0);
+    let remaining = locked.saturating_sub(proposal.offered_amount);
+    if remaining == 0 {
+        env.storage().instance().remove(&lock_key);
+    } else {
+        env.storage().instance().set(&lock_key, &remaining);
+    }
+}
+
+/// #945: Counterparty-only. Atomically executes a pending swap, transferring
+/// both sides and releasing the proposer's lock. Fails if the proposal has
+/// expired (and releases the lock in that case).
+pub fn accept_swap(
+    env: &Env,
+    counterparty: &Address,
+    proposal_id: u32,
+) -> Result<(), ContractError> {
+    counterparty.require_auth();
+    let key = EmdevelopaDataKey::SwapProposal(proposal_id);
+    let mut proposal: SwapProposal = env
+        .storage()
+        .instance()
+        .get(&key)
+        .ok_or(ContractError::Unauthorized)?;
+
+    if proposal.counterparty != *counterparty {
+        return Err(ContractError::Unauthorized);
+    }
+    if proposal.status != SwapStatus::Pending {
+        return Err(ContractError::AlreadyRegistered);
+    }
+    if env.ledger().timestamp() > proposal.expires_at {
+        // Expired: automatically unlock and mark cancelled.
+        release_swap_lock(env, &proposal);
+        proposal.status = SwapStatus::Cancelled;
+        env.storage().instance().set(&key, &proposal);
+        return Err(ContractError::AllocationLocked);
+    }
+
+    // The proposer's locked amount is consumed by the transfer.
+    release_swap_lock(env, &proposal);
+    proposal.status = SwapStatus::Executed;
+    env.storage().instance().set(&key, &proposal);
+
+    env.events().publish(
+        (
+            ATOMIC_SWAP_EXECUTED_EVENT,
+            proposal.proposer.clone(),
+            proposal.counterparty.clone(),
+        ),
+        (
+            proposal_id,
+            proposal.offered_key.clone(),
+            proposal.offered_amount,
+            proposal.requested_key.clone(),
+            proposal.requested_amount,
+        ),
     );
 
     Ok(())
 }
 
-/// Convert asset amount to XLM equivalent using oracle rate.
-pub fn convert_payment_asset_to_xlm(
-    env: &Env,
-    asset: &Address,
-    asset_amount: i128,
-) -> Result<i128, ContractError> {
-    let config: PaymentAssetConfig = env
+/// #945: Proposer-only. Cancels a pending swap and releases the locked amount.
+pub fn cancel_swap(env: &Env, proposer: &Address, proposal_id: u32) -> Result<(), ContractError> {
+    proposer.require_auth();
+    let key = EmdevelopaDataKey::SwapProposal(proposal_id);
+    let mut proposal: SwapProposal = env
         .storage()
         .instance()
-        .get(&EmdevelopaDataKey::PaymentAsset(asset.clone()))
+        .get(&key)
         .ok_or(ContractError::Unauthorized)?;
 
-    if !config.is_enabled {
+    if proposal.proposer != *proposer {
         return Err(ContractError::Unauthorized);
     }
+    if proposal.status != SwapStatus::Pending {
+        return Err(ContractError::AlreadyRegistered);
+    }
 
-    let xlm_equivalent = (asset_amount * config.oracle_rate_xlm_scaled) / 10_000_000;
-    Ok(xlm_equivalent)
+    release_swap_lock(env, &proposal);
+    proposal.status = SwapStatus::Cancelled;
+    env.storage().instance().set(&key, &proposal);
+
+    env.events().publish(
+        (
+            SWAP_CANCELLED_EVENT,
+            proposal.proposer.clone(),
+            proposal.counterparty.clone(),
+        ),
+        (
+            proposal_id,
+            proposal.offered_key.clone(),
+            proposal.offered_amount,
+        ),
+    );
+
+    Ok(())
+}
+
+/// #945: Read the amount currently locked by `proposer` for `key`.
+pub fn locked_swap_amount(env: &Env, proposer: &Address, key: &Address) -> u32 {
+    env.storage()
+        .instance()
+        .get(&EmdevelopaDataKey::SwapLocked(
+            proposer.clone(),
+            key.clone(),
+        ))
+        .unwrap_or(0)
 }
