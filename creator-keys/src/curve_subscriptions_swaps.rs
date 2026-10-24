@@ -87,10 +87,7 @@ pub fn check_price_floor_on_sell(
             (PRICE_FLOOR_TRIGGERED_EVENT, key_id.clone()),
             (current_price, floor),
         );
-        return Err(ContractError::PriceFloorBreached {
-            current_price,
-            floor,
-        });
+        return Err(ContractError::CircuitBreakerActive);
     }
     Ok(())
 }
