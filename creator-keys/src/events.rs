@@ -242,6 +242,7 @@ pub const BOND_FORFEITED_EVENT_NAME: Symbol = symbol_short!("bond_forf");
 
 /// Event name for a co-creator being added to a creator key.
 pub const CO_CREATOR_ADDED_EVENT_NAME: Symbol = symbol_short!("cc_add");
+
 /// Topic index for the event name in common event topic tuples.
 pub const TOPIC_EVENT_NAME_INDEX: u32 = 0;
 
@@ -299,16 +300,12 @@ pub struct CoCreatorAddedEvent {
     /// Wallet granted the co-creator role.
     pub wallet: Address,
     /// Permission tier granted to the wallet.
-    pub role: crate::CoCreatorRole,
+    pub role: CoCreatorRole,
 }
 
 /// Shared co-creator added event topics tuple.
 pub fn co_creator_added_topics(key_id: &Address, wallet: &Address) -> (Symbol, Address, Address) {
-    (
-        CO_CREATOR_ADDED_EVENT_NAME,
-        key_id.clone(),
-        wallet.clone(),
-    )
+    (CO_CREATOR_ADDED_EVENT_NAME, key_id.clone(), wallet.clone())
 }
 
 /// Stable field order for registration event payloads.
