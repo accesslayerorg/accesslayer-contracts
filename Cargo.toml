@@ -7,6 +7,7 @@ members = [
     "key-staking-contract",
     "multisig-admin",
     "nonce-registry",
+    "session-nonce",
     "launch-auction",
     "key-liquidity-depth",
     "seasonal-rewards",

@@ -134,6 +134,24 @@ Key ownership handover (issue #1098) uses its own `OwnershipDataKey` enum in [`c
 
 **Storage layout / backward compatibility**: the keys are new and additive and live outside `DataKey`, so no existing key is read or changed and no migration is needed in either direction.
 
+### Key Freeze Storage-Key Notes (#1174)
+
+Key-level freeze/unfreeze (issue #1174) uses its own `KeyFreezeDataKey` enum in [`creator-keys/src/key_freeze.rs`](../creator-keys/src/key_freeze.rs), like the other feature modules. All entries are persistent and extended to the full `CREATOR_TTL_LEDGERS` window on write.
+
+| Field | Storage Key | Value | Read Ownership | Write Ownership |
+| ----- | ----------- | ----- | -------------- | --------------- |
+| Current freeze status of a key | `KeyFreezeDataKey::Status(key_id)` | `KeyStatus` (`Active` \| `Frozen`) | `read_key_status`, `is_key_frozen`, `assert_key_not_frozen`, `get_key_status`, `is_key_frozen` | `freeze` writes `Frozen`; `unfreeze` writes `Active` |
+| Freeze audit log of a key | `KeyFreezeDataKey::Log(key_id)` | `Vec<FreezeLogEntry>` | `read_freeze_log`, `get_freeze_log` | `freeze` and `unfreeze` append one entry each |
+
+**Invariants**:
+
+- `Status(key_id)` is absent until the key is frozen for the first time; an absent entry means `KeyStatus::Active`, so every pre-existing key keeps trading normally without a migration.
+- `Status(key_id)` only ever changes through `freeze` and `unfreeze`, both of which require the acting admin's authorization and a role in the key's multi-sig admin set (or the protocol admin).
+- `Log(key_id)` is append-only: `freeze` and `unfreeze` push one entry and never rewrite or remove entries, so the full history of a key can be replayed off-chain. Each entry records the action, the reason, the acting admin and the ledger timestamp.
+- Every trade path that moves a position reads `Status(key_id)` before touching any balance, so a frozen key rejects the trade with `KeyFrozen` without side effects.
+
+**Storage layout / backward compatibility**: the keys are new and additive and live outside `DataKey`, so no existing key is read or changed and no migration is needed in either direction.
+
 ## Storage Invariants
 
 These invariants must hold true after every contract operation:

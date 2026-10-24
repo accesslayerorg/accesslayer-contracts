@@ -538,6 +538,32 @@ Returns the active volume at a specific price level for `key_id` and `side`. Ret
 
 ---
 
+## Key freeze read methods (#1174)
+
+### `get_key_status(key_id: Address) → KeyStatus`
+
+Returns the current freeze status of `key_id`.
+
+- `KeyStatus::Active`: the key trades normally. This is the value for every key that was never frozen, and after `unfreeze`.
+- `KeyStatus::Frozen`: the key rejects buys, sells and transfers with `ContractError::KeyFrozen`.
+
+### `is_key_frozen(key_id: Address) → bool`
+
+Convenience view over `get_key_status`. Returns `true` only while the key is frozen.
+
+### `get_freeze_log(key_id: Address) → Vec<FreezeLogEntry>`
+
+Returns the append-only audit log of freeze and unfreeze actions for `key_id`, oldest first. Each entry carries:
+
+- `action`: `FreezeAction::Freeze` or `FreezeAction::Unfreeze`.
+- `reason`: the admin-supplied text for a freeze; empty for an unfreeze.
+- `admin_wallet`: the admin that authorized the action.
+- `timestamp`: the ledger timestamp of the action, in seconds.
+
+Returns an empty vector for a key that was never frozen.
+
+---
+
 ## Precision and units
 
 All monetary values (`price`, `creator_fee`, `protocol_fee`, `total_amount`) are raw `i128` integers in the same unit as the stored key price. No decimal conversion is performed on-chain. Off-chain callers should divide by `10^get_key_decimals()` for human-readable display.
