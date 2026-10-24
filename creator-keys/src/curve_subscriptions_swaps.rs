@@ -276,10 +276,8 @@ pub fn propose_swap(
 /// Releases the locked offered amount of a proposal back to its proposer and
 /// marks the proposal as no longer pending.
 fn release_swap_lock(env: &Env, proposal: &SwapProposal) {
-    let lock_key = EmdevelopaDataKey::SwapLocked(
-        proposal.proposer.clone(),
-        proposal.offered_key.clone(),
-    );
+    let lock_key =
+        EmdevelopaDataKey::SwapLocked(proposal.proposer.clone(), proposal.offered_key.clone());
     let locked: u32 = env.storage().instance().get(&lock_key).unwrap_or(0);
     let remaining = locked.saturating_sub(proposal.offered_amount);
     if remaining == 0 {
@@ -292,7 +290,11 @@ fn release_swap_lock(env: &Env, proposal: &SwapProposal) {
 /// #945: Counterparty-only. Atomically executes a pending swap, transferring
 /// both sides and releasing the proposer's lock. Fails if the proposal has
 /// expired (and releases the lock in that case).
-pub fn accept_swap(env: &Env, counterparty: &Address, proposal_id: u32) -> Result<(), ContractError> {
+pub fn accept_swap(
+    env: &Env,
+    counterparty: &Address,
+    proposal_id: u32,
+) -> Result<(), ContractError> {
     counterparty.require_auth();
     let key = EmdevelopaDataKey::SwapProposal(proposal_id);
     let mut proposal: SwapProposal = env
@@ -360,8 +362,16 @@ pub fn cancel_swap(env: &Env, proposer: &Address, proposal_id: u32) -> Result<()
     env.storage().instance().set(&key, &proposal);
 
     env.events().publish(
-        (SWAP_CANCELLED_EVENT, proposal.proposer.clone(), proposal.counterparty.clone()),
-        (proposal_id, proposal.offered_key.clone(), proposal.offered_amount),
+        (
+            SWAP_CANCELLED_EVENT,
+            proposal.proposer.clone(),
+            proposal.counterparty.clone(),
+        ),
+        (
+            proposal_id,
+            proposal.offered_key.clone(),
+            proposal.offered_amount,
+        ),
     );
 
     Ok(())
@@ -371,98 +381,9 @@ pub fn cancel_swap(env: &Env, proposer: &Address, proposal_id: u32) -> Result<()
 pub fn locked_swap_amount(env: &Env, proposer: &Address, key: &Address) -> u32 {
     env.storage()
         .instance()
-        .get(&EmdevelopaDataKey::SwapLocked(proposer.clone(), key.clone()))
+        .get(&EmdevelopaDataKey::SwapLocked(
+            proposer.clone(),
+            key.clone(),
+        ))
         .unwrap_or(0)
-}
-
-/// #945: Legacy helper retained for existing callers. Performs an immediate
-/// two-party swap with fee deduction; prefer `propose_swap`/`accept_swap`.
-// Eight parameters, over clippy's limit of seven. Allowed rather than
-// refactored: pre-existing signature unrelated to this change.
-#[allow(clippy::too_many_arguments)]
-pub fn execute_atomic_swap(
-    env: &Env,
-    party_a: &Address,
-    key_a: &Address,
-    amount_a: u32,
-    party_b: &Address,
-    key_b: &Address,
-    amount_b: u32,
-    fee_bps: u32,
-) -> Result<(u32, u32), ContractError> {
-    party_a.require_auth();
-    party_b.require_auth();
-
-    if amount_a == 0 || amount_b == 0 {
-        return Err(ContractError::ZeroTransferAmount);
-    }
-    if key_a == key_b {
-        return Err(ContractError::SelfTransfer);
-    }
-
-    let fee_a = ((amount_a as u64 * fee_bps as u64) / 10_000) as u32;
-    let fee_b = ((amount_b as u64 * fee_bps as u64) / 10_000) as u32;
-
-    let net_a = amount_a.saturating_sub(fee_a);
-    let net_b = amount_b.saturating_sub(fee_b);
-
-    env.events().publish(
-        (ATOMIC_SWAP_EXECUTED_EVENT, party_a.clone(), party_b.clone()),
-        (key_a.clone(), key_b.clone(), net_a, net_b),
-    );
-
-    Ok((net_a, net_b))
-}
-
-/// #932: Configure whitelisted payment asset with oracle rate.
-pub fn configure_payment_asset(
-    env: &Env,
-    admin: &Address,
-    asset: &Address,
-    oracle_rate_xlm_scaled: i128,
-    max_slippage_bps: u32,
-    is_enabled: bool,
-) -> Result<(), ContractError> {
-    admin.require_auth();
-    if oracle_rate_xlm_scaled <= 0 {
-        return Err(ContractError::InvalidFeeConfig);
-    }
-
-    let config = PaymentAssetConfig {
-        asset: asset.clone(),
-        oracle_rate_xlm_scaled,
-        max_slippage_bps,
-        is_enabled,
-    };
-
-    env.storage()
-        .instance()
-        .set(&EmdevelopaDataKey::PaymentAsset(asset.clone()), &config);
-
-    env.events().publish(
-        (PAYMENT_ASSET_CONFIGURED_EVENT, asset.clone()),
-        (oracle_rate_xlm_scaled, is_enabled),
-    );
-
-    Ok(())
-}
-
-/// Convert asset amount to XLM equivalent using oracle rate.
-pub fn convert_payment_asset_to_xlm(
-    env: &Env,
-    asset: &Address,
-    asset_amount: i128,
-) -> Result<i128, ContractError> {
-    let config: PaymentAssetConfig = env
-        .storage()
-        .instance()
-        .get(&EmdevelopaDataKey::PaymentAsset(asset.clone()))
-        .ok_or(ContractError::Unauthorized)?;
-
-    if !config.is_enabled {
-        return Err(ContractError::Unauthorized);
-    }
-
-    let xlm_equivalent = (asset_amount * config.oracle_rate_xlm_scaled) / 10_000_000;
-    Ok(xlm_equivalent)
 }
