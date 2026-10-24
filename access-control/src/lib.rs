@@ -204,7 +204,12 @@ impl AccessControlContract {
     }
 
     /// Records a wallet's token balance (fed by the token layer).
-    pub fn set_balance(env: Env, admin: Address, wallet: Address, amount: i128) -> Result<(), AccessControlError> {
+    pub fn set_balance(
+        env: Env,
+        admin: Address,
+        wallet: Address,
+        amount: i128,
+    ) -> Result<(), AccessControlError> {
         require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -230,12 +235,7 @@ impl AccessControlContract {
 
     /// Checks whether `wallet` may access `key_id` under `gate_type`, emitting
     /// `AccessGranted` or `AccessDenied` with wallet, key, and gate type.
-    pub fn check_access(
-        env: Env,
-        wallet: Address,
-        key_id: u64,
-        gate_type: GateType,
-    ) -> bool {
+    pub fn check_access(env: Env, wallet: Address, key_id: u64, gate_type: GateType) -> bool {
         let allowed = match gate_type {
             GateType::Holder => wallet_balance(&env, &wallet) > 0,
             GateType::Subscriber => is_subscribed(&env, &wallet, key_id),
