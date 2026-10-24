@@ -11,7 +11,6 @@ use soroban_sdk::{
     Address, Env, IntoVal, String, Symbol,
 };
 
-
 fn setup_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
@@ -606,15 +605,24 @@ fn test_rebalance_config_rejects_invalid_total_bps() {
     let wallet = Address::generate(&env);
 
     let mut allocations = soroban_sdk::Vec::new(&env);
-    allocations.push_back(crate::RebalanceAllocation { key_id: a.clone(), target_bps: 5000u32 });
-    allocations.push_back(crate::RebalanceAllocation { key_id: b.clone(), target_bps: 4000u32 });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: a.clone(),
+        target_bps: 5000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 4000u32,
+    });
     assert_eq!(
         client.try_set_rebalance_config(&wallet, &allocations),
         Err(Ok(ContractError::InvalidAllocation))
     );
 
     allocations.pop_back();
-    allocations.push_back(crate::RebalanceAllocation { key_id: b.clone(), target_bps: 5000u32 });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 5000u32,
+    });
     client.set_rebalance_config(&wallet, &allocations);
 }
 
@@ -630,9 +638,18 @@ fn test_rebalance_preview_and_execute_swaps() {
     assert!(bal_a > 0);
 
     let mut allocations = soroban_sdk::Vec::new(&env);
-    allocations.push_back(crate::RebalanceAllocation { key_id: a.clone(), target_bps: 5000u32 });
-    allocations.push_back(crate::RebalanceAllocation { key_id: b.clone(), target_bps: 3000u32 });
-    allocations.push_back(crate::RebalanceAllocation { key_id: c.clone(), target_bps: 2000u32 });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: a.clone(),
+        target_bps: 5000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 3000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: c.clone(),
+        target_bps: 2000u32,
+    });
     client.set_rebalance_config(&wallet, &allocations);
 
     let preview = client.get_rebalance_preview(&wallet);
@@ -657,8 +674,14 @@ fn test_rebalance_skips_positions_within_tolerance() {
     client.buy_key(&b, &wallet, &100_000i128, &None);
 
     let mut allocations = soroban_sdk::Vec::new(&env);
-    allocations.push_back(crate::RebalanceAllocation { key_id: a.clone(), target_bps: 5000u32 });
-    allocations.push_back(crate::RebalanceAllocation { key_id: b.clone(), target_bps: 5000u32 });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: a.clone(),
+        target_bps: 5000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 5000u32,
+    });
     client.set_rebalance_config(&wallet, &allocations);
 
     let preview = client.get_rebalance_preview(&wallet);
