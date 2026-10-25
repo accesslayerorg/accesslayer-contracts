@@ -227,6 +227,21 @@ Notes for indexers:
 - `weight` reports the key balance held by the delegator at delegation/revocation time.
 - Note that because delegated weight dynamically tracks the delegator's balance while delegation is active, indexers tracking current voting weight should compute delegate weight dynamically from the active delegator set and their balances.
 
+### Key Freeze Events (#1174)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `key_frz` | `(Symbol("key_frz"), key_id)` | `key_id`, `admin_wallet`, `reason`, `timestamp`, `ledger` | `struct KeyFrozenEvent` |
+| `key_unfrz` | `(Symbol("key_unfrz"), key_id)` | `key_id`, `admin_wallet`, `timestamp`, `ledger` | `struct KeyUnfrozenEvent` |
+
+Notes for indexers:
+
+- `key_frz` is emitted by `freeze` when a key's multi-sig admins freeze it. The key rejects buys, sells and transfers with `ContractError::KeyFrozen` from that point on.
+- `key_unfrz` is emitted by `unfreeze` when the freeze is lifted and the key trades normally again.
+- Topic index 1 is `key_id` (`Address`); there is no topic index 2. The acting admin is carried in the payload as `admin_wallet`.
+- `reason` is the admin-supplied text stored in the freeze audit log; it is empty on the unfreeze event.
+- `timestamp` is the ledger timestamp in seconds, `ledger` the ledger sequence number.
+
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
 

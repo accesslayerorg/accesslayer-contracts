@@ -21,6 +21,19 @@ pub struct VolumeBucket {
     pub volume: i128,
 }
 
+/// Snapshot of the fee tier currently applying to a key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ActiveFeeTier {
+    /// Zero-based index into the configured volume brackets.
+    pub tier_index: u32,
+    pub fee_bps: u32,
+    /// The key's rolling 24-hour volume the tier was resolved from.
+    pub rolling_volume: i128,
+    /// Additional volume needed to reach the next tier, or `0` in the top tier.
+    pub volume_to_next_tier: i128,
+}
+
 #[derive(Clone)]
 #[contracttype]
 enum DataKey {
@@ -107,19 +120,43 @@ pub fn rolling_volume(env: &Env, key_id: &Address) -> Result<i128, ContractError
     rolling_volume_from(env, &read_volume_buckets(env, key_id))
 }
 
-pub fn fee_for_volume(env: &Env, volume: i128) -> u32 {
+/// Resolves the `(tier_index, fee_bps)` whose bracket contains `volume`.
+pub fn tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
     let brackets = read_volume_brackets(env);
-    let mut fee_bps = brackets
-        .get(0)
-        .map(|bracket| bracket.fee_bps)
-        .unwrap_or(150);
-    for bracket in brackets.iter() {
+    let mut tier = (
+        0,
+        brackets
+            .get(0)
+            .map(|bracket| bracket.fee_bps)
+            .unwrap_or(150),
+    );
+    for (index, bracket) in brackets.iter().enumerate() {
         if volume < bracket.min_volume {
             break;
         }
-        fee_bps = bracket.fee_bps;
+        tier = (index as u32, bracket.fee_bps);
     }
-    fee_bps
+    tier
+}
+
+pub fn fee_for_volume(env: &Env, volume: i128) -> u32 {
+    tier_for_volume(env, volume).1
+}
+
+pub fn active_fee_tier(env: &Env, key_id: &Address) -> Result<ActiveFeeTier, ContractError> {
+    read_registered_creator_profile(env, key_id)?;
+    let rolling_volume = rolling_volume(env, key_id)?;
+    let (tier_index, fee_bps) = tier_for_volume(env, rolling_volume);
+    let volume_to_next_tier = read_volume_brackets(env)
+        .get(tier_index + 1)
+        .map(|next| next.min_volume - rolling_volume)
+        .unwrap_or(0);
+    Ok(ActiveFeeTier {
+        tier_index,
+        fee_bps,
+        rolling_volume,
+        volume_to_next_tier,
+    })
 }
 
 pub fn current_fee_bps(env: &Env, key_id: &Address) -> Result<u32, ContractError> {
@@ -138,6 +175,17 @@ fn emit_fee_adjusted(
         (events::FEE_ADJUSTED_EVENT_NAME, key_id.clone()),
         events::FeeAdjustedEvent {
             key_id: key_id.clone(),
+            previous_fee_bps,
+            new_fee_bps,
+            rolling_volume: volume,
+            timestamp: env.ledger().timestamp(),
+        },
+    );
+    env.events().publish(
+        (events::KEY_FEE_TIER_CHANGED_EVENT_NAME, key_id.clone()),
+        events::KeyFeeTierChangedEvent {
+            key_id: key_id.clone(),
+            new_tier_index: tier_for_volume(env, volume).0,
             previous_fee_bps,
             new_fee_bps,
             rolling_volume: volume,

@@ -8,6 +8,21 @@ For fee split math, see [fee-assumptions.md](./fee-assumptions.md). For integrat
 
 ## Quote methods
 
+### `query_price(creator: Address, supply: u64) → Result<i128, ContractError>`
+
+Pure read-only helper that computes the bonding curve price at any given supply step without mutating contract state or requiring authentication (#552).
+
+- **Returns**: Expected price in stroops for the given supply step, matching the exact value the buy function computes for that step (`base_price + slope * supply`).
+- **Authorization**: None required (public read-only query).
+- **Edge cases**:
+  - `supply == 0`: returns the base key price.
+  - `supply == 1`: returns `base_price + slope * 1`.
+  - Mid-range supply (e.g. `supply == 50`): returns `base_price + slope * 50`.
+  - Returns `Err(ContractError::KeyPriceNotSet)` if no key price has been configured.
+  - Returns `Err(ContractError::Overflow)` if supply exceeds `u32::MAX` or calculation overflows.
+
+---
+
 ### `get_buy_quote(creator: Address) → Result<QuoteResponse, ContractError>`
 
 Returns the current quote for purchasing one key for a creator.
@@ -520,6 +535,32 @@ Returns the top `levels` bid and ask price levels with individual and cumulative
 ### `get_price_level_volume(key_id: Address, price: i128, side: OrderSide) → i128`
 
 Returns the active volume at a specific price level for `key_id` and `side`. Returns `0` if no volume exists at that level.
+
+---
+
+## Key freeze read methods (#1174)
+
+### `get_key_status(key_id: Address) → KeyStatus`
+
+Returns the current freeze status of `key_id`.
+
+- `KeyStatus::Active`: the key trades normally. This is the value for every key that was never frozen, and after `unfreeze`.
+- `KeyStatus::Frozen`: the key rejects buys, sells and transfers with `ContractError::KeyFrozen`.
+
+### `is_key_frozen(key_id: Address) → bool`
+
+Convenience view over `get_key_status`. Returns `true` only while the key is frozen.
+
+### `get_freeze_log(key_id: Address) → Vec<FreezeLogEntry>`
+
+Returns the append-only audit log of freeze and unfreeze actions for `key_id`, oldest first. Each entry carries:
+
+- `action`: `FreezeAction::Freeze` or `FreezeAction::Unfreeze`.
+- `reason`: the admin-supplied text for a freeze; empty for an unfreeze.
+- `admin_wallet`: the admin that authorized the action.
+- `timestamp`: the ledger timestamp of the action, in seconds.
+
+Returns an empty vector for a key that was never frozen.
 
 ---
 

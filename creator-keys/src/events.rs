@@ -8,7 +8,8 @@
 
 use crate::{
     constants, extend_key_ttl_to_full_window, read_creator_supply, read_registered_creator_profile,
-    CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient, VaultAllocation,
+    CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient, SwapDirection,
+    VaultAllocation,
 };
 use soroban_sdk::{
     contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, String, Symbol,
@@ -37,6 +38,34 @@ pub const FEE_ADJUSTED_DATA_FIELDS: [&str; 5] = [
 #[contracttype]
 pub struct FeeAdjustedEvent {
     pub key_id: Address,
+    pub previous_fee_bps: u32,
+    pub new_fee_bps: u32,
+    pub rolling_volume: i128,
+    pub timestamp: u64,
+}
+
+/// Event name for a key moving between rolling-volume fee tiers.
+pub const KEY_FEE_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("key_tier");
+pub const KEY_FEE_TIER_CHANGED_DATA_FIELDS: [&str; 6] = [
+    "key_id",
+    "new_tier_index",
+    "previous_fee_bps",
+    "new_fee_bps",
+    "rolling_volume",
+    "timestamp",
+];
+
+/// Stable payload emitted alongside [`FeeAdjustedEvent`] when a key's active
+/// fee tier changes, either after a trade or when 24-hour volume has decayed.
+///
+/// Event shape:
+/// - topics: `(KEY_FEE_TIER_CHANGED_EVENT_NAME, key_id)`
+/// - data: `KeyFeeTierChangedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyFeeTierChangedEvent {
+    pub key_id: Address,
+    pub new_tier_index: u32,
     pub previous_fee_bps: u32,
     pub new_fee_bps: u32,
     pub rolling_volume: i128,
@@ -572,6 +601,10 @@ pub struct AllocationClaimedEvent {
     pub ledger: u32,
 }
 
+/// Stable field order for protocol fee recipient updated event payloads (#573).
+pub const PROTOCOL_FEE_RECIPIENT_UPDATED_DATA_FIELDS: [&str; 3] =
+    ["old_recipient", "new_recipient", "updated_at_ledger"];
+
 /// Event shape:
 /// - topics: `(PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME, admin)`
 /// - data: `ProtocolFeeRecipientUpdatedEvent`
@@ -580,6 +613,7 @@ pub struct AllocationClaimedEvent {
 pub struct ProtocolFeeRecipientUpdatedEvent {
     pub old_recipient: Address,
     pub new_recipient: Address,
+    pub updated_at_ledger: u32,
 }
 
 /// Event shape:
@@ -858,6 +892,28 @@ pub const TREASURY_WITHDRAWAL_EVENT_NAME: Symbol = symbol_short!("treas_out");
 
 /// Event name for creator storage TTL extension.
 pub const TTL_EXTENDED_EVENT_NAME: Symbol = symbol_short!("ttl_ext");
+
+/// Stable field order for TTL extension event payloads (#553, #573).
+pub const TTL_EXTENDED_DATA_FIELDS: [&str; 3] =
+    ["creator_id", "extended_at_ledger", "new_expiry_ledger"];
+
+/// Stable TTL extension event payload for downstream indexers and monitoring tools (#553, #573).
+///
+/// Event shape:
+/// - topics: `(TTL_EXTENDED_EVENT_NAME, creator)`
+/// - data: `TtlExtendedEvent`
+///
+/// Emitted when the contract extends a creator key's persistent storage TTL.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TtlExtendedEvent {
+    /// Creator key whose storage TTL was extended.
+    pub creator_id: Address,
+    /// Ledger sequence number at the time of TTL extension.
+    pub extended_at_ledger: u32,
+    /// New live-until ledger sequence number after extension.
+    pub new_expiry_ledger: u32,
+}
 
 /// Stable field order for treasury withdrawal event payloads.
 pub const TREASURY_WITHDRAWAL_DATA_FIELDS: [&str; 4] =
@@ -2784,6 +2840,61 @@ pub fn swap_slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
     (SWAP_SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
 }
 
+/// Event name for a trade rejected by its slippage tolerance check (#1172).
+pub const SLIPPAGE_EXCEEDED_EVENT_NAME: Symbol = symbol_short!("slip_ex");
+
+/// Emitted when trade execution breaches the caller's slippage tolerance (#1172).
+/// Includes the quoted price, executed price, and slippage in basis points.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SlippageExceeded {
+    pub quoted_price: i128,
+    pub executed_price: i128,
+    pub slippage_bps: u32,
+}
+
+pub type SlippageExceededEvent = SlippageExceeded;
+
+/// Shared slippage-exceeded event topics tuple.
+pub fn slippage_exceeded_topics(creator: &Address) -> (Symbol, Address) {
+    (SLIPPAGE_EXCEEDED_EVENT_NAME, creator.clone())
+}
+
+/// Event name for a completed cross-key atomic swap.
+pub const ATOMIC_SWAP_EVENT_NAME: Symbol = symbol_short!("atom_swap");
+
+/// Emitted when two wallets exchange keys of two different creators in one
+/// atomic transaction. The prices are the bonding-curve spot prices used to
+/// value each side, so `qty_a * price_a` and `qty_b * price_b` reconstruct the
+/// values the parity check compared.
+///
+/// Event shape:
+/// - topics: `(ATOMIC_SWAP_EVENT_NAME, key_a, key_b)`
+/// - data: `AtomicSwapEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AtomicSwapEvent {
+    /// First creator key, given by the sender and received by the second wallet.
+    pub key_a: Address,
+    /// Quantity of `key_a` swapped.
+    pub qty_a: u32,
+    /// Bonding-curve spot price of `key_a` used to value the first leg.
+    pub price_a: i128,
+    /// Second creator key, given by the second wallet and received by the sender.
+    pub key_b: Address,
+    /// Quantity of `key_b` swapped.
+    pub qty_b: u32,
+    /// Bonding-curve spot price of `key_b` used to value the second leg.
+    pub price_b: i128,
+    /// Ledger sequence at which the swap settled.
+    pub ledger: u32,
+}
+
+/// Shared atomic-swap event topics tuple.
+pub fn atomic_swap_topics(key_a: &Address, key_b: &Address) -> (Symbol, Address, Address) {
+    (ATOMIC_SWAP_EVENT_NAME, key_a.clone(), key_b.clone())
+}
+
 // --- Max buy quantity per transaction (#828) ---
 
 /// Event name emitted when the creator updates the max buy quantity per transaction.
@@ -2808,6 +2919,68 @@ pub struct MaxBuyQuantityUpdatedEvent {
 /// Shared max-buy-quantity-updated event topics tuple.
 pub fn max_buy_quantity_updated_topics(creator: &Address) -> (Symbol, Address) {
     (MAX_BUY_QUANTITY_UPDATED_EVENT_NAME, creator.clone())
+}
+
+// --- Per-key trade size limits (Issue #1100) ---
+
+/// Event name emitted when the admin updates a key's trade size limits.
+pub const TRADE_LIMIT_UPDATED_EVENT_NAME: Symbol = symbol_short!("tl_upd");
+
+/// Stable trade-limit-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TRADE_LIMIT_UPDATED_EVENT_NAME, key_id)`
+/// - data: `TradeLimitUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradeLimitUpdatedEvent {
+    /// Address of the key whose trade limits were changed.
+    pub key_id: Address,
+    /// New per-swap buy quantity limit (`0` = no limit).
+    pub max_buy: u32,
+    /// New per-swap sell quantity limit (`0` = no limit).
+    pub max_sell: u32,
+    /// Ledger sequence at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared trade-limit-updated event topics tuple.
+pub fn trade_limit_updated_topics(key_id: &Address) -> (Symbol, Address) {
+    (TRADE_LIMIT_UPDATED_EVENT_NAME, key_id.clone())
+}
+
+/// Event name emitted when a swap is rejected for exceeding a configured
+/// per-key trade size limit.
+pub const TRADE_LIMIT_EXCEEDED_EVENT_NAME: Symbol = symbol_short!("tl_exc");
+
+/// Stable trade-limit-exceeded event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(TRADE_LIMIT_EXCEEDED_EVENT_NAME, key_id)`
+/// - data: `TradeLimitExceededEvent`
+///
+/// Carries the attempted and permitted amounts plus the direction so indexers
+/// can distinguish a buy rejection from a sell rejection without consulting
+/// the (dataless) [`crate::TradeLimitError::TradeLimitExceeded`] error code.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradeLimitExceededEvent {
+    /// Address of the key whose limit was breached.
+    pub key_id: Address,
+    /// Direction of the rejected swap.
+    pub direction: SwapDirection,
+    /// Quantity the caller attempted to swap.
+    pub attempted: u32,
+    /// Configured limit for that direction (`0` would mean no limit, but a
+    /// `0` limit never triggers this event).
+    pub max: u32,
+    /// Ledger sequence at the time of the rejection.
+    pub ledger: u32,
+}
+
+/// Shared trade-limit-exceeded event topics tuple.
+pub fn trade_limit_exceeded_topics(key_id: &Address) -> (Symbol, Address) {
+    (TRADE_LIMIT_EXCEEDED_EVENT_NAME, key_id.clone())
 }
 
 // --- Batch transfer keys (#799) ---
@@ -4693,4 +4866,136 @@ pub struct BootstrapEndedEvent {
 
 pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
     (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
+}
+
+// --- Key retirement with admin-funded holder buyback at floor price (Issue #1111) ---
+
+/// Event name emitted when admin proposes a key retirement with a 7-day notice window.
+pub const RETIREMENT_PROPOSED_EVENT_NAME: Symbol = symbol_short!("ret_prop");
+
+/// Event name emitted when execute_retirement buys back all outstanding supply.
+pub const RETIREMENT_EXECUTED_EVENT_NAME: Symbol = symbol_short!("ret_exec");
+
+/// Stable field order for the `ret_prop` event payload.
+pub const RETIREMENT_PROPOSED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "buyback_price",
+    "reason",
+    "window_ends_at",
+    "ledger",
+];
+
+/// Stable field order for the `ret_exec` event payload.
+pub const RETIREMENT_EXECUTED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "total_supply_bought_back",
+    "total_amount_paid",
+    "buyback_price",
+    "ledger",
+];
+
+/// Stable retirement-proposed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(RETIREMENT_PROPOSED_EVENT_NAME, key_id)`
+/// - data: `RetirementProposedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RetirementProposedEvent {
+    /// Key (creator address) proposed for retirement.
+    pub key_id: Address,
+    /// Fixed XLM buyback price per key guaranteed to all holders.
+    pub buyback_price: i128,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Unix timestamp after which `execute_retirement` is allowed.
+    pub window_ends_at: u64,
+    /// Ledger sequence at which the proposal was recorded.
+    pub ledger: u32,
+}
+
+/// Shared retirement-proposed event topics tuple.
+pub fn retirement_proposed_topics(key_id: &Address) -> (Symbol, Address) {
+    (RETIREMENT_PROPOSED_EVENT_NAME, key_id.clone())
+}
+
+/// Stable retirement-executed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(RETIREMENT_EXECUTED_EVENT_NAME, key_id)`
+/// - data: `RetirementExecutedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RetirementExecutedEvent {
+    /// Key that was retired.
+    pub key_id: Address,
+    /// Total supply bought back across all holders.
+    pub total_supply_bought_back: u32,
+    /// Total XLM paid out to holders during buyback.
+    pub total_amount_paid: i128,
+    /// Per-key buyback price used for all payouts.
+    pub buyback_price: i128,
+    /// Ledger sequence at which the buyback executed.
+    pub ledger: u32,
+}
+
+/// Shared retirement-executed event topics tuple.
+pub fn retirement_executed_topics(key_id: &Address) -> (Symbol, Address) {
+    (RETIREMENT_EXECUTED_EVENT_NAME, key_id.clone())
+}
+
+// --- Key-level freeze / unfreeze (#1174) ---
+
+/// Event name emitted when a key is frozen by its multi-sig admins.
+pub const KEY_FROZEN_EVENT_NAME: Symbol = symbol_short!("key_frz");
+
+/// Event name emitted when a key's freeze is lifted by its multi-sig admins.
+pub const KEY_UNFROZEN_EVENT_NAME: Symbol = symbol_short!("key_unfrz");
+
+/// Stable payload for a key freeze event.
+///
+/// Event shape:
+/// - topics: `(KEY_FROZEN_EVENT_NAME, key_id)`
+/// - data: `KeyFrozenEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyFrozenEvent {
+    /// Address of the frozen key.
+    pub key_id: Address,
+    /// The admin that authorized the freeze.
+    pub admin_wallet: Address,
+    /// Reason supplied by the admin.
+    pub reason: String,
+    /// Ledger timestamp of the freeze, in seconds.
+    pub timestamp: u64,
+    /// Ledger sequence at the time of the freeze.
+    pub ledger: u32,
+}
+
+/// Stable payload for a key unfreeze event.
+///
+/// Event shape:
+/// - topics: `(KEY_UNFROZEN_EVENT_NAME, key_id)`
+/// - data: `KeyUnfrozenEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct KeyUnfrozenEvent {
+    /// Address of the released key.
+    pub key_id: Address,
+    /// The admin that authorized the release.
+    pub admin_wallet: Address,
+    /// Ledger timestamp of the release, in seconds.
+    pub timestamp: u64,
+    /// Ledger sequence at the time of the release.
+    pub ledger: u32,
+}
+
+/// Shared key-frozen event topics tuple.
+pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_FROZEN_EVENT_NAME, key_id.clone())
+}
+
+/// Shared key-unfrozen event topics tuple.
+pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
+    (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }

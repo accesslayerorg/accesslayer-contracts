@@ -83,6 +83,8 @@ distinguishable from other key types.
 | `LastBuyTimestamp(Address, Address)` | Per-creator-holder (composite) | `u64` (ledger timestamp) | `buy_key` (updated on every purchase) | `sell_key` (lockup enforcement) |
 | `LockupDurationSecs` | Global | `u64` (seconds, default 86400 = 24h) | `set_lockup_duration` (admin) | `sell_key` (lockup enforcement), `get_lockup_duration` |
 | `InvestorLockup(Address, Address)` | Per-wallet-key (composite) | `u64` (absolute unlock timestamp) | `create_lockup` (wallet-authorized investment flow) | `check_lockup`, sell paths (`swap`, `sell_key`, `batch_sell`, `batch_sell_v2`), `emergency_unlock` (admin) |
+| Key freeze status (`key_freeze::KeyFreezeDataKey::Status(Address)`) | Per-key module storage | `KeyStatus` (`Active` \| `Frozen`) | `freeze` (multi-sig admin) | `key_freeze::read_key_status`, `key_freeze::is_key_frozen`, `key_freeze::assert_key_not_frozen`, `get_key_status`, `is_key_frozen` |
+| Key freeze log (`key_freeze::KeyFreezeDataKey::Log(Address)`) | Per-key module storage | `Vec<FreezeLogEntry>` (append-only) | `freeze`, `unfreeze` (multi-sig admin) | `key_freeze::read_freeze_log`, `get_freeze_log` |
 
 > **Note:** `CreatorVolume(Address)` is read by `get_creator_volume` but has no
 > writer in the current implementation, so it always resolves to its `0`

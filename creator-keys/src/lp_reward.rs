@@ -439,6 +439,25 @@ pub fn get_lp_position(env: &Env, lp_id: u64) -> Result<LpPosition, LpRewardErro
     })
 }
 
+pub fn get_lp_rewards(env: &Env, lp_id: u64) -> Result<i128, LpRewardError> {
+    let position = read_position(env, lp_id)?;
+    if position.is_closed {
+        return Ok(0);
+    }
+
+    let pool = read_pool(env, &position.key_id);
+    let accumulated = (position
+        .contribution
+        .checked_mul(pool.acc_reward_per_share)
+        .unwrap_or(0))
+        / SCALE;
+    let pending = position
+        .accumulated_rewards
+        .saturating_add(accumulated.saturating_sub(position.reward_debt));
+
+    Ok(pending)
+}
+
 pub fn get_total_liquidity(env: &Env, key_id: Address) -> i128 {
     read_pool(env, &key_id).total_liquidity
 }
