@@ -62,7 +62,7 @@ fn validate(items: &Vec<BatchSwapItem>) -> Result<(), ContractError> {
 }
 
 fn buy_fees(env: &Env, creator: &Address, price: i128) -> Result<i128, ContractError> {
-    let trade_fee = compute_trade_fee(env, price)?;
+    let trade_fee = compute_trade_fee(env, creator, price)?;
     let mut net = price
         .checked_sub(trade_fee)
         .ok_or(ContractError::Overflow)?;
@@ -159,7 +159,7 @@ fn quote_item(
                         .checked_sub(index)
                         .ok_or(ContractError::InsufficientSupply)?,
                 )?;
-                let proceeds = compute_sell_proceeds(env, price)?;
+                let proceeds = compute_sell_proceeds(env, &item.key_id, price)?;
                 output = output
                     .checked_add(proceeds)
                     .ok_or(ContractError::Overflow)?;
