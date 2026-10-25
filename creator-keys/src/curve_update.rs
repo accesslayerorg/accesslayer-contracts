@@ -6,6 +6,14 @@ use soroban_sdk::{contractimpl, contracttype, Address, Env};
 
 pub const CURVE_UPDATE_DELAY_SECONDS: u64 = 48 * 60 * 60;
 
+#[derive(Clone)]
+#[contracttype]
+pub enum CurveUpdateDataKey {
+    CreatorCurveIntercept(Address),
+    Proposal(u32),
+    NextId,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct CurveUpdateProposal {
@@ -34,7 +42,7 @@ impl CreatorKeysContract {
         let id: u32 = env
             .storage()
             .persistent()
-            .get(&DataKey::CurveUpdateNextId)
+            .get(&CurveUpdateDataKey::NextId)
             .unwrap_or(0);
         let next_id = id.checked_add(1).ok_or(ContractError::Overflow)?;
         let eta = env
@@ -50,13 +58,13 @@ impl CreatorKeysContract {
             eta,
             pending: true,
         };
-        let proposal_key = DataKey::CurveUpdateProposal(id);
+        let proposal_key = CurveUpdateDataKey::Proposal(id);
         env.storage().persistent().set(&proposal_key, &proposal);
         extend_key_ttl_to_full_window(&env, &proposal_key);
         env.storage()
             .persistent()
-            .set(&DataKey::CurveUpdateNextId, &next_id);
-        extend_key_ttl_to_full_window(&env, &DataKey::CurveUpdateNextId);
+            .set(&CurveUpdateDataKey::NextId, &next_id);
+        extend_key_ttl_to_full_window(&env, &CurveUpdateDataKey::NextId);
         env.events().publish(
             events::curve_update_proposed_topics(&key_id, id),
             events::CurveUpdateProposedEvent {
@@ -71,7 +79,7 @@ impl CreatorKeysContract {
     }
 
     pub fn execute_curve_update(env: Env, proposal_id: u32) -> Result<(), ContractError> {
-        let proposal_key = DataKey::CurveUpdateProposal(proposal_id);
+        let proposal_key = CurveUpdateDataKey::Proposal(proposal_id);
         let mut proposal: CurveUpdateProposal = env
             .storage()
             .persistent()
@@ -98,7 +106,9 @@ impl CreatorKeysContract {
         let old_intercept: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::CreatorCurveIntercept(proposal.creator.clone()))
+            .get(&CurveUpdateDataKey::CreatorCurveIntercept(
+                proposal.creator.clone(),
+            ))
             .unwrap_or_else(|| {
                 env.storage()
                     .persistent()
@@ -107,7 +117,7 @@ impl CreatorKeysContract {
             });
 
         let slope_key = DataKey::CreatorCurveSlope(proposal.creator.clone());
-        let intercept_key = DataKey::CreatorCurveIntercept(proposal.creator.clone());
+        let intercept_key = CurveUpdateDataKey::CreatorCurveIntercept(proposal.creator.clone());
         env.storage()
             .persistent()
             .set(&slope_key, &proposal.new_slope);
@@ -134,7 +144,7 @@ impl CreatorKeysContract {
     }
 
     pub fn cancel_curve_update(env: Env, proposal_id: u32) -> Result<(), ContractError> {
-        let proposal_key = DataKey::CurveUpdateProposal(proposal_id);
+        let proposal_key = CurveUpdateDataKey::Proposal(proposal_id);
         let mut proposal: CurveUpdateProposal = env
             .storage()
             .persistent()
