@@ -20,6 +20,7 @@ pub mod community_polls;
 /// declaration, so `subscribe_key_access` and `is_subscribed` compiled nowhere
 /// and could not be called.
 pub mod curve_subscriptions_swaps;
+pub mod curve_update;
 pub mod dynamic_fees;
 pub mod emergency_pause;
 
