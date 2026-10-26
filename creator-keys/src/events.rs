@@ -4864,6 +4864,8 @@ pub const PRICE_SNAPSHOT_DATA_FIELDS: [&str; 5] =
 /// Shared price-snapshot event topics tuple.
 pub fn price_snapshot_topics(creator_id: &Address) -> (Symbol, Address) {
     (PRICE_SNAPSHOT_EVENT_NAME, creator_id.clone())
+}
+
 // --- Key retirement with admin-funded holder buyback at floor price (Issue #1111) ---
 
 /// Event name emitted when admin proposes a key retirement with a 7-day notice window.
