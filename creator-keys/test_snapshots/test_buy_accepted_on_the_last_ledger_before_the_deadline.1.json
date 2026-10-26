@@ -1165,6 +1165,51 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "LastTrade"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "LastTrade"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u64": 0
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          6312520
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "LastTradeTimestamp"
                 },
                 {
@@ -2124,6 +2169,81 @@
                   },
                   "val": {
                     "u32": 100
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "previous_fee_bps"
+                  },
+                  "val": {
+                    "u32": 150
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "rolling_volume"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1000
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "timestamp"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "key_tier"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "key_id"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "new_fee_bps"
+                  },
+                  "val": {
+                    "u32": 100
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "new_tier_index"
+                  },
+                  "val": {
+                    "u32": 1
                   }
                 },
                 {

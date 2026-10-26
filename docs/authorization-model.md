@@ -127,6 +127,48 @@ Sets the per-pool reward rate (in basis points) for `key_id`'s LP pool.
 
 ---
 
+## Key admin functions
+
+These functions are authorized by an admin of the key itself: a member of the
+key's multi-sig admin set (configured with `set_multisig_admins`) or the
+protocol admin.
+
+### `freeze(key_id: Address, reason: String, admin: Address) -> Result<(), ContractError>`
+
+Freezes the key: buys, sells and transfers of that key are rejected with
+`KeyFrozen` until the key is released. The action is appended to the audit log
+returned by `get_freeze_log`.
+
+- **Auth**: `admin.require_auth()`
+- **Constraints**:
+  - `admin` must be a member of the key's multi-sig admin set, or the protocol
+    admin, otherwise `Unauthorized`
+  - `key_id` must be a registered creator, otherwise `NotRegistered`
+  - the key must not already be frozen, otherwise `KeyAlreadyFrozen`
+- **Emits**: `KeyFrozen` (`key_frz`).
+
+### `unfreeze(key_id: Address, admin: Address) -> Result<(), ContractError>`
+
+Releases a frozen key, restoring buy, sell and transfer.
+
+- **Auth**: `admin.require_auth()`
+- **Constraints**: same authority check as `freeze`; the key must be frozen,
+  otherwise `KeyNotFrozen`
+- **Emits**: `KeyUnfrozen` (`key_unfrz`).
+
+`freeze_key(admin, key_id, reason)` and `unfreeze_key(admin, key_id)` are
+aliases of the two entrypoints above with the admin argument first.
+
+### Read-only views
+
+| Method | Returns |
+|---|---|
+| `get_freeze_log(key_id: Address)` | `Vec<FreezeLogEntry>` |
+| `get_key_status(key_id: Address)` | `KeyStatus` |
+| `is_key_frozen(key_id: Address)` | `bool` |
+
+---
+
 ## Key holder functions
 
 These functions require authorization from the buyer or seller, not the creator whose keys are being traded.
@@ -269,6 +311,8 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `register_creator` | Creator | Yes |
 | `buyback` | Creator | Yes |
 | `set_reward_rate` | Creator | Yes |
+| `freeze` | Key multi-sig admin / protocol admin | Yes |
+| `unfreeze` | Key multi-sig admin / protocol admin | Yes |
 | `buy_key` | Key holder (buyer) | Yes |
 | `sell_key` | Key holder (seller) | Yes |
 | `transfer_keys` | Key holder (sender / `from`) | Yes |
@@ -285,6 +329,9 @@ These functions require no authorization. Anyone can call them. They do not muta
 | `get_voting_weight` | Open | No |
 | `get_vote_delegate` | Open | No |
 | `get_vote_delegators` | Open | No |
+| `get_freeze_log` | Open | No |
+| `get_key_status` | Open | No |
+| `is_key_frozen` | Open | No |
 | All `get_*` / `is_*` methods | Open | No |
 | `compute_fees_for_payment` | Open | No |
 
