@@ -149,6 +149,13 @@ was renumbered, reordered, or reused. `transfer_from` reports the frozen state
 through `AllowanceError::KeyFrozen` (12) because that entrypoint returns
 `AllowanceError` rather than `ContractError`.
 
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `148` | `CircuitBreakerActive` | Trading for the creator key is suspended by its circuit breaker | Triggered by `swap` when the configured circuit breaker reports the creator key as suspended. |
+
+**Backward compatibility for 148**: this code is appended after the key-retirement
+error codes (`142`-`147`). No existing variant was renumbered, reordered, or reused.
+
 ---
 
 ## `PollError` Reference (Governance Polls)

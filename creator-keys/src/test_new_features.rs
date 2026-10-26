@@ -6,6 +6,7 @@ use crate::{
     RegisterCreatorParams, METADATA_DESCRIPTION_MAX_LEN, METADATA_IMAGE_CID_MAX_LEN,
     METADATA_NAME_MAX_LEN,
 };
+use circuit_breaker::{CircuitBreakerContract, CircuitBreakerContractClient, Thresholds};
 use soroban_sdk::{
     testutils::{Address as _, Events as _},
     Address, Env, IntoVal, String, Symbol,
@@ -61,6 +62,38 @@ fn test_circuit_breaker_threshold_configuration_and_trigger() {
     // Now buy succeeds because price delta (100%) < 200% threshold
     let supply = client.buy_key(&creator, &buyer, &1000i128, &None);
     assert_eq!(supply, 1);
+}
+
+#[test]
+fn configured_circuit_breaker_suspends_subsequent_swaps() {
+    let (env, client, admin, _treasury) = setup_test();
+    let creator = Address::generate(&env);
+    register_creator(&env, &client, &creator);
+    client.set_circuit_breaker_threshold(&admin, &500u32);
+
+    let swapper_contract = client.address.clone();
+    let breaker_id = env.register(CircuitBreakerContract, ());
+    let breaker = CircuitBreakerContractClient::new(&env, &breaker_id);
+    let breaker_admin = Address::generate(&env);
+    breaker.initialize(
+        &breaker_admin,
+        &swapper_contract,
+        &Thresholds {
+            max_hourly_volume: 1,
+            max_single_swap_impact_bps: 20_000,
+            max_swaps_per_block: 10,
+        },
+    );
+    client.set_circuit_breaker(&admin, &Some(breaker_id.clone()));
+
+    let trader = Address::generate(&env);
+    let result = client.swap(&creator, &trader, &1, &crate::SwapDirection::Buy, &0);
+    assert!(result > 0);
+    assert!(breaker.is_suspended(&creator));
+    assert_eq!(
+        client.try_swap(&creator, &trader, &1, &crate::SwapDirection::Buy, &0),
+        Err(Ok(ContractError::CircuitBreakerActive))
+    );
 }
 
 #[test]

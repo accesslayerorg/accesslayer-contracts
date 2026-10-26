@@ -4864,6 +4864,82 @@ pub const PRICE_SNAPSHOT_DATA_FIELDS: [&str; 5] =
 /// Shared price-snapshot event topics tuple.
 pub fn price_snapshot_topics(creator_id: &Address) -> (Symbol, Address) {
     (PRICE_SNAPSHOT_EVENT_NAME, creator_id.clone())
+// --- Key retirement with admin-funded holder buyback at floor price (Issue #1111) ---
+
+/// Event name emitted when admin proposes a key retirement with a 7-day notice window.
+pub const RETIREMENT_PROPOSED_EVENT_NAME: Symbol = symbol_short!("ret_prop");
+
+/// Event name emitted when execute_retirement buys back all outstanding supply.
+pub const RETIREMENT_EXECUTED_EVENT_NAME: Symbol = symbol_short!("ret_exec");
+
+/// Stable field order for the `ret_prop` event payload.
+pub const RETIREMENT_PROPOSED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "buyback_price",
+    "reason",
+    "window_ends_at",
+    "ledger",
+];
+
+/// Stable field order for the `ret_exec` event payload.
+pub const RETIREMENT_EXECUTED_DATA_FIELDS: [&str; 5] = [
+    "key_id",
+    "total_supply_bought_back",
+    "total_amount_paid",
+    "buyback_price",
+    "ledger",
+];
+
+/// Stable retirement-proposed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(RETIREMENT_PROPOSED_EVENT_NAME, key_id)`
+/// - data: `RetirementProposedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RetirementProposedEvent {
+    /// Key (creator address) proposed for retirement.
+    pub key_id: Address,
+    /// Fixed XLM buyback price per key guaranteed to all holders.
+    pub buyback_price: i128,
+    /// Human-readable reason supplied by the admin.
+    pub reason: String,
+    /// Unix timestamp after which `execute_retirement` is allowed.
+    pub window_ends_at: u64,
+    /// Ledger sequence at which the proposal was recorded.
+    pub ledger: u32,
+}
+
+/// Shared retirement-proposed event topics tuple.
+pub fn retirement_proposed_topics(key_id: &Address) -> (Symbol, Address) {
+    (RETIREMENT_PROPOSED_EVENT_NAME, key_id.clone())
+}
+
+/// Stable retirement-executed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(RETIREMENT_EXECUTED_EVENT_NAME, key_id)`
+/// - data: `RetirementExecutedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RetirementExecutedEvent {
+    /// Key that was retired.
+    pub key_id: Address,
+    /// Total supply bought back across all holders.
+    pub total_supply_bought_back: u32,
+    /// Total XLM paid out to holders during buyback.
+    pub total_amount_paid: i128,
+    /// Per-key buyback price used for all payouts.
+    pub buyback_price: i128,
+    /// Ledger sequence at which the buyback executed.
+    pub ledger: u32,
+}
+
+/// Shared retirement-executed event topics tuple.
+pub fn retirement_executed_topics(key_id: &Address) -> (Symbol, Address) {
+    (RETIREMENT_EXECUTED_EVENT_NAME, key_id.clone())
+}
+
 // --- Key-level freeze / unfreeze (#1174) ---
 
 /// Event name emitted when a key is frozen by its multi-sig admins.
