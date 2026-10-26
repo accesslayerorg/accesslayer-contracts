@@ -372,7 +372,7 @@ pub enum ContractError {
     /// The key is not frozen, so there is nothing to unfreeze.
     KeyNotFrozen = 141,
     /// Trading for the creator key is suspended by its circuit breaker.
-    CircuitBreakerActive = 148,
+    CircuitBreakerActive = 149,
 }
 
 impl ContractError {
