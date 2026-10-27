@@ -14,6 +14,7 @@ pub const MAX_GOVERNANCE_HOLDERS: u32 = 1_000;
 pub enum ProtocolParameter {
     KeyPrice,
     CurveSlope,
+    BondSlash,
 }
 
 #[derive(Clone)]
@@ -116,6 +117,7 @@ impl CreatorKeysContract {
         }
         if new_value < 0
             || (parameter == ProtocolParameter::KeyPrice && new_value == 0)
+            || (parameter == ProtocolParameter::BondSlash && (new_value == 0 || new_value > 10_000))
             || description.is_empty()
             || description.len() > 1_024
         {
@@ -124,6 +126,13 @@ impl CreatorKeysContract {
         let supply = read_registered_creator_profile(&env, &config.key_id)?.supply;
         if supply == 0 {
             return Err(ContractError::InsufficientSupply);
+        }
+        if parameter == ProtocolParameter::BondSlash
+            && crate::performance_bonds::get_status(&env, &config.key_id)
+                .map(|status| status.releasable <= 0)
+                .unwrap_or(true)
+        {
+            return Err(ContractError::BondExecutionFailed);
         }
         let holders = Self::get_holder_registry(env.clone(), config.key_id.clone());
         if holders.len() > MAX_GOVERNANCE_HOLDERS {
@@ -238,14 +247,25 @@ impl CreatorKeysContract {
         {
             return Err(ContractError::Unauthorized);
         }
-        let parameter_key = match proposal.parameter {
-            ProtocolParameter::KeyPrice => constants::storage::KEY_PRICE,
-            ProtocolParameter::CurveSlope => constants::storage::CURVE_SLOPE,
-        };
-        env.storage()
-            .persistent()
-            .set(&parameter_key, &proposal.new_value);
-        extend_key_ttl_to_full_window(&env, &parameter_key);
+        if proposal.parameter == ProtocolParameter::BondSlash {
+            crate::performance_bonds::slash_after_governance(
+                &env,
+                &proposal.key_id,
+                proposal.new_value as u32,
+                &proposal.description,
+            )
+            .map_err(|_| ContractError::BondExecutionFailed)?;
+        } else {
+            let parameter_key = match proposal.parameter {
+                ProtocolParameter::KeyPrice => constants::storage::KEY_PRICE,
+                ProtocolParameter::CurveSlope => constants::storage::CURVE_SLOPE,
+                ProtocolParameter::BondSlash => return Err(ContractError::BondExecutionFailed),
+            };
+            env.storage()
+                .persistent()
+                .set(&parameter_key, &proposal.new_value);
+            extend_key_ttl_to_full_window(&env, &parameter_key);
+        }
         proposal.executed = true;
         env.storage()
             .persistent()
