@@ -116,13 +116,13 @@ fn test_set_max_supply_reduces_cap_and_emits_update_event() {
     let creator = register_capped_key(&env, &client, &admin, "lower_cap", 10);
 
     client.set_max_supply(&creator, &7);
+    let events = max_supply_updated_events(&env);
 
     let info = client.get_supply_info(&creator);
     assert_eq!(info.supply, 0);
     assert_eq!(info.cap, 7);
     assert_eq!(info.remaining, 7);
 
-    let events = max_supply_updated_events(&env);
     assert_eq!(events.len(), 1);
     let event = events.get(0).unwrap();
     assert_eq!(event.creator_id, creator);
