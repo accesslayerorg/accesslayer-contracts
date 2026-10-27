@@ -84,6 +84,7 @@ pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;
+pub mod timed_pause;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 pub mod vote_delegation;
 pub use vote_delegation::VoteDelegationKey;
@@ -373,11 +374,13 @@ pub enum ContractError {
     /// The key is not frozen, so there is nothing to unfreeze.
     KeyNotFrozen = 141,
     /// Trading for the creator key is suspended by its circuit breaker.
-    CircuitBreakerActive = 142,
+    CircuitBreakerActive = 148,
     /// A passed governance proposal could not complete its bond action.
     BondExecutionFailed = 149,
     /// Trading is disabled until the creator escrows the required performance bond.
     PerformanceBondRequired = 150,
+    /// An admin's bounded platform halt is active; query `get_platform_pause` for context.
+    PlatformPaused = 151,
 }
 
 impl ContractError {
@@ -13084,6 +13087,8 @@ impl CreatorKeysContract {
         direction: SwapDirection,
         max_slippage_bps: u32,
     ) -> Result<i128, ContractError> {
+        timed_pause::assert_not_paused(&env)?;
+        assert_not_paused(&env)?;
         if amount == 0 {
             return Err(ContractError::NotPositiveAmount);
         }
