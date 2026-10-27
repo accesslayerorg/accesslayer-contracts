@@ -72,7 +72,7 @@ fn test_buy_quote_recomputed_after_sell_reduces_supply() {
     assert_eq!(supply_before_sell, 2);
     assert_eq!(
         quote_before_sell.price,
-        compute_expected_buy_price(supply_before_sell, key_price),
+        compute_expected_buy_price(supply_before_sell, CurvePreset::Linear),
         "pre-sell quote must match bonding curve helper"
     );
 
@@ -83,9 +83,10 @@ fn test_buy_quote_recomputed_after_sell_reduces_supply() {
 
     let supply_after_sell = client.get_total_key_supply(&creator);
     let quote_after_sell = client.get_buy_quote(&creator);
-    let expected_price_after_sell = compute_expected_buy_price(supply_after_sell, key_price);
-    let expected_price_delta =
-        expected_price_after_sell - compute_expected_buy_price(supply_before_sell, key_price);
+    let expected_price_after_sell =
+        compute_expected_buy_price(supply_after_sell, CurvePreset::Linear);
+    let expected_price_delta = expected_price_after_sell
+        - compute_expected_buy_price(supply_before_sell, CurvePreset::Linear);
 
     assert_eq!(supply_after_sell, supply_before_sell - 1);
     assert_eq!(
