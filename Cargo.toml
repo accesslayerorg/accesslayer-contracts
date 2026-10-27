@@ -14,6 +14,11 @@ members = [
     "auto-invest-registry",
     "key-analytics",
     "dividend-contract",
+    "vesting-contract",
+    "badge-contract",
+    "leaderboard-contract",
+    "holder-rewards",
+    "key-tipping",
 ]
 resolver = "2"
 
