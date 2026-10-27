@@ -5,6 +5,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env,
     String, Vec,
 };
+pub mod bonding_curve;
 pub mod bootstrapping;
 pub mod events;
 pub mod quote_view_errors;
@@ -1837,13 +1838,7 @@ pub const MAX_VAULT_KEYS: u32 = 20;
 /// Default rebalance drift tolerance in basis points (0.5% of vault value).
 pub const DEFAULT_VAULT_TOLERANCE_BPS: u32 = 50;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum CurvePreset {
-    Linear = 0,
-    Quadratic = 1,
-    Flat = 2,
-}
+pub use bonding_curve::CurvePreset;
 
 /// Direction of a slippage-protected bonding-curve swap.
 ///
