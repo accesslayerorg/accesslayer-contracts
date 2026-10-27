@@ -64,6 +64,7 @@ pub enum CircuitBreakerRemoteError {
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
+pub mod batch_trade;
 pub mod bundle;
 pub mod community_polls;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
@@ -17577,6 +17578,15 @@ impl CreatorKeysContract {
         orders: Vec<(Address, u32)>,
     ) -> Result<Vec<BatchSellOrderResult>, ContractError> {
         seller.require_auth();
+        Self::batch_sell_core(env, seller, orders)
+    }
+
+    /// Shared sell path. The caller must authorize the seller once per frame.
+    pub(crate) fn batch_sell_core(
+        env: Env,
+        seller: Address,
+        orders: Vec<(Address, u32)>,
+    ) -> Result<Vec<BatchSellOrderResult>, ContractError> {
         assert_global_trading_not_halted(&env)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
