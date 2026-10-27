@@ -7,11 +7,13 @@ members = [
     "key-staking-contract",
     "multisig-admin",
     "nonce-registry",
+    "session-nonce",
     "launch-auction",
     "key-liquidity-depth",
     "seasonal-rewards",
     "auto-invest-registry",
     "key-analytics",
+    "dividend-contract",
 ]
 resolver = "2"
 
