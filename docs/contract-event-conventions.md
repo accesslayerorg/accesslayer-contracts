@@ -150,82 +150,15 @@ Notes for indexers:
 - Tiers are ratchet-only (`Bronze` = 0, `Silver` = 1, `Gold` = 2) and never downgrade regardless of subsequent volume drops.
 - `reward_rate_bps` reports the new reward rate in basis points (10,000 bps = 100%).
 
-### LP Reward Rate Update Events (#1032)
+### Supply Cap Events (#1099)
 
 | Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
 | :--- | :--- | :--- | :--- |
-| `lp_rate` | `(Symbol("lp_rate"), key_id)` | `key_id`, `old_rate_bps`, `new_rate_bps`, `updated_at` | `struct RewardRateUpdated` |
+| `cap_set` | `(Symbol("cap_set"), creator_id)` | `creator_id`, `cap` | `struct SupplyCapSetEvent` |
+| `max_sup` | `(Symbol("max_sup"), creator_id)` | `creator_id`, `old_max_supply`, `new_max_supply` | `struct MaxSupplyUpdatedEvent` |
+| `cap_reach` | `(Symbol("cap_reach"), creator_id)` | `creator_id`, `new_supply`, `cap`, `ledger` | `struct SupplyCapReachedEvent` |
 
-Notes for indexers:
-
-- `lp_rate` is emitted by `set_reward_rate` when a creator updates the reward rate for their LP pool.
-- Topic index 1 is `key_id` (`Address`).
-- `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
-- `updated_at` is the ledger timestamp in seconds.
-
-### Per-Key Dynamic Swap Fee Events (#1056)
-
-| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
-| :--- | :--- | :--- | :--- |
-| `fee_adj` | `(Symbol("fee_adj"), key_id)` | `key_id`, `previous_fee_bps`, `new_fee_bps`, `rolling_volume`, `timestamp` | `struct FeeAdjustedEvent` |
-
-Notes for indexers:
-
-- `rolling_volume` is gross trade volume in the raw price base units at the
-  transition point. An expiry transition reports volume before the current
-  trade is added; a bracket crossing caused by that trade reports volume after
-  it is added.
-- Swaps select their fee from pre-trade volume. Fee changes caused by the
-  current swap apply to later swaps.
-- Time expiration and bracket updates do not autonomously emit events. A
-  later successful trade detects and emits the transition; reads never emit
-  or mutate.
-- No event is emitted if the fee bps is unchanged.
-
-### Supply Milestone Fee Reduction Events (#1076)
-
-| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
-| :--- | :--- | :--- | :--- |
-| `ms_reach` | `(Symbol("ms_reach"), key_id)` | `key_id`, `tier`, `supply`, `new_fee_bps`, `ledger` | `struct MilestoneReachedEvent` |
-
-Notes for indexers:
-
-- `ms_reach` is emitted by `check_and_apply_milestone` (also invoked post-swap from buy/sell core paths) when a key's circulating supply newly reaches a milestone tier whose fee lowers the fee currently in effect.
-- Topic index 1 is `key_id` (`Address`).
-- `tier` is the 1-based index of the milestone tier reached; tiers are applied in ascending supply order and never roll back.
-- `supply` is the circulating supply after the trade that crossed the threshold.
-- `new_fee_bps` reports the new fee in basis points (`0..=10000`).
-- `ledger` is the ledger sequence number at the time of the reduction.
-
-### Key Liquidity Depth Events (#1133)
-
-| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
-| :--- | :--- | :--- | :--- |
-| `depth_upd` | `(Symbol("depth_upd"), key_id)` | `key_id`, `price`, `amount`, `side`, `volume` | `struct DepthUpdated` |
-
-Notes for indexers:
-
-- `depth_upd` is emitted on each order placement (`record_order`) and cancellation (`cancel_order_depth`) when order book liquidity depth changes.
-- Topic index 1 is `key_id` (`Address`).
-- `price` is the affected price level (`i128`).
-- `amount` is the order volume added or cancelled (`i128`).
-- `side` is the order book side (`OrderSide::Buy` = 0, `OrderSide::Sell` = 1).
-- `volume` is the remaining volume at this specific price level after the update.
-
-### Creator Key Vote Delegation Events (#1116)
-
-| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
-| :--- | :--- | :--- | :--- |
-| `vote_del` | `(Symbol("vote_del"), key_id, holder)` | `holder`, `delegate_wallet`, `key_id`, `weight` | `struct VotingDelegated` |
-| `v_del_rev` | `(Symbol("v_del_rev"), key_id, holder)` | `holder`, `previous_delegate_wallet`, `key_id`, `weight` | `struct DelegationRevoked` |
-
-Notes for indexers:
-
-- `vote_del` is emitted by `delegate_votes` when a key holder assigns their voting weight on `key_id` to a proxy delegate wallet.
-- `v_del_rev` is emitted by `revoke_delegation` when a key holder revokes their voting delegation on `key_id`.
-- Topic index 1 is `key_id` (`Address`) and topic index 2 is `holder` (`Address`).
-- `weight` reports the key balance held by the delegator at delegation/revocation time.
-- Note that because delegated weight dynamically tracks the delegator's balance while delegation is active, indexers tracking current voting weight should compute delegate weight dynamically from the active delegator set and their balances.
+`max_sup` is emitted only when the creator lowers an already-configured cap. Initial caps continue to use `cap_set`; raising or removing a cap is rejected. A blocked buy returns the stable `SupplyCapExceeded` contract error code. Clients can query `get_supply_info` for the current supply and cap because Soroban contract errors carry numeric codes rather than dynamic payload fields.
 
 ### Key Freeze Events (#1174)
 
@@ -244,5 +177,4 @@ Notes for indexers:
 
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.
-
 

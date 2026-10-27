@@ -1023,6 +1023,24 @@ pub fn supply_cap_set_topics(creator: &Address) -> (Symbol, Address) {
     (SUPPLY_CAP_SET_EVENT_NAME, creator.clone())
 }
 
+/// Event name emitted when a creator reduces an existing supply cap.
+pub const MAX_SUPPLY_UPDATED_EVENT_NAME: Symbol = symbol_short!("max_sup");
+
+/// Event shape:
+/// - topics: `(MAX_SUPPLY_UPDATED_EVENT_NAME, creator_id)`
+/// - data: `MaxSupplyUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MaxSupplyUpdatedEvent {
+    pub creator_id: Address,
+    pub old_max_supply: u32,
+    pub new_max_supply: u32,
+}
+
+pub fn max_supply_updated_topics(creator: &Address) -> (Symbol, Address) {
+    (MAX_SUPPLY_UPDATED_EVENT_NAME, creator.clone())
+}
+
 /// Event name emitted exactly once when a buy fills a capped key's supply to
 /// its configured cap. Subsequent buys revert with `SupplyCapExceeded`, so the
 /// event is never emitted again for the same key.
