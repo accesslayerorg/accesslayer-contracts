@@ -205,6 +205,39 @@ pub fn lockup_released_topics(wallet: &Address, key_id: &Address) -> (Symbol, Ad
     (LOCKUP_RELEASED_EVENT_NAME, wallet.clone(), key_id.clone())
 }
 
+/// Event name for content access granted by a gate check.
+pub const ACCESS_GRANTED_EVENT_NAME: Symbol = symbol_short!("acc_ok");
+
+/// Event name for content access denied by a gate check.
+pub const ACCESS_DENIED_EVENT_NAME: Symbol = symbol_short!("acc_no");
+
+/// Stable access check event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(ACCESS_GRANTED_EVENT_NAME | ACCESS_DENIED_EVENT_NAME, wallet, key_id)`
+/// - data: `AccessCheckEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct AccessCheckEvent {
+    /// Wallet that requested access.
+    pub wallet: Address,
+    /// Key whose content is gated.
+    pub key_id: Address,
+    /// Gate type evaluated: 0 = HOLDER, 1 = SUBSCRIBER, 2 = THRESHOLD.
+    pub gate_type: u32,
+    /// Ledger sequence number at the time of the check.
+    pub ledger: u32,
+}
+
+/// Shared access check event topics tuple.
+pub fn access_check_topics(
+    event_name: Symbol,
+    wallet: &Address,
+    key_id: &Address,
+) -> (Symbol, Address, Address) {
+    (event_name, wallet.clone(), key_id.clone())
+}
+
 /// Event name for quorum threshold update.
 pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
 
