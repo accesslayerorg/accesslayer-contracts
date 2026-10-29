@@ -2600,6 +2600,7 @@ pub fn auction_cancelled_topics(creator: &Address) -> (Symbol, Address) {
 /// Event name emitted when a creator deprecates their key.
 pub const KEY_DEPRECATED_EVENT_NAME: Symbol = symbol_short!("key_dep");
 
+
 /// Event name emitted when a holder redeems keys on a deprecated key.
 pub const KEYS_REDEEMED_EVENT_NAME: Symbol = symbol_short!("key_rdm");
 
@@ -4959,3 +4960,6 @@ pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
 pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
     (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }
+
+/// Event name emitted when a key enters the deprecation migration window.
+pub const KEY_DEPRECATED_EVENT_NAME: Symbol = symbol_short!("key_dep");
