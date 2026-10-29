@@ -23,13 +23,8 @@ pub const FEE_COLLECTED_EVENT_NAME: Symbol = symbol_short!("fee_coll");
 pub const VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME: Symbol = symbol_short!("vdt_chg");
 
 /// Stable field order for volume discount tier changed event payloads.
-pub const VOLUME_DISCOUNT_TIER_CHANGED_DATA_FIELDS: [&str; 5] = [
-    "wallet",
-    "old_tier",
-    "new_tier",
-    "discount_bps",
-    "ledger",
-];
+pub const VOLUME_DISCOUNT_TIER_CHANGED_DATA_FIELDS: [&str; 5] =
+    ["wallet", "old_tier", "new_tier", "discount_bps", "ledger"];
 
 /// Stable volume discount tier changed event payload for downstream indexers.
 ///

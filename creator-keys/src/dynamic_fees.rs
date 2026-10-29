@@ -233,13 +233,7 @@ pub fn tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
 /// Resolves the `(tier_index, discount_bps)` whose tier contains `volume`.
 pub fn discount_tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
     let tiers = read_discount_tiers(env);
-    let mut tier = (
-        0,
-        tiers
-            .get(0)
-            .map(|tier| tier.discount_bps)
-            .unwrap_or(0),
-    );
+    let mut tier = (0, tiers.get(0).map(|tier| tier.discount_bps).unwrap_or(0));
     for (index, tier_entry) in tiers.iter().enumerate() {
         if volume < tier_entry.min_volume {
             break;
@@ -317,25 +311,6 @@ fn emit_fee_adjusted(
     );
 }
 
-fn emit_discount_tier_changed(
-    env: &Env,
-    wallet: &Address,
-    previous_discount_bps: u32,
-    new_discount_bps: u32,
-    volume: i128,
-) {
-    env.events().publish(
-        (events::VOLUME_DISCOUNT_TIER_CHANGED_EVENT_NAME, wallet.clone()),
-        events::VolumeDiscountTierChangedEvent {
-            wallet: wallet.clone(),
-            previous_discount_bps,
-            new_discount_bps,
-            rolling_volume: volume,
-            timestamp: env.ledger().timestamp(),
-        },
-    );
-}
-
 /// Records a completed trade and synchronizes any fee changes observable now.
 /// Contract transaction atomicity rolls this write back if the enclosing swap fails.
 pub fn record_trade(env: &Env, key_id: &Address, volume: i128) -> Result<(), ContractError> {
@@ -391,100 +366,5 @@ pub fn record_trade(env: &Env, key_id: &Address, volume: i128) -> Result<(), Con
     let bucket_key = DataKey::KeyVolumeBuckets(key_id.clone());
     env.storage().persistent().set(&bucket_key, &updated);
     crate::extend_key_ttl_to_full_window(env, &bucket_key);
-
-    let new_volume = rolling_volume_from(env, &updated)?;
-    let new_fee = fee_for_volume(env, new_volume);
-    if current_fee != new_fee {
-        emit_fee_adjusted(env, key_id, current_fee, new_fee, new_volume);
-    }
-
-    let last_fee_key = DataKey::LastFeeBps(key_id.clone());
-    env.storage().persistent().set(&last_fee_key, &new_fee);
-    crate::extend_key_ttl_to_full_window(env, &last_fee_key);
     Ok(())
-}
-
-/// Records a completed trade against a wallet's 30-day rolling volume and emits
-/// a `VolumeDiscountTierChanged` event when the wallet's discount tier changes.
-pub fn record_wallet_trade(env: &Env, wallet: &Address, volume: i128) -> Result<(), ContractError> {
-    if volume <= 0 {
-        return Ok(());
-    }
-    let buckets = read_wallet_volume_buckets(env, wallet);
-    let current_volume = rolling_volume_from(env, &buckets)?;
-    let current_discount = discount_tier_for_volume(env, current_volume).1;
-
-    if let Some(previous_discount) = env
-        .storage()
-        .persistent()
-        .get::<DataKey, u32>(&DataKey::LastDiscountBps(wallet.clone()))
-    {
-        if previous_discount != current_discount {
-            emit_discount_tier_changed(
-                env,
-                wallet,
-                previous_discount,
-                current_discount,
-                current_volume,
-            );
-        }
-    }
-
-    let now = env.ledger().timestamp();
-    let cutoff = now.saturating_sub(ROLLING_WINDOW_SECS);
-    let bucket_start = now - (now % VOLUME_BUCKET_SECS);
-    let mut updated = Vec::new(env);
-    let mut bucket_found = false;
-    for bucket in buckets.iter() {
-        if bucket.bucket_start < cutoff {
-            continue;
-        }
-        if bucket.bucket_start == bucket_start {
-            updated.push_back(VolumeBucket {
-                bucket_start,
-                volume: bucket
-                    .volume
-                    .checked_add(volume)
-                    .ok_or(ContractError::Overflow)?,
-            });
-            bucket_found = true;
-        } else {
-            updated.push_back(bucket);
-        }
-    }
-    if !bucket_found {
-        updated.push_back(VolumeBucket {
-            bucket_start,
-            volume,
-        });
-    }
-    if updated.len() > MAX_VOLUME_BUCKETS {
-        return Err(ContractError::Overflow);
-    }
-
-    let bucket_key = DataKey::WalletVolumeBuckets(wallet.clone());
-    env.storage().persistent().set(&bucket_key, &updated);
-    crate::extend_key_ttl_to_full_window(env, &bucket_key);
-
-    let new_volume = rolling_volume_from(env, &updated)?;
-    let new_discount = discount_tier_for_volume(env, new_volume).1;
-    if current_discount != new_discount {
-        emit_discount_tier_changed(env, wallet, current_discount, new_discount, new_volume);
-    }
-
-    let last_discount_key = DataKey::LastDiscountBps(wallet.clone());
-    env.storage().persistent().set(&last_discount_key, &new_discount);
-    crate::extend_key_ttl_to_full_window(env, &last_discount_key);
-    Ok(())
-}
-
-pub fn volume_buckets(env: &Env, key_id: &Address) -> Vec<VolumeBucket> {
-    let cutoff = env.ledger().timestamp().saturating_sub(ROLLING_WINDOW_SECS);
-    let mut current = Vec::new(env);
-    for bucket in read_volume_buckets(env, key_id).iter() {
-        if bucket.bucket_start >= cutoff {
-            current.push_back(bucket);
-        }
-    }
-    current
 }
