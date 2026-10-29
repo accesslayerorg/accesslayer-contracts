@@ -266,6 +266,29 @@ Returned by [`set_escalation_config`](../creator-keys/src/lib.rs),
 
 ---
 
+## `TradeCooldownError` Reference (Protocol-Wide Trade Cooldown)
+
+Defined in [`creator-keys/src/protocol_trade_cooldown.rs`](../creator-keys/src/protocol_trade_cooldown.rs) as `pub enum TradeCooldownError`.
+
+Returned by [`set_trade_cooldown`](../creator-keys/src/lib.rs), the admin-only
+entrypoint that configures the protocol-wide per-wallet trade cooldown
+(issue #1175).
+
+| Code | Name | Description | Trigger Condition |
+|:---:|---|---|---|
+| `1` | `Unauthorized` | The caller is not the protocol admin | Triggered in `set_trade_cooldown` when the caller is not the stored admin address. |
+| `2` | `DurationTooLong` | The requested window exceeds the protocol ceiling | Triggered in `set_trade_cooldown` when `seconds > MAX_TRADE_COOLDOWN_SECS` (86 400 s = 24 h). |
+
+A trade that is blocked **while the window is open** does not return this enum:
+it reverts with `ContractError::CooldownActive` (36) and publishes a
+`TradeCooldownBlockedEvent` carrying the exact `seconds_remaining` value. The
+same value is available before the trade through
+`get_trade_cooldown_remaining(wallet)`, because a Soroban `#[contracterror]`
+enum can only carry unit variants and therefore cannot carry the remaining
+seconds inside the error itself.
+
+---
+
 ## Read-Only Quote Error Identifiers
 
 Read-only quote functions defined in [`creator-keys/src/quote_view_errors.rs`](../creator-keys/src/quote_view_errors.rs) return string error identifiers for off-chain calculation paths:

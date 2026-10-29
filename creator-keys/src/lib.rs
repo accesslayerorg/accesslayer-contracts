@@ -81,6 +81,8 @@ pub mod key_ownership_transfer;
 pub mod lp_reward;
 pub mod price_alerts;
 pub mod protocol_governance;
+/// Protocol-wide per-wallet trade cooldown (issue #1175).
+pub mod protocol_trade_cooldown;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;
@@ -6968,22 +6970,34 @@ impl CreatorKeysContract {
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
         buyer.require_auth();
-        Self::buy_keys_core(
-            env,
+        let new_supply = Self::buy_keys_core(
+            env.clone(),
             creator,
-            buyer,
+            buyer.clone(),
             quantity,
             payment,
             max_price,
             referrer,
             max_slippage_bps,
-        )
-        .map(|outcome| outcome.new_supply)
+        )?
+        .new_supply;
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175): a multi-key
+        // purchase is one logical trade, so one cooldown window is consumed
+        // for the whole purchase, not one per key.
+        protocol_trade_cooldown::record_trade(&env, &buyer);
+
+        Ok(new_supply)
     }
 
     /// Shared buy implementation used by [`Self::buy_keys_with_ref_and_slip`] and
     /// the atomic bundle entrypoint. It performs **no** `require_auth`; callers
     /// must authorize `buyer` themselves (once per invocation frame).
+    ///
+    /// The protocol-wide trade cooldown (issue #1175) is *checked* here, so
+    /// every caller is covered, but the matching timestamp write happens once
+    /// per logical trade at the entrypoint level: a bundle runs this function
+    /// for every item, and each item must not consume a window of its own.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn buy_keys_core(
         env: Env,
@@ -7004,6 +7018,10 @@ impl CreatorKeysContract {
         assert_before_global_deadline(&env)?;
         assert_position_not_frozen(&env, &creator, &buyer)?;
         assert_creator_not_restoring(&env, &creator)?;
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175). Checked before
+        // any price or balance change so a blocked trade is a no-op.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &buyer)?;
 
         // Reject buys on deprecated keys immediately — before any price or fee math.
         if env
@@ -7584,6 +7602,10 @@ impl CreatorKeysContract {
         assert_position_not_frozen(&env, &creator, &buyer)?;
         assert_creator_not_restoring(&env, &creator)?;
 
+        // Protocol-wide per-wallet trade cooldown (issue #1175). Checked before
+        // any price or balance change so a blocked trade is a no-op.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &buyer)?;
+
         // Reject buys on deprecated keys immediately — before any price or fee math.
         if env
             .storage()
@@ -7923,6 +7945,11 @@ impl CreatorKeysContract {
             .set(&last_trade_key, &env.ledger().timestamp());
         extend_key_ttl_to_full_window(&env, &last_trade_key);
 
+        // Protocol-wide per-wallet trade cooldown (issue #1175): the trade has
+        // settled, so the wallet's cooldown window starts now. A single-key
+        // buy is one logical trade, so one window is consumed.
+        protocol_trade_cooldown::record_trade(&env, &buyer);
+
         // Deduct the protocol trade fee before computing the creator payout so
         // the fee collector is paid ahead of every other participant. A share
         // of the fee is routed into the creator's staking rewards pool.
@@ -8092,6 +8119,10 @@ impl CreatorKeysContract {
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
         assert_position_not_frozen(&env, &creator, &seller)?;
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175). Checked before
+        // any price or balance change so a blocked trade is a no-op.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &seller)?;
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
         let supply_before = profile.supply;
@@ -8351,6 +8382,11 @@ impl CreatorKeysContract {
             .persistent()
             .set(&last_trade_key, &env.ledger().timestamp());
         extend_key_ttl_to_full_window(&env, &last_trade_key);
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175): the trade has
+        // settled, so the wallet's cooldown window starts now. A single-key
+        // sell is one logical trade, so one window is consumed.
+        protocol_trade_cooldown::record_trade(&env, &seller);
 
         record_trade_price_snapshot(&env, &creator);
         price_alerts::check_price_alerts(&env, &creator, supply_before, profile.supply);
@@ -11902,6 +11938,11 @@ impl CreatorKeysContract {
         assert_before_global_deadline(&env)?;
         assert_global_trading_not_halted(&env)?;
 
+        // Protocol-wide per-wallet trade cooldown (issue #1175). A batch is one
+        // logical trade, so it consumes a single cooldown window for every
+        // order it contains.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &buyer)?;
+
         if orders.is_empty() || orders.len() > MAX_BATCH_BUY_SIZE as u32 {
             return Err(ContractError::BatchClaimExceedsLimit);
         }
@@ -12096,6 +12137,10 @@ impl CreatorKeysContract {
                 ledger: env.ledger().sequence(),
             },
         );
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175): the batch has
+        // settled, so the wallet's cooldown window starts now.
+        protocol_trade_cooldown::record_trade(&env, &buyer);
 
         Ok(results)
     }
@@ -14010,6 +14055,64 @@ impl CreatorKeysContract {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Protocol-wide trade cooldown — admin configured, applies to every buy
+    // and sell on the bonding curve (issue #1175)
+    // -------------------------------------------------------------------------
+
+    /// Sets the protocol-wide per-wallet trade cooldown.
+    ///
+    /// The window applies to **every** bonding-curve buy and sell, whatever
+    /// creator's key is being traded, so a wallet cannot round-trip keys
+    /// (buy → sell → buy) inside the window. This is the protocol-level
+    /// counterpart of the creator-scoped [`Self::set_cooldown`]: the
+    /// creator-scoped window only covers trades of that creator's own key,
+    /// while this one follows the wallet across every creator.
+    ///
+    /// Only the protocol admin may call this. `seconds` must be in
+    /// `0..=MAX_TRADE_COOLDOWN_SECS` (86 400 s = 24 h); values above that
+    /// return [`protocol_trade_cooldown::TradeCooldownError::DurationTooLong`]. A value
+    /// of `0` disables the cooldown (the default when none has been
+    /// configured).
+    ///
+    /// While the window is open, a buy or a sell by the wallet is rejected
+    /// with [`ContractError::CooldownActive`] and publishes an
+    /// [`events::TRADE_COOLDOWN_BLOCKED_EVENT_NAME`] event carrying the exact
+    /// number of seconds left in the window. The same value is available
+    /// before the trade through [`Self::get_trade_cooldown_remaining`].
+    pub fn set_trade_cooldown(
+        env: Env,
+        admin: Address,
+        seconds: u64,
+    ) -> Result<(), protocol_trade_cooldown::TradeCooldownError> {
+        admin.require_auth();
+        protocol_trade_cooldown::set_cooldown(&env, &admin, seconds)
+    }
+
+    /// Read-only: the configured protocol-wide trade cooldown in seconds.
+    ///
+    /// Returns `0` when no cooldown is configured, which disables it.
+    pub fn get_trade_cooldown(env: Env) -> u64 {
+        protocol_trade_cooldown::cooldown_secs(&env)
+    }
+
+    /// Seconds remaining before `wallet` may trade again.
+    ///
+    /// Returns `0` when the protocol-wide cooldown is disabled, when the
+    /// wallet has never traded, or when the window has already elapsed.
+    pub fn get_trade_cooldown_remaining(env: Env, wallet: Address) -> u64 {
+        protocol_trade_cooldown::remaining_secs(&env, &wallet)
+    }
+
+    /// Read-only: the Unix timestamp of `wallet`'s most recent trade.
+    ///
+    /// Returns `0` when the wallet has not traded since the protocol-wide
+    /// trade cooldown was introduced.
+    pub fn get_wallet_last_trade_timestamp(env: Env, wallet: Address) -> u64 {
+        protocol_trade_cooldown::last_trade_timestamp(&env, &wallet).unwrap_or(0)
+    }
+
     ///
     /// Only callable by the key creator. `max_qty` must be in 1..=10 000.
     /// A value of 0 disables the limit (no per-tx cap).
@@ -17214,6 +17317,11 @@ impl CreatorKeysContract {
         assert_not_blacklisted(&env, &buyer)?;
         assert_before_global_deadline(&env)?;
 
+        // Protocol-wide per-wallet trade cooldown (issue #1175). A batch is one
+        // logical trade, so it consumes a single cooldown window for every
+        // order it contains.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &buyer)?;
+
         if orders.is_empty() || orders.len() > MAX_BATCH_BUY_SIZE as u32 {
             return Err(ContractError::BatchClaimExceedsLimit);
         }
@@ -17342,6 +17450,10 @@ impl CreatorKeysContract {
             },
         );
 
+        // Protocol-wide per-wallet trade cooldown (issue #1175): the batch has
+        // settled, so the wallet's cooldown window starts now.
+        protocol_trade_cooldown::record_trade(&env, &buyer);
+
         Ok(results)
     }
 
@@ -17360,6 +17472,11 @@ impl CreatorKeysContract {
         assert_global_trading_not_halted(&env)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175). A batch is one
+        // logical trade, so it consumes a single cooldown window for every
+        // order it contains.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &seller)?;
 
         if orders.is_empty() || orders.len() > MAX_BATCH_SELL_SIZE as u32 {
             return Err(ContractError::BatchSizeExceeded);
@@ -17595,6 +17712,10 @@ impl CreatorKeysContract {
             },
         );
 
+        // Protocol-wide per-wallet trade cooldown (issue #1175): the batch has
+        // settled, so the wallet's cooldown window starts now.
+        protocol_trade_cooldown::record_trade(&env, &seller);
+
         Ok(results)
     }
 
@@ -17607,6 +17728,11 @@ impl CreatorKeysContract {
         assert_global_trading_not_halted(&env)?;
         assert_not_paused(&env)?;
         assert_not_blacklisted(&env, &seller)?;
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175). A batch is one
+        // logical trade, so it consumes a single cooldown window for every
+        // order it contains.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &seller)?;
 
         if orders.is_empty() || orders.len() > MAX_BATCH_SELL_SIZE as u32 {
             return Err(ContractError::BatchSizeExceeded);
@@ -17820,6 +17946,10 @@ impl CreatorKeysContract {
                 ledger: env.ledger().sequence(),
             },
         );
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175): the batch has
+        // settled, so the wallet's cooldown window starts now.
+        protocol_trade_cooldown::record_trade(&env, &seller);
 
         Ok(results)
     }

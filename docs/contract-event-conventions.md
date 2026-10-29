@@ -227,9 +227,34 @@ Notes for indexers:
 - `weight` reports the key balance held by the delegator at delegation/revocation time.
 - Note that because delegated weight dynamically tracks the delegator's balance while delegation is active, indexers tracking current voting weight should compute delegate weight dynamically from the active delegator set and their balances.
 
+### Protocol-Wide Trade Cooldown Events (#1175)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `tcd_blk` | `(Symbol("tcd_blk"), wallet)` | `wallet`, `expires_at`, `seconds_remaining` | `struct TradeCooldownBlockedEvent` |
+| `tcd_set` | `(Symbol("tcd_set"), admin)` | `admin`, `cooldown_secs`, `ledger` | `struct TradeCooldownSetEvent` |
+
+Notes for indexers:
+
+- `tcd_blk` is emitted when a buy or a sell is rejected because the wallet is
+  inside the protocol-wide per-wallet trade cooldown (issue #1175). The
+  transaction still reverts with `ContractError::CooldownActive` (36), so the
+  event is only observable from a failed invocation.
+- Topic index 1 is the blocked `wallet` (`Address`). There is no creator topic:
+  the cooldown is protocol-wide, so the wallet is the only actor in scope.
+- `seconds_remaining` is the exact number of seconds the wallet still has to
+  wait, and `expires_at` is the Unix timestamp at which the window closes. The
+  same value is reported by `get_trade_cooldown_remaining(wallet)` before the
+  trade is attempted.
+- `tcd_set` is emitted by `set_trade_cooldown` when the protocol admin changes
+  the window. `cooldown_secs` is the new window in seconds (`0` disables the
+  cooldown) and `ledger` is the ledger sequence number of the update.
+- The creator-scoped cooldown of issue #974 keeps its own events
+  (`cd_viol`, `cd_set`) and is unaffected by these.
+
 ### Key Freeze Events (#1174)
 
-| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
 | :--- | :--- | :--- | :--- |
 | `key_frz` | `(Symbol("key_frz"), key_id)` | `key_id`, `admin_wallet`, `reason`, `timestamp`, `ledger` | `struct KeyFrozenEvent` |
 | `key_unfrz` | `(Symbol("key_unfrz"), key_id)` | `key_id`, `admin_wallet`, `timestamp`, `ledger` | `struct KeyUnfrozenEvent` |
