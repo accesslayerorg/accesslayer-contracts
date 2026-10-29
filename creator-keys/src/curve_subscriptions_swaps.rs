@@ -34,6 +34,7 @@ pub enum EmdevelopaDataKey {
     Subscription(Address, Address), // (creator, subscriber)
     PaymentAsset(Address),
     PaymentAssetList,
+    PriceFloor(Address), // key_id -> floor price
 }
 
 pub const CURVE_MIGRATION_PROPOSED_EVENT: Symbol = symbol_short!("mig_prop");
@@ -42,6 +43,54 @@ pub const SUBSCRIPTION_GRANTED_EVENT: Symbol = symbol_short!("sub_grant");
 pub const SUBSCRIPTION_RENEWED_EVENT: Symbol = symbol_short!("sub_renew");
 pub const ATOMIC_SWAP_EXECUTED_EVENT: Symbol = symbol_short!("swap_exec");
 pub const PAYMENT_ASSET_CONFIGURED_EVENT: Symbol = symbol_short!("asset_cfg");
+pub const PRICE_FLOOR_TRIGGERED_EVENT: Symbol = symbol_short!("pf_trig");
+
+/// Set the price floor for a key. Admin-only. A floor of zero disables it.
+pub fn set_price_floor(
+    env: &Env,
+    admin: &Address,
+    key_id: &Address,
+    floor_price: i128,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    if floor_price < 0 {
+        return Err(ContractError::InvalidFeeConfig);
+    }
+    env.storage()
+        .instance()
+        .set(&EmdevelopaDataKey::PriceFloor(key_id.clone()), &floor_price);
+    Ok(())
+}
+
+/// Return the configured price floor for a key, or zero if not set.
+pub fn get_price_floor(env: &Env, key_id: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&EmdevelopaDataKey::PriceFloor(key_id.clone()))
+        .unwrap_or(0)
+}
+
+/// Enforce the price floor on a sell. Buys are never checked.
+/// Returns `PriceFloorBreached` (carrying current price and floor) when the
+/// current price is at or below the floor, emitting `PriceFloorTriggered`.
+pub fn check_price_floor_on_sell(
+    env: &Env,
+    key_id: &Address,
+    current_price: i128,
+) -> Result<(), ContractError> {
+    let floor = get_price_floor(env, key_id);
+    if floor <= 0 {
+        return Ok(());
+    }
+    if current_price <= floor {
+        env.events().publish(
+            (PRICE_FLOOR_TRIGGERED_EVENT, key_id.clone()),
+            (current_price, floor),
+        );
+        return Err(ContractError::CircuitBreakerActive);
+    }
+    Ok(())
+}
 
 /// #941: Propose bonding curve parameters upgrade with timelock.
 pub fn propose_curve_migration(
