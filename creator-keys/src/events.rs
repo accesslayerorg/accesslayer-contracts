@@ -4959,3 +4959,66 @@ pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
 pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
     (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }
+
+// --- Creator key social metadata extension (#social) ---
+
+/// Event name emitted on every social metadata update.
+pub const SOCIAL_METADATA_UPDATED_EVENT_NAME: Symbol = symbol_short!("soc_upd");
+
+/// Stable field order for social metadata updated event payloads.
+pub const SOCIAL_METADATA_UPDATED_DATA_FIELDS: [&str; 5] =
+    ["key_id", "display_name", "bio", "avatar_cid", "links"];
+
+/// Optional social links attached to a creator key's social metadata.
+///
+/// Each field is `None` when the creator has not supplied that link.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SocialLinks {
+    pub twitter: Option<String>,
+    pub website: Option<String>,
+    pub discord: Option<String>,
+}
+
+/// Full social metadata record stored separately from the core key contract.
+///
+/// Event shape:
+/// - topics: `(SOCIAL_METADATA_UPDATED_EVENT_NAME, key_id)`
+/// - data: `SocialMetadataUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SocialMetadata {
+    /// Creator display name, limited to 50 characters.
+    pub display_name: String,
+    /// Free-form creator bio.
+    pub bio: String,
+    /// IPFS CID pointing at the creator's avatar image.
+    pub avatar_cid: String,
+    /// Optional social links for the creator.
+    pub links: SocialLinks,
+}
+
+/// Stable social-metadata-updated event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(SOCIAL_METADATA_UPDATED_EVENT_NAME, key_id)`
+/// - data: `SocialMetadataUpdatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SocialMetadataUpdatedEvent {
+    /// Creator key whose social metadata was updated.
+    pub key_id: Address,
+    /// New display name (max 50 characters).
+    pub display_name: String,
+    /// New bio.
+    pub bio: String,
+    /// New avatar CID.
+    pub avatar_cid: String,
+    /// New social links.
+    pub links: SocialLinks,
+}
+
+/// Shared social-metadata-updated event topics tuple.
+pub fn social_metadata_updated_topics(key_id: &Address) -> (Symbol, Address) {
+    (SOCIAL_METADATA_UPDATED_EVENT_NAME, key_id.clone())
+}
