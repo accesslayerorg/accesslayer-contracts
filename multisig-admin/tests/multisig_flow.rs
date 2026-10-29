@@ -65,7 +65,7 @@ fn unauthorized_signer_cannot_propose_or_sign() {
     );
     let proposal_id = client.propose_action(&signers.get(0).unwrap(), &action);
     assert_eq!(
-        client.try_sign_proposal(&outsider, &proposal_id),
+        client.try_sign_action(&outsider, &proposal_id),
         Err(Ok(MultisigError::Unauthorized))
     );
 }
@@ -81,18 +81,18 @@ fn execution_waits_for_threshold_and_then_authorizes_multisig_call() {
     let proposal_id = client.propose_action(&signers.get(0).unwrap(), &action);
 
     assert_eq!(
-        client.try_execute_proposal(&signers.get(2).unwrap(), &proposal_id),
+        client.try_execute_action(&signers.get(2).unwrap(), &proposal_id),
         Err(Ok(MultisigError::ThresholdNotReached))
     );
     assert_eq!(target.value(), 0);
 
-    client.sign_proposal(&signers.get(0).unwrap(), &proposal_id);
+    client.sign_action(&signers.get(0).unwrap(), &proposal_id);
     assert_eq!(
-        client.try_execute_proposal(&signers.get(2).unwrap(), &proposal_id),
+        client.try_execute_action(&signers.get(2).unwrap(), &proposal_id),
         Err(Ok(MultisigError::ThresholdNotReached))
     );
-    client.sign_proposal(&signers.get(1).unwrap(), &proposal_id);
-    client.execute_proposal(&signers.get(2).unwrap(), &proposal_id);
+    client.sign_action(&signers.get(1).unwrap(), &proposal_id);
+    client.execute_action(&signers.get(2).unwrap(), &proposal_id);
     assert_eq!(target.value(), 42);
 }
 
@@ -107,11 +107,11 @@ fn rejection_vetoes_even_after_threshold_is_met() {
             threshold: 2,
         }),
     );
-    client.sign_proposal(&signers.get(0).unwrap(), &proposal_id);
-    client.sign_proposal(&signers.get(2).unwrap(), &proposal_id);
+    client.sign_action(&signers.get(0).unwrap(), &proposal_id);
+    client.sign_action(&signers.get(2).unwrap(), &proposal_id);
     client.reject_proposal(&signers.get(1).unwrap(), &proposal_id);
     assert_eq!(
-        client.try_execute_proposal(&signers.get(0).unwrap(), &proposal_id),
+        client.try_execute_action(&signers.get(0).unwrap(), &proposal_id),
         Err(Ok(MultisigError::ProposalRejected))
     );
 }
@@ -130,10 +130,10 @@ fn signer_set_updates_require_old_threshold_and_apply_after_execution() {
             threshold: 2,
         }),
     );
-    client.sign_proposal(&signers.get(0).unwrap(), &proposal_id);
+    client.sign_action(&signers.get(0).unwrap(), &proposal_id);
     assert_eq!(client.get_signers(), signers);
-    client.sign_proposal(&signers.get(1).unwrap(), &proposal_id);
-    client.execute_proposal(&signers.get(2).unwrap(), &proposal_id);
+    client.sign_action(&signers.get(1).unwrap(), &proposal_id);
+    client.execute_action(&signers.get(2).unwrap(), &proposal_id);
     assert_eq!(client.get_signers(), next_signers);
     assert_eq!(client.get_threshold(), 2);
 

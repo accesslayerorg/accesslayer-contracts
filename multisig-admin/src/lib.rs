@@ -211,12 +211,17 @@ impl MultisigAdminContract {
         env.storage()
             .instance()
             .set(&DataKey::NextProposalId, &next_id);
-        emit_action_event(&env, Symbol::new(&env, "proposed"), proposal_id, &proposer);
+        emit_action_event(
+            &env,
+            Symbol::new(&env, "ActionProposed"),
+            proposal_id,
+            &proposer,
+        );
         Ok(proposal_id)
     }
 
     /// Records one approval per authorized signer.
-    pub fn sign_proposal(env: Env, signer: Address, proposal_id: u32) -> Result<(), MultisigError> {
+    pub fn sign_action(env: Env, signer: Address, proposal_id: u32) -> Result<(), MultisigError> {
         signer.require_auth();
         let mut proposal = load_proposal(&env, proposal_id)?;
         assert_signer(&proposal.signers, &signer)?;
@@ -243,7 +248,12 @@ impl MultisigAdminContract {
             .checked_add(1)
             .ok_or(MultisigError::InvalidAction)?;
         save_proposal(&env, &proposal);
-        emit_action_event(&env, Symbol::new(&env, "signed"), proposal_id, &signer);
+        emit_action_event(
+            &env,
+            Symbol::new(&env, "ActionSigned"),
+            proposal_id,
+            &signer,
+        );
         Ok(())
     }
 
@@ -283,7 +293,7 @@ impl MultisigAdminContract {
     /// Executes an approved proposal. Call proposals invoke the target as this
     /// contract, allowing targets to require authorization from the multisig.
     /// Execution is permissionless; `executor` is authenticated for auditability.
-    pub fn execute_proposal(
+    pub fn execute_action(
         env: Env,
         executor: Address,
         proposal_id: u32,
@@ -330,7 +340,12 @@ impl MultisigAdminContract {
 
         proposal.executed = true;
         save_proposal(&env, &proposal);
-        emit_action_event(&env, Symbol::new(&env, "executed"), proposal_id, &executor);
+        emit_action_event(
+            &env,
+            Symbol::new(&env, "ActionExecuted"),
+            proposal_id,
+            &executor,
+        );
         Ok(())
     }
 
