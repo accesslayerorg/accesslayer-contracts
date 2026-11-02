@@ -4536,6 +4536,88 @@ pub fn rebalance_executed_topics(creator: &Address) -> (Symbol, Address) {
     (REBALANCE_EXECUTED_EVENT_NAME, creator.clone())
 }
 
+// --- Cross-key portfolio rebalance ---
+
+/// Event name for a completed cross-key portfolio rebalance.
+pub const PORTFOLIO_REBALANCED_EVENT_NAME: Symbol = symbol_short!("pf_rebal");
+
+/// Stable field order for cross-key portfolio rebalance payloads.
+pub const PORTFOLIO_REBALANCED_DATA_FIELDS: [&str; 4] =
+    ["wallet", "swaps", "total_cost", "ledger"];
+
+/// One swap executed by a cross-key portfolio rebalance.
+///
+/// `amount` is the number of keys moved: positive for a buy of `key_id`,
+/// negative for a sell. `cost` is the XLM value of the swap (paid on buys,
+/// received on sells).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PortfolioRebalanceSwap {
+    /// Key whose position was adjusted.
+    pub key_id: Address,
+    /// Signed key quantity: positive buys, negative sells.
+    pub amount: i128,
+    /// XLM value of the swap.
+    pub cost: i128,
+    /// Target allocation in basis points for this key.
+    pub target_bps: u32,
+    /// Allocation in basis points before the rebalance.
+    pub current_bps: u32,
+}
+
+/// Stable cross-key portfolio rebalance payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(PORTFOLIO_REBALANCED_EVENT_NAME, wallet)`
+/// - data: `PortfolioRebalancedEvent`
+///
+/// Emitted once per `execute_rebalance` call that performs at least one swap.
+/// `swaps` preserves the order of the wallet's configured allocations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PortfolioRebalancedEvent {
+    /// Wallet whose portfolio was rebalanced.
+    pub wallet: Address,
+    /// Per-key swaps executed by the rebalance.
+    pub swaps: Vec<PortfolioRebalanceSwap>,
+    /// Net XLM cost of the rebalance (buys minus sells).
+    pub total_cost: i128,
+    /// Ledger sequence number at the time of the rebalance.
+    pub ledger: u32,
+}
+
+/// Shared cross-key portfolio rebalance event topics tuple.
+pub fn portfolio_rebalanced_topics(wallet: &Address) -> (Symbol, Address) {
+    (PORTFOLIO_REBALANCED_EVENT_NAME, wallet.clone())
+}
+
+/// Event name for a wallet setting or updating its rebalance configuration.
+pub const REBALANCE_CONFIG_SET_EVENT_NAME: Symbol = symbol_short!("rb_cfg");
+
+/// Stable field order for rebalance configuration payloads.
+pub const REBALANCE_CONFIG_SET_DATA_FIELDS: [&str; 3] = ["wallet", "allocations", "ledger"];
+
+/// Stable rebalance configuration payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(REBALANCE_CONFIG_SET_EVENT_NAME, wallet)`
+/// - data: `RebalanceConfigSetEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RebalanceConfigSetEvent {
+    /// Wallet whose configuration was set.
+    pub wallet: Address,
+    /// Target allocations in basis points; always sums to 10000.
+    pub allocations: Vec<(Address, u32)>,
+    /// Ledger sequence number at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared rebalance configuration set event topics tuple.
+pub fn rebalance_config_set_topics(wallet: &Address) -> (Symbol, Address) {
+    (REBALANCE_CONFIG_SET_EVENT_NAME, wallet.clone())
+}
+
 // --- Dynamic fee tiers ---
 
 /// Event name for a dynamic fee tier transition.

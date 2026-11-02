@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::{
-    events::{MetadataUpdatedEvent, METADATA_UPDATED_EVENT_NAME},
+    events::{MetadataUpdatedEvent, RebalanceExecutedEvent, METADATA_UPDATED_EVENT_NAME, REBALANCE_EXECUTED_EVENT_NAME},
     ContractError, CreatorKeysContract, CreatorKeysContractClient, KeyMetadata,
     RegisterCreatorParams, METADATA_DESCRIPTION_MAX_LEN, METADATA_IMAGE_CID_MAX_LEN,
     METADATA_NAME_MAX_LEN,
@@ -606,4 +606,124 @@ fn test_registered_referral_first_trade_fee_and_claim() {
         client.try_claim_referral_rewards(&referrer),
         Err(Ok(ContractError::NotPositiveAmount))
     );
+}
+
+// ===========================================================================
+// Cross-key portfolio rebalance tests
+// ===========================================================================
+
+fn setup_rebalance_test() -> (Env, CreatorKeysContractClient<'static>, Address, Address) {
+    let (env, client, admin, treasury) = setup_test();
+    client.set_circuit_breaker_threshold(&admin, &10_000u32);
+    (env, client, admin, treasury)
+}
+
+fn register_three_creators(
+    env: &Env,
+    client: &CreatorKeysContractClient,
+) -> (Address, Address, Address) {
+    let a = Address::generate(env);
+    let b = Address::generate(env);
+    let c = Address::generate(env);
+    register_creator(env, client, &a);
+    register_creator(env, client, &b);
+    register_creator(env, client, &c);
+    (a, b, c)
+}
+
+#[test]
+fn test_rebalance_config_rejects_invalid_total_bps() {
+    let (env, client, _admin, _treasury) = setup_rebalance_test();
+    let (a, b, _c) = register_three_creators(&env, &client);
+    let wallet = Address::generate(&env);
+
+    let mut allocations = soroban_sdk::Vec::new(&env);
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: a.clone(),
+        target_bps: 5000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 4000u32,
+    });
+    assert_eq!(
+        client.try_set_rebalance_config(&wallet, &allocations),
+        Err(Ok(ContractError::InvalidAllocation))
+    );
+
+    allocations.pop_back();
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 5000u32,
+    });
+    client.set_rebalance_config(&wallet, &allocations);
+}
+
+#[test]
+fn test_rebalance_preview_and_execute_swaps() {
+    let (env, client, _admin, _treasury) = setup_rebalance_test();
+    let (a, b, c) = register_three_creators(&env, &client);
+    let wallet = Address::generate(&env);
+
+    // Seed wallet with 100 keys of A, 0 of B, 0 of C.
+    client.buy_key(&a, &wallet, &100_000i128, &None);
+    let bal_a = client.get_key_balance(&a, &wallet);
+    assert!(bal_a > 0);
+
+    let mut allocations = soroban_sdk::Vec::new(&env);
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: a.clone(),
+        target_bps: 5000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 3000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: c.clone(),
+        target_bps: 2000u32,
+    });
+    client.set_rebalance_config(&wallet, &allocations);
+
+    let preview = client.get_rebalance_preview(&wallet);
+    assert!(!preview.swaps.is_empty());
+
+    client.execute_rebalance(&wallet);
+    let (_, topics, data) = env.events().all().last().unwrap();
+    let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
+    assert_eq!(event_name, REBALANCE_EXECUTED_EVENT_NAME);
+    let event: RebalanceExecutedEvent = data.into_val(&env);
+    assert_eq!(event.wallet, wallet);
+    assert!(!event.swaps.is_empty());
+}
+
+#[test]
+fn test_rebalance_skips_positions_within_tolerance() {
+    let (env, client, _admin, _treasury) = setup_rebalance_test();
+    let (a, b, _c) = register_three_creators(&env, &client);
+    let wallet = Address::generate(&env);
+
+    client.buy_key(&a, &wallet, &100_000i128, &None);
+    client.buy_key(&b, &wallet, &100_000i128, &None);
+
+    let mut allocations = soroban_sdk::Vec::new(&env);
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: a.clone(),
+        target_bps: 5000u32,
+    });
+    allocations.push_back(crate::RebalanceAllocation {
+        key_id: b.clone(),
+        target_bps: 5000u32,
+    });
+    client.set_rebalance_config(&wallet, &allocations);
+
+    let preview = client.get_rebalance_preview(&wallet);
+    assert!(preview.swaps.is_empty());
+
+    client.execute_rebalance(&wallet);
+    let (_, topics, data) = env.events().all().last().unwrap();
+    let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
+    assert_eq!(event_name, REBALANCE_EXECUTED_EVENT_NAME);
+    let event: RebalanceExecutedEvent = data.into_val(&env);
+    assert!(event.swaps.is_empty());
 }
