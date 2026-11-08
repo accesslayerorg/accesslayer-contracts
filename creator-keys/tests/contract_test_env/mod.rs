@@ -321,8 +321,65 @@ fn base32_encode(bytes: &[u8]) -> StdString {
 ///
 /// This helper ensures that test fixtures stay aligned with the contract's
 /// pricing logic and makes magic numbers in assertions more descriptive.
-pub fn compute_expected_buy_price(_supply: u32, base_price: i128) -> i128 {
-    base_price
+/// Trait allowing `compute_expected_buy_price` and `compute_expected_sell_price`
+/// to accept either a base price (`i128`, `i64`, `i32`) or a curve preset ([`creator_keys::CurvePreset`]).
+pub trait ExpectedPriceParam {
+    fn to_expected_buy_price(&self, supply: u32) -> i128;
+    fn to_expected_sell_price(&self, supply: u32) -> i128;
+}
+
+impl ExpectedPriceParam for i128 {
+    fn to_expected_buy_price(&self, _supply: u32) -> i128 {
+        *self
+    }
+    fn to_expected_sell_price(&self, _supply: u32) -> i128 {
+        *self
+    }
+}
+
+impl ExpectedPriceParam for i64 {
+    fn to_expected_buy_price(&self, _supply: u32) -> i128 {
+        *self as i128
+    }
+    fn to_expected_sell_price(&self, _supply: u32) -> i128 {
+        *self as i128
+    }
+}
+
+impl ExpectedPriceParam for i32 {
+    fn to_expected_buy_price(&self, _supply: u32) -> i128 {
+        *self as i128
+    }
+    fn to_expected_sell_price(&self, _supply: u32) -> i128 {
+        *self as i128
+    }
+}
+
+impl ExpectedPriceParam for creator_keys::bonding_curve::CurvePreset {
+    fn to_expected_buy_price(&self, supply: u32) -> i128 {
+        creator_keys::bonding_curve::compute_price(supply, 1, *self).unwrap()
+    }
+    fn to_expected_sell_price(&self, supply: u32) -> i128 {
+        if supply == 0 {
+            0
+        } else {
+            creator_keys::bonding_curve::compute_price(supply - 1, 1, *self).unwrap()
+        }
+    }
+}
+
+impl<T: ExpectedPriceParam + Copy> ExpectedPriceParam for &T {
+    fn to_expected_buy_price(&self, supply: u32) -> i128 {
+        (*self).to_expected_buy_price(supply)
+    }
+    fn to_expected_sell_price(&self, supply: u32) -> i128 {
+        (*self).to_expected_sell_price(supply)
+    }
+}
+
+/// Computes the expected buy price for a given supply value and curve preset or fixed price.
+pub fn compute_expected_buy_price<P: ExpectedPriceParam>(supply: u32, param: P) -> i128 {
+    param.to_expected_buy_price(supply)
 }
 
 /// Number of stroops in one display unit.
@@ -398,8 +455,9 @@ impl ContractStateSnapshot {
 /// base key price regardless of supply. The seller's net payout is then
 /// `price - creator_fee - protocol_fee`, computed via the `fee` helpers, so this
 /// returns the gross figure that `get_sell_quote().price` is asserted against.
-pub fn compute_expected_sell_price(_supply: u32, base_price: i128) -> i128 {
-    base_price
+/// Computes the expected (gross) sell price for a given supply value and curve preset or fixed price.
+pub fn compute_expected_sell_price<P: ExpectedPriceParam>(supply: u32, param: P) -> i128 {
+    param.to_expected_sell_price(supply)
 }
 
 /// Sets the bonding curve slope parameter via an auto-generated admin address.
