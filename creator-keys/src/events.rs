@@ -4268,6 +4268,67 @@ pub fn cooldown_set_topics(creator: &Address) -> (Symbol, Address) {
     (COOLDOWN_SET_EVENT_NAME, creator.clone())
 }
 
+// ============================================================================
+// Protocol-wide trade cooldown (issue #1175)
+// ============================================================================
+
+/// Event name emitted when a buy or sell is blocked by the protocol-wide
+/// per-wallet trade cooldown configured via `set_trade_cooldown`.
+pub const TRADE_COOLDOWN_BLOCKED_EVENT_NAME: Symbol = symbol_short!("tcd_blk");
+
+/// Event name emitted when the protocol admin sets (or clears) the
+/// protocol-wide trade cooldown via `set_trade_cooldown`.
+pub const TRADE_COOLDOWN_SET_EVENT_NAME: Symbol = symbol_short!("tcd_set");
+
+/// Payload for a trade blocked by the protocol-wide per-wallet trade
+/// cooldown (issue #1175).
+///
+/// Event shape:
+/// - topics: `(TRADE_COOLDOWN_BLOCKED_EVENT_NAME, wallet)`
+/// - data: `TradeCooldownBlockedEvent`
+///
+/// The cooldown is protocol-wide, so there is no creator in scope: the wallet
+/// is the only actor involved. `seconds_remaining` is the exact number of
+/// seconds the wallet still has to wait before it may trade again, and is the
+/// same value `get_trade_cooldown_remaining` reports.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradeCooldownBlockedEvent {
+    /// Wallet whose trade was blocked.
+    pub wallet: Address,
+    /// Unix timestamp at which the cooldown expires and trading resumes.
+    pub expires_at: u64,
+    /// Seconds remaining until the cooldown expires.
+    pub seconds_remaining: u64,
+}
+
+/// Shared protocol-wide cooldown-blocked event topics tuple.
+pub fn trade_cooldown_blocked_topics(wallet: &Address) -> (Symbol, Address) {
+    (TRADE_COOLDOWN_BLOCKED_EVENT_NAME, wallet.clone())
+}
+
+/// Payload emitted when the protocol admin sets (or clears) the
+/// protocol-wide trade cooldown (issue #1175).
+///
+/// Event shape:
+/// - topics: `(TRADE_COOLDOWN_SET_EVENT_NAME, admin)`
+/// - data: `TradeCooldownSetEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TradeCooldownSetEvent {
+    /// Admin that updated the cooldown.
+    pub admin: Address,
+    /// New cooldown duration in seconds (`0` disables the cooldown).
+    pub cooldown_secs: u64,
+    /// Ledger sequence at the time of the update.
+    pub ledger: u32,
+}
+
+/// Shared protocol-wide cooldown-set event topics tuple.
+pub fn trade_cooldown_set_topics(admin: &Address) -> (Symbol, Address) {
+    (TRADE_COOLDOWN_SET_EVENT_NAME, admin.clone())
+}
+
 /// Event name for configuring a graduated bonding curve with supply milestones.
 pub const GRADUATED_CURVE_CONFIGURED_EVENT_NAME: Symbol = symbol_short!("grad_crv");
 

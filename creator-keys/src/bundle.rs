@@ -17,8 +17,9 @@
 //! guard over the whole bundle.
 
 use crate::{
-    compute_bonding_curve_price, constants, events, read_registered_creator_profile, AuctionConfig,
-    ContractError, CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient,
+    compute_bonding_curve_price, constants, events, protocol_trade_cooldown,
+    read_registered_creator_profile, AuctionConfig, ContractError, CreatorKeysContract,
+    CreatorKeysContractArgs, CreatorKeysContractClient,
 };
 use soroban_sdk::{contractimpl, contracttype, Address, Env, Vec};
 
@@ -90,6 +91,11 @@ impl CreatorKeysContract {
         buyer.require_auth();
         validate_bundle(&items)?;
 
+        // Protocol-wide per-wallet trade cooldown (issue #1175). A bundle is
+        // one logical trade: it consumes a single cooldown window for the
+        // whole bundle, not one per item.
+        protocol_trade_cooldown::assert_trade_allowed(&env, &buyer)?;
+
         let mut breakdown: Vec<events::BundleItemBreakdown> = Vec::new(&env);
         let mut total_cost: i128 = 0;
 
@@ -130,6 +136,11 @@ impl CreatorKeysContract {
         };
         env.events()
             .publish(events::bundle_executed_topics(&buyer), executed.clone());
+
+        // Protocol-wide per-wallet trade cooldown (issue #1175): the bundle
+        // has settled, so the wallet's cooldown window starts now.
+        protocol_trade_cooldown::record_trade(&env, &buyer);
+
         Ok(executed)
     }
 
