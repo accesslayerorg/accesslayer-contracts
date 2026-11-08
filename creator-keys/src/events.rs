@@ -4828,6 +4828,44 @@ pub fn bootstrap_ended_topics(key_id: &Address) -> (Symbol, Address) {
     (BOOTSTRAP_ENDED_EVENT_NAME, key_id.clone())
 }
 
+// --- TWAP ring-buffer oracle ---
+
+/// Event name emitted on every buy or sell trade when a new TWAP price snapshot
+/// is pushed into the ring buffer.
+pub const PRICE_SNAPSHOT_EVENT_NAME: Symbol = symbol_short!("prc_snap");
+
+/// Stable payload for a TWAP price snapshot event.
+///
+/// Event shape:
+/// - topics: `(PRICE_SNAPSHOT_EVENT_NAME, creator_id)`
+/// - data: `PriceSnapshotEvent`
+///
+/// Emitted atomically with each trade so indexers can reconstruct the full
+/// cumulative price-time series without polling the contract state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceSnapshotEvent {
+    /// Creator whose key was traded.
+    pub creator_id: Address,
+    /// Bonding-curve spot price (stroops) at the end of the trade.
+    pub price: i128,
+    /// Running cumulative `sum(price_i * delta_t_i)` up to and including
+    /// this snapshot.
+    pub cumulative: i128,
+    /// Unix timestamp (seconds) when the trade was executed.
+    pub timestamp: u64,
+    /// Ledger sequence number at the time of the trade.
+    pub ledger: u32,
+}
+
+pub const PRICE_SNAPSHOT_DATA_FIELDS: [&str; 5] =
+    ["creator_id", "price", "cumulative", "timestamp", "ledger"];
+
+/// Shared price-snapshot event topics tuple.
+pub fn price_snapshot_topics(creator_id: &Address) -> (Symbol, Address) {
+    (PRICE_SNAPSHOT_EVENT_NAME, creator_id.clone())
+}
+
 // --- Key retirement with admin-funded holder buyback at floor price (Issue #1111) ---
 
 /// Event name emitted when admin proposes a key retirement with a 7-day notice window.
