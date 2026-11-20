@@ -18,6 +18,8 @@ pub enum ProxyError {
     Unauthorized = 3,
     InvalidInterface = 4,
     ContractPaused = 5,
+    NoPendingUpgrade = 6,
+    TimelockActive = 7,
 }
 
 #[derive(Clone)]
@@ -27,6 +29,7 @@ pub enum ProxyDataKey {
     Implementation,
     IsPaused,
     Initialized,
+    Pending,
 }
 
 /// Event emitted when an implementation upgrade is executed.
@@ -39,6 +42,8 @@ pub struct UpgradeExecuted {
 }
 
 pub const UPGRADE_EXECUTED_EVENT_NAME: Symbol = symbol_short!("upg_exec");
+
+pub const UPGRADE_TIMELOCK_SECS: u64 = 172_800;
 
 #[contract]
 pub struct BondingCurveProxy;
@@ -131,6 +136,31 @@ impl BondingCurveProxy {
         emit_upgrade_executed(&env, &old_impl, &new_implementation);
 
         Ok(())
+    }
+
+    pub fn propose_upgrade(
+        env: Env,
+        caller: Address,
+        new_impl: Address,
+    ) -> Result<u64, ProxyError> {
+        assert_admin(&env, &caller)?;
+        let eta = env.ledger().timestamp() + UPGRADE_TIMELOCK_SECS;
+        env.storage()
+            .instance()
+            .set(&ProxyDataKey::Pending, &(new_impl, eta));
+        Ok(eta)
+    }
+
+    pub fn execute_upgrade(env: Env, caller: Address) -> Result<(), ProxyError> {
+        let s = env.storage().instance();
+        let (new_impl, eta): (Address, u64) = s
+            .get(&ProxyDataKey::Pending)
+            .ok_or(ProxyError::NoPendingUpgrade)?;
+        if env.ledger().timestamp() < eta {
+            return Err(ProxyError::TimelockActive);
+        }
+        s.remove(&ProxyDataKey::Pending);
+        Self::upgrade_implementation(env, caller, new_impl)
     }
 
     /// Emergency pause for the proxy to guard trading operations during sensitive migrations.
