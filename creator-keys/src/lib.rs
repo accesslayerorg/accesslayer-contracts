@@ -381,6 +381,8 @@ pub enum ContractError {
     PerformanceBondRequired = 150,
     /// An admin's bounded platform halt is active; query `get_platform_pause` for context.
     PlatformPaused = 151,
+    RoyaltyTooHigh = 152,
+    BatchTooLarge = 153,
 }
 
 impl ContractError {
@@ -1772,6 +1774,7 @@ pub const MAX_BATCH_TRANSFER_SIZE: u32 = 10;
 
 /// Maximum royalty fee basis points (5%).
 pub const MAX_ROYALTY_BPS: u32 = 500;
+pub const MAX_KEY_ROYALTY_BPS: u32 = 1000;
 
 /// Lock duration for staked keys before a reward claim is permitted (30 days
 /// at 5s per ledger).
@@ -18132,8 +18135,11 @@ impl CreatorKeysContract {
         rate_bps: u32,
     ) -> Result<(), ContractError> {
         creator.require_auth();
-        if key_id != creator || rate_bps > MAX_ROYALTY_BPS {
+        if key_id != creator {
             return Err(ContractError::Unauthorized);
+        }
+        if rate_bps > MAX_KEY_ROYALTY_BPS {
+            return Err(ContractError::RoyaltyTooHigh);
         }
         read_registered_creator_profile(&env, &key_id)?;
         env.storage()
@@ -18164,6 +18170,30 @@ impl CreatorKeysContract {
 
     pub fn get_wallet_rolling_volume(env: Env, wallet: Address) -> i128 {
         wallet_rolling_volume(&env, &wallet)
+    }
+
+    pub fn batch_trade(
+        env: Env,
+        trader: Address,
+        orders: Vec<(Address, bool, i128)>,
+    ) -> Result<u32, ContractError> {
+        if orders.len() > 20 {
+            return Err(ContractError::BatchTooLarge);
+        }
+        let mut total_value: i128 = 0;
+        for (creator, is_buy, amount) in orders.iter() {
+            if is_buy {
+                Self::buy_key(env.clone(), creator, trader.clone(), amount, None)?;
+                total_value += amount;
+            } else {
+                Self::sell_key(env.clone(), creator, trader.clone(), None)?;
+            }
+        }
+        env.events().publish(
+            (Symbol::new(&env, "BatchTradeExecuted"), trader),
+            (orders.len(), total_value),
+        );
+        Ok(orders.len())
     }
 
     pub fn get_royalty_rate(env: Env, key_id: Address) -> u32 {
