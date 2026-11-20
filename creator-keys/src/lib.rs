@@ -86,6 +86,7 @@ pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;
 pub mod timed_pause;
+pub mod trading_primitives;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 pub mod vote_delegation;
 pub use vote_delegation::VoteDelegationKey;
