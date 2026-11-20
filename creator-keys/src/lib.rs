@@ -76,6 +76,7 @@ pub mod dynamic_fees;
 pub mod emergency_pause;
 pub mod performance_bonds;
 
+pub mod issue_primitives;
 pub mod key_freeze;
 pub mod key_ownership_transfer;
 pub mod lp_reward;
