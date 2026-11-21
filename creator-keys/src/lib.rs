@@ -394,16 +394,13 @@ pub enum ContractError {
     /// A buy would exceed the configured price ceiling; cool-off is active.
     CeilingReached = 154,
     // --- Social recovery (guardian-based recovery) ---
-    /// No guardians set for the wallet.
-    NoGuardians = 155,
     /// A recovery is already pending for this owner.
-    RecoveryAlreadyPending = 156,
+    RecoveryAlreadyPending = 155,
     /// No recovery in progress for this owner.
-    NoRecoveryPending = 157,
+    NoRecoveryPending = 156,
     /// Guardian threshold not met for recovery execution.
-    RecoveryThresholdNotMet = 158,
+    RecoveryThresholdNotMet = 157,
     /// Invalid threshold or guardian count for recovery setup.
-    InvalidThreshold = 159,
     InvalidThreshold = 158,
     /// No guardians set for the wallet.
     NoGuardians = 159,
@@ -2372,8 +2369,10 @@ fn key_receiver_callback_active(env: &Env) -> bool {
 }
 
 fn is_contract_address(env: &Env, address: &Address) -> bool {
+    // `to_xdr` encodes an `ScVal`: bytes 0..4 are the ScVal tag (SCV_ADDRESS),
+    // bytes 4..8 are the `ScAddressType` discriminant (0 = account, 1 = contract).
     let xdr = address.clone().to_xdr(env);
-    xdr.get(0) == Some(0) && xdr.get(1) == Some(0) && xdr.get(2) == Some(0) && xdr.get(3) == Some(1)
+    xdr.get(4) == Some(0) && xdr.get(5) == Some(0) && xdr.get(6) == Some(0) && xdr.get(7) == Some(1)
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
