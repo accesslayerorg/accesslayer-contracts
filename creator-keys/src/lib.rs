@@ -2370,10 +2370,7 @@ fn key_receiver_callback_active(env: &Env) -> bool {
 
 fn is_contract_address(env: &Env, address: &Address) -> bool {
     let xdr = address.clone().to_xdr(env);
-    xdr.get(0) == Some(0)
-        && xdr.get(1) == Some(0)
-        && xdr.get(2) == Some(0)
-        && xdr.get(3) == Some(1)
+    xdr.get(0) == Some(0) && xdr.get(1) == Some(0) && xdr.get(2) == Some(0) && xdr.get(3) == Some(1)
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
@@ -3796,10 +3793,7 @@ pub fn escape_enabled(env: &Env) -> bool {
     else {
         return false;
     };
-    env.ledger()
-        .sequence()
-        .saturating_sub(paused_since)
-        >= ESCAPE_DELAY_LEDGERS
+    env.ledger().sequence().saturating_sub(paused_since) >= ESCAPE_DELAY_LEDGERS
 }
 
 /// Emits one `MilestoneCrossed` event per configured supply milestone crossed
@@ -15131,19 +15125,17 @@ impl CreatorKeysContract {
             profile.holder_count = profile.holder_count.saturating_sub(1);
             vote_delegation::prune_if_zero_balance(&env, &key_id, &holder);
         } else {
-            env.storage().persistent().set(&holder_key, &remaining_holder);
+            env.storage()
+                .persistent()
+                .set(&holder_key, &remaining_holder);
             extend_key_ttl_to_full_window(&env, &holder_key);
         }
 
         profile.supply = remaining_supply;
-        env.storage().persistent().set(
-            &constants::storage::creator(&key_id),
-            &profile,
-        );
-        extend_key_ttl_to_full_window(
-            &env,
-            &constants::storage::creator(&key_id),
-        );
+        env.storage()
+            .persistent()
+            .set(&constants::storage::creator(&key_id), &profile);
+        extend_key_ttl_to_full_window(&env, &constants::storage::creator(&key_id));
 
         let remaining_reserve = reserve
             .checked_sub(payout)
@@ -15154,7 +15146,9 @@ impl CreatorKeysContract {
                 .persistent()
                 .remove(&RetirementKey::Pool(key_id.clone()));
         } else {
-            env.storage().persistent().set(&reserve_key, &remaining_reserve);
+            env.storage()
+                .persistent()
+                .set(&reserve_key, &remaining_reserve);
             extend_key_ttl_to_full_window(&env, &reserve_key);
             env.storage()
                 .persistent()

@@ -852,8 +852,7 @@ pub struct KeysTransferredEvent {
 pub const ESCAPE_REDEEMED_EVENT_NAME: Symbol = symbol_short!("esc_rdm");
 
 /// Stable field order for emergency reserve redemption events.
-pub const ESCAPE_REDEEMED_DATA_FIELDS: [&str; 4] =
-    ["holder", "key_id", "amount", "payout"];
+pub const ESCAPE_REDEEMED_DATA_FIELDS: [&str; 4] = ["holder", "key_id", "amount", "payout"];
 
 /// Emitted after a holder burns keys for a pro-rata reserve payout.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -866,10 +865,7 @@ pub struct EscapeRedeemedEvent {
 }
 
 /// Shared emergency redemption event topics tuple.
-pub fn escape_redeemed_topics(
-    holder: &Address,
-    key_id: &Address,
-) -> (Symbol, Address, Address) {
+pub fn escape_redeemed_topics(holder: &Address, key_id: &Address) -> (Symbol, Address, Address) {
     (ESCAPE_REDEEMED_EVENT_NAME, holder.clone(), key_id.clone())
 }
 
@@ -5065,10 +5061,7 @@ pub struct LaunchCapHitEvent {
 }
 
 /// Shared launch-window cap event topics tuple.
-pub fn launch_cap_hit_topics(
-    creator: &Address,
-    wallet: &Address,
-) -> (Symbol, Address, Address) {
+pub fn launch_cap_hit_topics(creator: &Address, wallet: &Address) -> (Symbol, Address, Address) {
     (LAUNCH_CAP_HIT_EVENT_NAME, creator.clone(), wallet.clone())
 }
 

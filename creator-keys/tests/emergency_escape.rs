@@ -9,7 +9,13 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
-fn setup() -> (Env, CreatorKeysContractClient<'static>, Address, Address, Address) {
+fn setup() -> (
+    Env,
+    CreatorKeysContractClient<'static>,
+    Address,
+    Address,
+    Address,
+) {
     let env = test_env_with_auths();
     let (client, _) = register_creator_keys(&env);
     let admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
@@ -75,7 +81,8 @@ fn unpause_before_delay_clears_escape_timer() {
     client.unpause(&admin);
 
     assert!(!client.escape_enabled());
-    env.ledger().with_mut(|l| l.sequence_number += creator_keys::ESCAPE_DELAY_LEDGERS);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += creator_keys::ESCAPE_DELAY_LEDGERS);
     assert!(!client.escape_enabled());
     assert_eq!(
         client.try_escape_redeem(&holder, &creator, &1u32),
