@@ -8,6 +8,7 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, IntoVal, String, Symbol, Val, Vec,
 };
 pub mod bootstrapping;
+pub use common::{KeyReceiver, KeyReceiverClient, KEY_RECEIVED_ACK};
 pub mod events;
 pub use events::{SlippageExceeded, SlippageExceededEvent};
 pub mod quote_view_errors;
@@ -390,8 +391,6 @@ pub enum ContractError {
     /// A buy would exceed the configured price ceiling; cool-off is active.
     CeilingReached = 154,
     // --- Social recovery (guardian-based recovery) ---
-    /// No guardians set for the wallet.
-    NoGuardians = 154,
     /// A recovery is already pending for this owner.
     RecoveryAlreadyPending = 155,
     /// No recovery in progress for this owner.
@@ -400,6 +399,8 @@ pub enum ContractError {
     RecoveryThresholdNotMet = 157,
     /// Invalid threshold or guardian count for recovery setup.
     InvalidThreshold = 158,
+    /// No guardians set for the wallet.
+    NoGuardians = 159,
 }
 
 impl ContractError {
@@ -542,6 +543,8 @@ pub enum AllowanceError {
     CooldownActive = 11,
     /// The key is frozen, so the transfer is rejected.
     KeyFrozen = 12,
+    /// A receiver callback is in progress, so a nested transfer is rejected.
+    CallbackInProgress = 13,
 }
 
 /// Errors raised by the sell-tax entrypoints
@@ -2337,6 +2340,30 @@ pub enum DataKey {
     PriceCeilingConfig(Address),
     /// (creator) -> `PriceCeilingStatus` tracking active cool-off state and end ledger.
     PriceCeilingStatus(Address),
+    /// Marks a `transfer_and_call` receiver callback as active.
+    KeyReceiverCallbackActive,
+}
+
+/// Maximum callback payload size accepted by `transfer_and_call`.
+///
+/// Soroban applies its CPU and memory resource limits to the complete
+/// transaction, including receiver execution. This payload limit bounds the
+/// caller-controlled input; receivers should keep callback logic lightweight.
+pub const MAX_KEY_RECEIVER_DATA_LEN: u32 = 256;
+
+fn key_receiver_callback_active(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get::<_, bool>(&DataKey::KeyReceiverCallbackActive)
+        .unwrap_or(false)
+}
+
+fn is_contract_address(env: &Env, address: &Address) -> bool {
+    let xdr = address.clone().to_xdr(env);
+    xdr.get(0) == Some(0)
+        && xdr.get(1) == Some(0)
+        && xdr.get(2) == Some(0)
+        && xdr.get(3) == Some(1)
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
@@ -7517,7 +7544,9 @@ impl CreatorKeysContract {
                 if let Some(ceiling_config) = env
                     .storage()
                     .persistent()
-                    .get::<DataKey, PriceCeilingConfig>(&constants::storage::price_ceiling_config(&creator))
+                    .get::<DataKey, PriceCeilingConfig>(&constants::storage::price_ceiling_config(
+                        &creator,
+                    ))
                 {
                     if post_price > ceiling_config.ceiling {
                         // Check if cool-off is already active
@@ -7638,10 +7667,10 @@ impl CreatorKeysContract {
             // Check launch window cap (anti-sniper mechanism)
             if !launch_window::is_whitelisted(&env, &creator, &buyer) {
                 if let Some(cap) = launch_window::max_buy_now(&env, &creator) {
-                    let cumulative = launch_window::get_cumulative_purchases(&env, &creator, &buyer);
-                    let post_buy_cumulative = cumulative
-                        .checked_add(1)
-                        .ok_or(ContractError::Overflow)?;
+                    let cumulative =
+                        launch_window::get_cumulative_purchases(&env, &creator, &buyer);
+                    let post_buy_cumulative =
+                        cumulative.checked_add(1).ok_or(ContractError::Overflow)?;
                     if post_buy_cumulative > cap {
                         // Emit launch_cap_hit event and break out of the loop
                         env.events().publish(
@@ -14514,11 +14543,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns cumulative purchases for a wallet during the launch window.
-    pub fn get_cumulative_window_purchases(
-        env: Env,
-        creator: Address,
-        wallet: Address,
-    ) -> u32 {
+    pub fn get_cumulative_window_purchases(env: Env, creator: Address, wallet: Address) -> u32 {
         launch_window::get_cumulative_purchases(&env, &creator, &wallet)
     }
 
@@ -14830,6 +14855,7 @@ impl CreatorKeysContract {
     /// - [`ContractError::CooldownActive`] if the sender is inside the creator's buy cooldown.
     /// - [`ContractError::FrozenPosition`] if the sender's frozen keys block the transfer.
     /// - [`ContractError::InsufficientBalance`] if the sender holds fewer keys than `amount`.
+    /// - [`ContractError::TransferAlreadyAccepted`] if called during a receiver callback.
     pub fn transfer_keys(
         env: Env,
         creator: Address,
@@ -14837,6 +14863,9 @@ impl CreatorKeysContract {
         to: Address,
         amount: u32,
     ) -> Result<(), ContractError> {
+        if key_receiver_callback_active(&env) {
+            return Err(ContractError::TransferAlreadyAccepted);
+        }
         from.require_auth();
         assert_not_paused(&env)?;
         key_freeze::assert_key_not_frozen(&env, &creator)?;
@@ -14953,6 +14982,75 @@ impl CreatorKeysContract {
         Ok(())
     }
 
+    /// Transfers keys and invokes the receiver callback when `to` is a contract.
+    ///
+    /// Callback data is limited to [`MAX_KEY_RECEIVER_DATA_LEN`] bytes. Soroban
+    /// enforces CPU and memory budgets transaction-wide, so receiver code must
+    /// remain lightweight; a receiver that exhausts the transaction budget
+    /// causes the transfer to fail atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same transfer errors as [`Self::transfer_keys`], plus
+    /// [`ContractError::BatchTooLarge`] for oversized callback data,
+    /// [`ContractError::TransferNotAccepted`] when the receiver does not return
+    /// [`KEY_RECEIVED_ACK`], and [`ContractError::TransferAlreadyAccepted`] for
+    /// reentrant transfers during the callback.
+    pub fn transfer_and_call(
+        env: Env,
+        creator: Address,
+        from: Address,
+        to: Address,
+        amount: u32,
+        data: Bytes,
+    ) -> Result<(), ContractError> {
+        if data.len() > MAX_KEY_RECEIVER_DATA_LEN {
+            return Err(ContractError::BatchTooLarge);
+        }
+        if key_receiver_callback_active(&env) {
+            return Err(ContractError::TransferAlreadyAccepted);
+        }
+
+        Self::transfer_keys(
+            env.clone(),
+            creator.clone(),
+            from.clone(),
+            to.clone(),
+            amount,
+        )?;
+
+        if is_contract_address(&env, &to) {
+            env.storage()
+                .instance()
+                .set(&DataKey::KeyReceiverCallbackActive, &true);
+            let acknowledgement =
+                KeyReceiverClient::new(&env, &to).on_key_received(&from, &creator, &amount, &data);
+            env.storage()
+                .instance()
+                .remove(&DataKey::KeyReceiverCallbackActive);
+            if acknowledgement != KEY_RECEIVED_ACK {
+                return Err(ContractError::TransferNotAccepted);
+            }
+        }
+
+        let data_hash = env.crypto().sha256(&data);
+        env.events().publish(
+            (
+                Symbol::new(&env, events::TRANSFER_CALLED_EVENT_NAME),
+                creator.clone(),
+                to.clone(),
+            ),
+            events::TransferCalledEvent {
+                creator_id: creator,
+                from,
+                recipient: to,
+                amount,
+                data_hash: data_hash.into(),
+            },
+        );
+        Ok(())
+    }
+
     /// Returns the current withdrawable treasury balance.
     ///
     /// The treasury balance accumulates from the protocol fee portion of every
@@ -14983,12 +15081,16 @@ impl CreatorKeysContract {
     ///   (self-transfer is not allowed inside a batch).
     /// - [`ContractError::InsufficientBalance`] if the sender's available
     ///   balance is less than the sum of all requested quantities.
+    /// - [`ContractError::TransferAlreadyAccepted`] if called during a receiver callback.
     pub fn batch_transfer_keys(
         env: Env,
         creator: Address,
         from: Address,
         transfers: Vec<(Address, u32)>,
     ) -> Result<(), ContractError> {
+        if key_receiver_callback_active(&env) {
+            return Err(ContractError::TransferAlreadyAccepted);
+        }
         from.require_auth();
         assert_not_paused(&env)?;
         key_freeze::assert_key_not_frozen(&env, &creator)?;
@@ -21478,6 +21580,7 @@ impl CreatorKeysContract {
     /// - [`AllowanceError::InsufficientAllowance`] if the remaining allowance is
     ///   below `amount`.
     /// - [`AllowanceError::HoldingCapExceeded`] if `to` would exceed the cap.
+    /// - [`AllowanceError::CallbackInProgress`] if called during a receiver callback.
     pub fn transfer_from(
         env: Env,
         spender: Address,
@@ -21486,6 +21589,9 @@ impl CreatorKeysContract {
         key_id: Address,
         amount: u32,
     ) -> Result<(), AllowanceError> {
+        if key_receiver_callback_active(&env) {
+            return Err(AllowanceError::CallbackInProgress);
+        }
         spender.require_auth();
         assert_not_paused(&env).map_err(|_| AllowanceError::ProtocolPaused)?;
         // A frozen key rejects delegated transfers too (#1174).
@@ -25214,19 +25320,13 @@ impl CreatorKeysContract {
 
     /// Executes the recovery if the delay has elapsed and threshold is met.
     /// After execution, the owner should initiate balance transfers via other methods.
-    pub fn execute_recovery(
-        env: Env,
-        owner: Address,
-    ) -> Result<(), ContractError> {
+    pub fn execute_recovery(env: Env, owner: Address) -> Result<(), ContractError> {
         social_recovery::execute_recovery(&env, &owner)
     }
 
     /// Cancels an active recovery process during the delay period.
     /// Only the original owner can cancel.
-    pub fn cancel_recovery(
-        env: Env,
-        owner: Address,
-    ) -> Result<(), ContractError> {
+    pub fn cancel_recovery(env: Env, owner: Address) -> Result<(), ContractError> {
         social_recovery::cancel_recovery(&env, &owner)
     }
 }
@@ -25244,4 +25344,3 @@ mod test_issue_1056;
 mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
-
