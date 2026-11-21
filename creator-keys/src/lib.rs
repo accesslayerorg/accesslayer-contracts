@@ -86,6 +86,7 @@ pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod supply_milestones;
 pub mod timed_pause;
+pub mod token_rescue;
 pub mod trading_primitives;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 pub mod vote_delegation;
@@ -5915,7 +5916,7 @@ const VAULT_MAX_BATCH: u32 = 10;
 const DEFAULT_ORACLE_STALENESS_SECS: u64 = 3_600;
 
 /// Default timelock delay in seconds (48 hours).
-const DEFAULT_TIMELOCK_DELAY_SECS: u64 = 172_800;
+pub(crate) const DEFAULT_TIMELOCK_DELAY_SECS: u64 = 172_800;
 
 /// Maximum configurable timelock delay in seconds (30 days).
 const MAX_TIMELOCK_DELAY_SECS: u64 = 2_592_000;
@@ -12806,6 +12807,72 @@ impl CreatorKeysContract {
     /// Release any remaining bond after a key has been deprecated.
     pub fn finalize_deprecation(env: Env, key_id: Address) -> Result<i128, BondError> {
         performance_bonds::finalize_deprecation(&env, &key_id)
+    }
+
+    /// Sum of reserves, fees, escrows and stakes the contract holds in `token` (#1238).
+    pub fn tracked_balance(env: Env, token: Address) -> Result<i128, token_rescue::RescueError> {
+        token_rescue::tracked_balance(&env, &token)
+    }
+
+    /// The `token` surplus the admin may rescue: contract balance minus tracked balance.
+    pub fn rescuable(env: Env, token: Address) -> Result<i128, token_rescue::RescueError> {
+        token_rescue::rescuable(&env, &token)
+    }
+
+    /// Amount of `token` above which a rescue requires the timelock delay.
+    pub fn get_rescue_threshold(env: Env, token: Address) -> Option<i128> {
+        token_rescue::rescue_threshold(&env, &token)
+    }
+
+    /// Sets the amount of `token` above which a rescue requires the timelock delay.
+    pub fn set_rescue_threshold(
+        env: Env,
+        admin: Address,
+        token: Address,
+        threshold: i128,
+    ) -> Result<(), token_rescue::RescueError> {
+        token_rescue::set_rescue_threshold(&env, &admin, &token, threshold)
+    }
+
+    /// Queues a rescue above the threshold; returns when it becomes executable.
+    pub fn queue_rescue(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<u64, token_rescue::RescueError> {
+        token_rescue::queue_rescue(&env, &admin, &token, &to, amount)
+    }
+
+    /// Cancels a queued rescue.
+    pub fn cancel_rescue(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), token_rescue::RescueError> {
+        token_rescue::cancel_rescue(&env, &admin, &token, &to, amount)
+    }
+
+    /// Moves `amount` of untracked `token` surplus to `to`.
+    ///
+    /// # Errors
+    ///
+    /// - [`token_rescue::RescueError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`token_rescue::RescueError::NotRescuable`] if `amount` exceeds [`Self::rescuable`].
+    /// - [`token_rescue::RescueError::TimelockRequired`] /
+    ///   [`token_rescue::RescueError::TimelockNotElapsed`] if `amount` is above the
+    ///   threshold and no matching queued rescue has matured.
+    pub fn rescue(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), token_rescue::RescueError> {
+        token_rescue::rescue(&env, &admin, &token, &to, amount)
     }
 
     /// Configures the protocol trade fee charged on every buy and sell.
