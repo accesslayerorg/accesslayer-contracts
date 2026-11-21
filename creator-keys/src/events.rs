@@ -848,6 +848,27 @@ pub struct KeysTransferredEvent {
     pub ledger: u32,
 }
 
+/// Event name for emergency escape reserve redemptions.
+pub const ESCAPE_REDEEMED_EVENT_NAME: Symbol = symbol_short!("esc_rdm");
+
+/// Stable field order for emergency reserve redemption events.
+pub const ESCAPE_REDEEMED_DATA_FIELDS: [&str; 4] = ["holder", "key_id", "amount", "payout"];
+
+/// Emitted after a holder burns keys for a pro-rata reserve payout.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EscapeRedeemedEvent {
+    pub holder: Address,
+    pub key_id: Address,
+    pub amount: u32,
+    pub payout: i128,
+}
+
+/// Shared emergency redemption event topics tuple.
+pub fn escape_redeemed_topics(holder: &Address, key_id: &Address) -> (Symbol, Address, Address) {
+    (ESCAPE_REDEEMED_EVENT_NAME, holder.clone(), key_id.clone())
+}
+
 /// Event name for transfers that request receiver acknowledgement.
 pub const TRANSFER_CALLED_EVENT_NAME: &str = "transfer_called";
 
@@ -5040,10 +5061,7 @@ pub struct LaunchCapHitEvent {
 }
 
 /// Shared launch-window cap event topics tuple.
-pub fn launch_cap_hit_topics(
-    creator: &Address,
-    wallet: &Address,
-) -> (Symbol, Address, Address) {
+pub fn launch_cap_hit_topics(creator: &Address, wallet: &Address) -> (Symbol, Address, Address) {
     (LAUNCH_CAP_HIT_EVENT_NAME, creator.clone(), wallet.clone())
 }
 

@@ -50,6 +50,7 @@ The following table summarizes the events currently implemented in the `creator-
 | `register` | `(Symbol("register"), creator)` | `creator`, `handle`, `supply`, `holder_count`, `creator_bps`, `protocol_bps` | `struct CreatorRegisteredEvent` |
 | `buy` | `(Symbol("buy"), creator, buyer)` | `supply`, `payment` | `tuple (u32, i128)` |
 | `sell` | `(Symbol("sell"), creator, seller)` | `supply` | `tuple (u32)` |
+| `esc_rdm` | `(Symbol("esc_rdm"), holder, key_id)` | `holder`, `key_id`, `amount`, `payout` | `struct EscapeRedeemedEvent` |
 | `transfer_called` | `(Symbol("transfer_called"), creator_id, recipient)` | `creator_id`, `from`, `recipient`, `amount`, `data_hash` | `struct TransferCalledEvent` |
 
 ### Events Added Alongside Reputation, Allowances, Sell Tax and Escalation

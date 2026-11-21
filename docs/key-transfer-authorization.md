@@ -18,6 +18,17 @@ pub fn transfer_keys(
 ) -> Result<(), ContractError>
 ```
 
+## Emergency reserve escape
+
+The protocol records `paused_since` when it enters a pause and clears it on
+unpause. `escape_enabled()` becomes true after `ESCAPE_DELAY_LEDGERS` ledgers
+of continuous pause. `escape_redeem(holder, key_id, amount)` burns the holder's
+keys and credits a pro-rata share of the key reserve to the holder's existing
+pending-payable balance. Redemptions do not apply trading fees or royalties.
+The holder balance, creator supply, and reserve decrease atomically. The final
+holder receives any reserve remainder to prevent rounding dust. While the
+protocol remains paused, normal buy and sell entrypoints remain rejected.
+
 ## Contract receiver callbacks
 
 `transfer_and_call` moves keys using the same authorization and accounting
