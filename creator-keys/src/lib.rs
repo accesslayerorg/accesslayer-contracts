@@ -15116,7 +15116,8 @@ impl CreatorKeysContract {
         let remaining_holder = holder_balance
             .checked_sub(amount)
             .ok_or(ContractError::InsufficientBalance)?;
-        let remaining_supply = profile.supply
+        let remaining_supply = profile
+            .supply
             .checked_sub(amount)
             .ok_or(ContractError::InsufficientSupply)?;
 
