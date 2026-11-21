@@ -64,6 +64,7 @@ pub enum CircuitBreakerRemoteError {
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
+pub mod balance_attestation;
 pub mod bundle;
 pub mod community_polls;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
@@ -88,6 +89,7 @@ pub mod ratings_royalties_dividends;
 pub mod social_recovery;
 pub mod supply_milestones;
 pub mod timed_pause;
+pub mod token_rescue;
 pub mod trading_primitives;
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 pub mod vote_delegation;
@@ -5968,7 +5970,7 @@ const VAULT_MAX_BATCH: u32 = 10;
 const DEFAULT_ORACLE_STALENESS_SECS: u64 = 3_600;
 
 /// Default timelock delay in seconds (48 hours).
-const DEFAULT_TIMELOCK_DELAY_SECS: u64 = 172_800;
+pub(crate) const DEFAULT_TIMELOCK_DELAY_SECS: u64 = 172_800;
 
 /// Maximum configurable timelock delay in seconds (30 days).
 const MAX_TIMELOCK_DELAY_SECS: u64 = 2_592_000;
@@ -12935,6 +12937,122 @@ impl CreatorKeysContract {
     /// Release any remaining bond after a key has been deprecated.
     pub fn finalize_deprecation(env: Env, key_id: Address) -> Result<i128, BondError> {
         performance_bonds::finalize_deprecation(&env, &key_id)
+    }
+
+    /// Sum of reserves, fees, escrows and stakes the contract holds in `token` (#1238).
+    pub fn tracked_balance(env: Env, token: Address) -> Result<i128, token_rescue::RescueError> {
+        token_rescue::tracked_balance(&env, &token)
+    }
+
+    /// The `token` surplus the admin may rescue: contract balance minus tracked balance.
+    pub fn rescuable(env: Env, token: Address) -> Result<i128, token_rescue::RescueError> {
+        token_rescue::rescuable(&env, &token)
+    }
+
+    /// Amount of `token` above which a rescue requires the timelock delay.
+    pub fn get_rescue_threshold(env: Env, token: Address) -> Option<i128> {
+        token_rescue::rescue_threshold(&env, &token)
+    }
+
+    /// Sets the amount of `token` above which a rescue requires the timelock delay.
+    pub fn set_rescue_threshold(
+        env: Env,
+        admin: Address,
+        token: Address,
+        threshold: i128,
+    ) -> Result<(), token_rescue::RescueError> {
+        token_rescue::set_rescue_threshold(&env, &admin, &token, threshold)
+    }
+
+    /// Queues a rescue above the threshold; returns when it becomes executable.
+    pub fn queue_rescue(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<u64, token_rescue::RescueError> {
+        token_rescue::queue_rescue(&env, &admin, &token, &to, amount)
+    }
+
+    /// Cancels a queued rescue.
+    pub fn cancel_rescue(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), token_rescue::RescueError> {
+        token_rescue::cancel_rescue(&env, &admin, &token, &to, amount)
+    }
+
+    /// Moves `amount` of untracked `token` surplus to `to`.
+    ///
+    /// # Errors
+    ///
+    /// - [`token_rescue::RescueError::Unauthorized`] if `admin` is not the protocol admin.
+    /// - [`token_rescue::RescueError::NotRescuable`] if `amount` exceeds [`Self::rescuable`].
+    /// - [`token_rescue::RescueError::TimelockRequired`] /
+    ///   [`token_rescue::RescueError::TimelockNotElapsed`] if `amount` is above the
+    ///   threshold and no matching queued rescue has matured.
+    pub fn rescue(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), token_rescue::RescueError> {
+        token_rescue::rescue(&env, &admin, &token, &to, amount)
+    }
+
+    /// Stores the ed25519 public key allowed to sign balance attestations (#1236).
+    pub fn set_attester(
+        env: Env,
+        admin: Address,
+        public_key: BytesN<32>,
+    ) -> Result<(), balance_attestation::AttestationError> {
+        balance_attestation::set_attester(&env, &admin, &public_key)
+    }
+
+    /// Replaces the attester key, invalidating attestations signed by the old key.
+    pub fn rotate_attester(
+        env: Env,
+        admin: Address,
+        new_key: BytesN<32>,
+    ) -> Result<(), balance_attestation::AttestationError> {
+        balance_attestation::rotate_attester(&env, &admin, &new_key)
+    }
+
+    /// The currently trusted attester key, if any.
+    pub fn get_attester(env: Env) -> Option<BytesN<32>> {
+        balance_attestation::attester(&env)
+    }
+
+    /// Canonical bytes the attester signs for `holder`'s `balance` of `key_id` at `ledger`.
+    pub fn attestation_payload(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        balance: i128,
+        ledger: u32,
+    ) -> Bytes {
+        balance_attestation::attestation_payload(&env, &holder, &key_id, balance, ledger)
+    }
+
+    /// Verifies a balance attestation's signature and freshness.
+    ///
+    /// Returns `true` when valid. Expired or future-dated attestations return
+    /// an [`balance_attestation::AttestationError`]; an invalid signature aborts
+    /// the call, so any failed invocation means "not verified".
+    pub fn verify_attestation(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        balance: i128,
+        ledger: u32,
+        signature: BytesN<64>,
+    ) -> Result<bool, balance_attestation::AttestationError> {
+        balance_attestation::verify_attestation(&env, &holder, &key_id, balance, ledger, &signature)
     }
 
     /// Configures the protocol trade fee charged on every buy and sell.

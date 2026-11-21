@@ -2,6 +2,7 @@
 
 use crate::{
     assert_is_admin, constants, extend_key_ttl_to_full_window, read_registered_creator_profile,
+    token_rescue::{self, TrackedBucket},
     BondError, FeatureKey,
 };
 use soroban_sdk::{contracttype, token::TokenClient, Address, Env, String, Symbol};
@@ -122,6 +123,8 @@ pub fn deposit(env: &Env, key_id: &Address, amount: i128) -> Result<(), BondErro
     let token = xlm_token(env)?;
     TokenClient::new(env, &token).transfer(key_id, &env.current_contract_address(), &amount);
     save_bond_value(env, bond_key, amount);
+    token_rescue::track_credit(env, &token, TrackedBucket::Escrow, amount)
+        .map_err(|_| BondError::Overflow)?;
     Ok(())
 }
 
@@ -175,6 +178,8 @@ pub(crate) fn slash_after_governance(
         &treasury,
         &slash_amount,
     );
+    token_rescue::track_debit(env, &token, TrackedBucket::Escrow, slash_amount)
+        .map_err(|_| BondError::Overflow)?;
 
     let next_slashed = slashed(env, key_id)
         .checked_add(slash_amount)
@@ -215,6 +220,8 @@ fn release_remaining(env: &Env, key_id: &Address) -> Result<i128, BondError> {
     }
     let token = xlm_token(env)?;
     TokenClient::new(env, &token).transfer(&env.current_contract_address(), key_id, &amount);
+    token_rescue::track_debit(env, &token, TrackedBucket::Escrow, amount)
+        .map_err(|_| BondError::Overflow)?;
     let next_released = released(env, key_id)
         .checked_add(amount)
         .ok_or(BondError::Overflow)?;
