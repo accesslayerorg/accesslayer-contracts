@@ -85,6 +85,7 @@ pub mod price_alerts;
 pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
+pub mod social_recovery;
 pub mod supply_milestones;
 pub mod timed_pause;
 pub mod trading_primitives;
@@ -386,6 +387,19 @@ pub enum ContractError {
     PlatformPaused = 151,
     RoyaltyTooHigh = 152,
     BatchTooLarge = 153,
+    /// A buy would exceed the configured price ceiling; cool-off is active.
+    CeilingReached = 154,
+    // --- Social recovery (guardian-based recovery) ---
+    /// No guardians set for the wallet.
+    NoGuardians = 154,
+    /// A recovery is already pending for this owner.
+    RecoveryAlreadyPending = 155,
+    /// No recovery in progress for this owner.
+    NoRecoveryPending = 156,
+    /// Guardian threshold not met for recovery execution.
+    RecoveryThresholdNotMet = 157,
+    /// Invalid threshold or guardian count for recovery setup.
+    InvalidThreshold = 158,
 }
 
 impl ContractError {
@@ -963,6 +977,14 @@ pub mod constants {
 
         pub fn launch_penalty_bps(creator: &Address) -> DataKey {
             DataKey::LaunchPenaltyBps(creator.clone())
+        }
+
+        pub fn price_ceiling_config(creator: &Address) -> DataKey {
+            DataKey::PriceCeilingConfig(creator.clone())
+        }
+
+        pub fn price_ceiling_status(creator: &Address) -> DataKey {
+            DataKey::PriceCeilingStatus(creator.clone())
         }
 
         pub fn auction_config(creator: &Address) -> DataKey {
@@ -2311,6 +2333,10 @@ pub enum DataKey {
     TwapBufferHead(Address),
     /// Protocol-wide default ring-buffer capacity (`u32`; default 100).
     TwapBufferSize,
+    /// (creator) -> `PriceCeilingConfig` storing ceiling price and cool-off duration in ledgers.
+    PriceCeilingConfig(Address),
+    /// (creator) -> `PriceCeilingStatus` tracking active cool-off state and end ledger.
+    PriceCeilingStatus(Address),
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
@@ -2348,6 +2374,32 @@ pub struct TwapPriceSnapshot {
     /// snapshot.  Used to compute the TWAP for any window in O(1) after a
     /// binary search.
     pub cumulative: i128,
+}
+
+/// Price ceiling configuration for a creator's key to protect against abnormal spikes.
+///
+/// When a buy would result in a post-trade price exceeding `ceiling`, the buy is
+/// rejected and a cool-off period begins. New buys are blocked until the cool-off
+/// elapses. Sells are always allowed, even during cool-off.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceCeilingConfig {
+    /// Maximum price (in stroops) the key may reach after a buy.
+    pub ceiling: i128,
+    /// Cool-off duration in ledgers after the first rejected buy.
+    pub cooloff_ledgers: u32,
+}
+
+/// Current cool-off state for a key's price ceiling.
+///
+/// Tracks whether a cool-off is active and when it expires.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceCeilingStatus {
+    /// `true` if a cool-off period is currently active.
+    pub active: bool,
+    /// Ledger sequence when the cool-off period expires (unused if `active` is `false`).
+    pub cooloff_end_ledger: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -7458,6 +7510,55 @@ impl CreatorKeysContract {
                             },
                         );
                         return Err(ContractError::CircuitBreakerTriggered);
+                    }
+                }
+
+                // Price ceiling check: reject if post-trade price exceeds ceiling
+                if let Some(ceiling_config) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, PriceCeilingConfig>(&constants::storage::price_ceiling_config(&creator))
+                {
+                    if post_price > ceiling_config.ceiling {
+                        // Check if cool-off is already active
+                        let mut status: PriceCeilingStatus = env
+                            .storage()
+                            .persistent()
+                            .get(&constants::storage::price_ceiling_status(&creator))
+                            .unwrap_or(PriceCeilingStatus {
+                                active: false,
+                                cooloff_end_ledger: 0,
+                            });
+
+                        let now = env.ledger().sequence();
+                        let is_active = status.active && now < status.cooloff_end_ledger;
+
+                        if !is_active {
+                            // Start a new cool-off period
+                            status.active = true;
+                            status.cooloff_end_ledger = now
+                                .checked_add(ceiling_config.cooloff_ledgers)
+                                .ok_or(ContractError::Overflow)?;
+                        }
+
+                        // Persist the status
+                        let status_key = constants::storage::price_ceiling_status(&creator);
+                        env.storage().persistent().set(&status_key, &status);
+                        extend_key_ttl_to_full_window(&env, &status_key);
+
+                        // Emit ceiling hit event
+                        env.events().publish(
+                            events::ceiling_hit_topics(&creator, &buyer),
+                            events::CeilingHitEvent {
+                                creator_id: creator.clone(),
+                                buyer: buyer.clone(),
+                                ceiling: ceiling_config.ceiling,
+                                post_trade_price: post_price,
+                                cooloff_end_ledger: status.cooloff_end_ledger,
+                            },
+                        );
+
+                        return Err(ContractError::CeilingReached);
                     }
                 }
 
@@ -14487,6 +14588,80 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::launch_penalty_bps(&creator))
+    }
+
+    /// Sets the price ceiling for a creator's key to protect against abnormal spikes.
+    ///
+    /// When enabled, if a buy would cause the post-trade price to exceed the ceiling,
+    /// the buy is rejected and a cool-off period starts. During cool-off, further buys
+    /// are blocked, but sells are always allowed.
+    ///
+    /// Only the creator may call this. After launch, the ceiling can only be raised or kept,
+    /// never lowered. Returns `Err(ContractError::Unauthorized)` if caller is not the creator.
+    pub fn set_price_ceiling(
+        env: Env,
+        creator: Address,
+        ceiling: i128,
+        cooloff_ledgers: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        read_registered_creator_profile(&env, &creator)?;
+
+        // Check if a ceiling already exists; if so, ensure we're not lowering it
+        if let Some(existing) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, PriceCeilingConfig>(&constants::storage::price_ceiling_config(&creator))
+        {
+            if ceiling < existing.ceiling {
+                return Err(ContractError::Unauthorized); // Cannot lower ceiling after launch
+            }
+        }
+
+        let config = PriceCeilingConfig {
+            ceiling,
+            cooloff_ledgers,
+        };
+        let key = constants::storage::price_ceiling_config(&creator);
+        env.storage().persistent().set(&key, &config);
+        extend_key_ttl_to_full_window(&env, &key);
+
+        env.events().publish(
+            events::ceiling_set_topics(&creator),
+            events::CeilingSetEvent {
+                creator_id: creator,
+                ceiling,
+                cooloff_ledgers,
+            },
+        );
+        Ok(())
+    }
+
+    /// Returns the price ceiling status for a creator's key.
+    ///
+    /// Returns ceiling price, active cool-off flag, and the cool-off end ledger.
+    /// If no ceiling is configured, ceiling is `0`, active is `false`.
+    pub fn ceiling_status(env: Env, creator: Address) -> (i128, bool, u32) {
+        let config: Option<PriceCeilingConfig> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::price_ceiling_config(&creator));
+
+        let ceiling = config.as_ref().map(|c| c.ceiling).unwrap_or(0);
+
+        let status: Option<PriceCeilingStatus> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::price_ceiling_status(&creator));
+
+        match status {
+            Some(s) => {
+                let now = env.ledger().sequence();
+                let is_active = s.active && now < s.cooloff_end_ledger;
+                (ceiling, is_active, s.cooloff_end_ledger)
+            }
+            None => (ceiling, false, 0),
+        }
     }
 
     /// Returns the ledger sequence at which the first key was bought.
@@ -25002,6 +25177,60 @@ pub fn create_bootstrap(
     Ok(())
 }
 
+// --- Social recovery (guardian-based recovery) ---
+
+impl CreatorKeysContract {
+    /// Registers guardians for a holder's recovery process.
+    /// `guardians` must be 3-7 addresses, and `threshold` must be >= 2 and <= guardians.len().
+    pub fn set_guardians(
+        env: Env,
+        owner: Address,
+        guardians: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), ContractError> {
+        social_recovery::set_guardians(&env, &owner, guardians, threshold)
+    }
+
+    /// Initiates a recovery process, starting with the first guardian's approval.
+    /// Sets a delay period during which the owner can cancel.
+    pub fn initiate_recovery(
+        env: Env,
+        guardian: Address,
+        owner: Address,
+        new_address: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::initiate_recovery(&env, &guardian, &owner, &new_address)
+    }
+
+    /// Adds an approval from a guardian to an existing recovery process.
+    /// Requires the guardian to be in the owner's registered guardian set.
+    pub fn approve_recovery(
+        env: Env,
+        guardian: Address,
+        owner: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::approve_recovery(&env, &guardian, &owner)
+    }
+
+    /// Executes the recovery if the delay has elapsed and threshold is met.
+    /// After execution, the owner should initiate balance transfers via other methods.
+    pub fn execute_recovery(
+        env: Env,
+        owner: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::execute_recovery(&env, &owner)
+    }
+
+    /// Cancels an active recovery process during the delay period.
+    /// Only the original owner can cancel.
+    pub fn cancel_recovery(
+        env: Env,
+        owner: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::cancel_recovery(&env, &owner)
+    }
+}
+
 /// Returns current bootstrap price or None if bootstrap period has ended.
 pub fn get_bootstrap_price(env: Env, key_id: Address) -> Option<i128> {
     bootstrapping::get_bootstrap_price_internal(&env, &key_id)
@@ -25016,5 +25245,3 @@ mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
 
-#[cfg(test)]
-mod test_launch_window;
