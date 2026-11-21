@@ -1,6 +1,7 @@
 #![no_std]
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
 
+use common::guard::ReentrancyGuard;
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contracterror, contractimpl, contracttype,
@@ -649,10 +650,7 @@ pub mod fee {
         let Some(sum) = creator_bps.checked_add(protocol_bps) else {
             return false;
         };
-        if sum == 0 || sum > BPS_MAX {
-            return false;
-        }
-        true
+        sum != 0 && sum <= BPS_MAX
     }
 
     /// Shared guard for fee config updates that need structured contract errors.
@@ -7424,6 +7422,7 @@ impl CreatorKeysContract {
         referrer: Option<Address>,
         max_slippage_bps: Option<u32>,
     ) -> Result<BuyOutcome, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
@@ -8591,6 +8590,7 @@ impl CreatorKeysContract {
         min_proceeds: Option<i128>,
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         seller.require_auth();
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
@@ -9242,6 +9242,7 @@ impl CreatorKeysContract {
         admin: Address,
         key_id: Address,
     ) -> Result<DeprecationExecution, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         assert_not_paused(&env)?;
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
@@ -9522,6 +9523,7 @@ impl CreatorKeysContract {
         admin: Address,
         key_id: Address,
     ) -> Result<RetirementExecution, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         assert_not_paused(&env)?;
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
@@ -12989,6 +12991,7 @@ impl CreatorKeysContract {
         key_id: Address,
         amount: i128,
     ) -> Result<(), BondError> {
+        let _guard = ReentrancyGuard::enter(&env);
         performance_bonds::deposit(&env, &key_id, amount)
     }
 
@@ -13002,6 +13005,7 @@ impl CreatorKeysContract {
 
     /// Release any remaining bond after a key has been deprecated.
     pub fn finalize_deprecation(env: Env, key_id: Address) -> Result<i128, BondError> {
+        let _guard = ReentrancyGuard::enter(&env);
         performance_bonds::finalize_deprecation(&env, &key_id)
     }
 
@@ -13880,6 +13884,7 @@ impl CreatorKeysContract {
         creator: Address,
         holder: Address,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         holder.require_auth();
         assert_not_paused(&env)?;
 
@@ -15103,7 +15108,7 @@ impl CreatorKeysContract {
         let payout = if profile.supply == amount {
             reserve
         } else {
-            (reserve as i128)
+            reserve
                 .checked_mul(amount as i128)
                 .ok_or(ContractError::Overflow)?
                 .checked_div(profile.supply as i128)
@@ -15626,6 +15631,7 @@ impl CreatorKeysContract {
         holder: Address,
         amount: u32,
     ) -> Result<(), ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         holder.require_auth();
         assert_not_paused(&env)?;
 
@@ -16139,6 +16145,7 @@ impl CreatorKeysContract {
         holder: Address,
         stake_id: u32,
     ) -> Result<StakeRewardClaim, StakingError> {
+        let _guard = ReentrancyGuard::enter(&env);
         holder.require_auth();
         assert_not_paused(&env).map_err(map_staking_error)?;
 
@@ -18886,6 +18893,7 @@ impl CreatorKeysContract {
         key_id: Address,
         creator: Address,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         creator.require_auth();
         if key_id != creator {
             return Err(ContractError::Unauthorized);
@@ -18905,6 +18913,7 @@ impl CreatorKeysContract {
         key_id: Address,
         seller: Address,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         seller.require_auth();
         let key = FeatureKey::SellerProceeds(key_id, seller);
         let amount: i128 = env.storage().persistent().get(&key).unwrap_or(0);

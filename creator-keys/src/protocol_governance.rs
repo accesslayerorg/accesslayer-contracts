@@ -3,6 +3,7 @@ use crate::{
     assert_is_admin, constants, extend_key_ttl_to_full_window, read_registered_creator_profile,
     ContractError, CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient,
 };
+use common::guard::ReentrancyGuard;
 use soroban_sdk::{contractimpl, contracttype, symbol_short, Address, Env, String};
 
 pub const VOTING_SECONDS: u64 = 72 * 60 * 60;
@@ -231,6 +232,7 @@ impl CreatorKeysContract {
     /// Permissionless execution, after 72h voting and a further 24h delay.
     /// At least 10% of snapshot supply must vote, with a strict yes majority.
     pub fn execute_proposal(env: Env, proposal_id: u32) -> Result<(), ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         let mut proposal = read_proposal(&env, proposal_id)?;
         if proposal.executed {
             return Err(ContractError::ActionNotPending);
