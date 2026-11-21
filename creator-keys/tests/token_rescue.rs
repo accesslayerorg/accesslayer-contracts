@@ -32,7 +32,7 @@ fn setup(env: &Env) -> Setup<'_> {
     let (client, contract) = register_creator_keys(env);
     let admin = set_pricing_and_fees(env, &client, 1_000, 9_000, 1_000);
     let token = env
-        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .register_stellar_asset_contract_v2(Address::generate(env))
         .address();
     client.set_xlm_token_address(&admin, &token);
     client.set_min_performance_bond(&admin, &1_000);

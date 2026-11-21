@@ -1,5 +1,5 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
 use crate::ContractError;
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 /// Recovery delay in ledgers (3 days on Stellar ≈ 17,280 ledgers at ~15.5 seconds per ledger)
 pub const RECOVERY_DELAY_LEDGERS: u32 = 17280;
@@ -60,12 +60,12 @@ pub fn set_guardians(
     owner.require_auth();
 
     // Validate guardian count
-    if (guardians.len() as u32) < MIN_GUARDIANS || (guardians.len() as u32) > MAX_GUARDIANS {
+    if guardians.len() < MIN_GUARDIANS || guardians.len() > MAX_GUARDIANS {
         return Err(ContractError::InvalidThreshold);
     }
 
     // Validate threshold
-    if threshold < MIN_THRESHOLD || threshold > guardians.len() as u32 {
+    if threshold < MIN_THRESHOLD || threshold > guardians.len() {
         return Err(ContractError::InvalidThreshold);
     }
 
@@ -82,7 +82,10 @@ pub fn set_guardians(
 
     // Store guardian set
     let guardian_key = soroban_sdk::Symbol::new(env, "guardian_set");
-    let guardian_set = GuardianSet { guardians, threshold };
+    let guardian_set = GuardianSet {
+        guardians,
+        threshold,
+    };
     env.storage()
         .persistent()
         .set(&(guardian_key, owner), &guardian_set);
@@ -262,7 +265,7 @@ pub fn execute_recovery(env: &Env, owner: &Address) -> Result<(), ContractError>
     }
 
     // Check threshold
-    if (recovery_state.approvers.len() as u32) < guardian_set.threshold {
+    if recovery_state.approvers.len() < guardian_set.threshold {
         return Err(ContractError::RecoveryThresholdNotMet);
     }
 

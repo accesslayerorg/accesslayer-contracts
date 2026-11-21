@@ -393,15 +393,15 @@ pub enum ContractError {
     CeilingReached = 154,
     // --- Social recovery (guardian-based recovery) ---
     /// No guardians set for the wallet.
-    NoGuardians = 154,
+    NoGuardians = 155,
     /// A recovery is already pending for this owner.
-    RecoveryAlreadyPending = 155,
+    RecoveryAlreadyPending = 156,
     /// No recovery in progress for this owner.
-    NoRecoveryPending = 156,
+    NoRecoveryPending = 157,
     /// Guardian threshold not met for recovery execution.
-    RecoveryThresholdNotMet = 157,
+    RecoveryThresholdNotMet = 158,
     /// Invalid threshold or guardian count for recovery setup.
-    InvalidThreshold = 158,
+    InvalidThreshold = 159,
 }
 
 impl ContractError {
@@ -7519,7 +7519,9 @@ impl CreatorKeysContract {
                 if let Some(ceiling_config) = env
                     .storage()
                     .persistent()
-                    .get::<DataKey, PriceCeilingConfig>(&constants::storage::price_ceiling_config(&creator))
+                    .get::<DataKey, PriceCeilingConfig>(&constants::storage::price_ceiling_config(
+                        &creator,
+                    ))
                 {
                     if post_price > ceiling_config.ceiling {
                         // Check if cool-off is already active
@@ -7640,10 +7642,10 @@ impl CreatorKeysContract {
             // Check launch window cap (anti-sniper mechanism)
             if !launch_window::is_whitelisted(&env, &creator, &buyer) {
                 if let Some(cap) = launch_window::max_buy_now(&env, &creator) {
-                    let cumulative = launch_window::get_cumulative_purchases(&env, &creator, &buyer);
-                    let post_buy_cumulative = cumulative
-                        .checked_add(1)
-                        .ok_or(ContractError::Overflow)?;
+                    let cumulative =
+                        launch_window::get_cumulative_purchases(&env, &creator, &buyer);
+                    let post_buy_cumulative =
+                        cumulative.checked_add(1).ok_or(ContractError::Overflow)?;
                     if post_buy_cumulative > cap {
                         // Emit launch_cap_hit event and break out of the loop
                         env.events().publish(
@@ -14632,11 +14634,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only view: returns cumulative purchases for a wallet during the launch window.
-    pub fn get_cumulative_window_purchases(
-        env: Env,
-        creator: Address,
-        wallet: Address,
-    ) -> u32 {
+    pub fn get_cumulative_window_purchases(env: Env, creator: Address, wallet: Address) -> u32 {
         launch_window::get_cumulative_purchases(&env, &creator, &wallet)
     }
 
@@ -25332,19 +25330,13 @@ impl CreatorKeysContract {
 
     /// Executes the recovery if the delay has elapsed and threshold is met.
     /// After execution, the owner should initiate balance transfers via other methods.
-    pub fn execute_recovery(
-        env: Env,
-        owner: Address,
-    ) -> Result<(), ContractError> {
+    pub fn execute_recovery(env: Env, owner: Address) -> Result<(), ContractError> {
         social_recovery::execute_recovery(&env, &owner)
     }
 
     /// Cancels an active recovery process during the delay period.
     /// Only the original owner can cancel.
-    pub fn cancel_recovery(
-        env: Env,
-        owner: Address,
-    ) -> Result<(), ContractError> {
+    pub fn cancel_recovery(env: Env, owner: Address) -> Result<(), ContractError> {
         social_recovery::cancel_recovery(&env, &owner)
     }
 }
@@ -25362,4 +25354,3 @@ mod test_issue_1056;
 mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
-
