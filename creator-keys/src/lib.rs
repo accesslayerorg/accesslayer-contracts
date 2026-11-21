@@ -15090,7 +15090,7 @@ impl CreatorKeysContract {
         }
 
         let reserve_key = DataKey::EscapeReserve(key_id.clone());
-        let reserve: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+        let mut reserve: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
         if reserve == 0 {
             let retirement_pool_key = RetirementKey::Pool(key_id.clone());
             reserve = env
