@@ -68,8 +68,7 @@ mod tests {
         }
 
         pub fn run_error(env: Env) -> bool {
-            let result: Result<(), Error> =
-                ReentrancyGuard::run(&env, || Err(Error::Reentrant));
+            let result: Result<(), Error> = ReentrancyGuard::run(&env, || Err(Error::Reentrant));
             result.is_err()
         }
 
@@ -95,10 +94,7 @@ mod tests {
         let env = Env::default();
         let id = env.register(GuardHarness, ());
         let client = GuardHarnessClient::new(&env, &id);
-        assert_eq!(
-            client.try_nested(),
-            Err(Ok(Error::Reentrant))
-        );
+        assert_eq!(client.try_nested(), Err(Ok(Error::Reentrant)));
         assert!(client.run_success());
     }
 }

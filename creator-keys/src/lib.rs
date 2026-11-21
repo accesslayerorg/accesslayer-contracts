@@ -1,13 +1,13 @@
 #![no_std]
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
 
+use common::guard::ReentrancyGuard;
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contracterror, contractimpl, contracttype,
     xdr::ToXdr,
     Address, Bytes, BytesN, Env, IntoVal, String, Symbol, Val, Vec,
 };
-use common::guard::ReentrancyGuard;
 pub mod bootstrapping;
 pub use common::{KeyReceiver, KeyReceiverClient, KEY_RECEIVED_ACK};
 pub mod events;
