@@ -84,6 +84,7 @@ pub mod price_alerts;
 pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
+pub mod social_recovery;
 pub mod supply_milestones;
 pub mod timed_pause;
 pub mod trading_primitives;
@@ -385,6 +386,17 @@ pub enum ContractError {
     PlatformPaused = 151,
     RoyaltyTooHigh = 152,
     BatchTooLarge = 153,
+    // --- Social recovery (guardian-based recovery) ---
+    /// No guardians set for the wallet.
+    NoGuardians = 154,
+    /// A recovery is already pending for this owner.
+    RecoveryAlreadyPending = 155,
+    /// No recovery in progress for this owner.
+    NoRecoveryPending = 156,
+    /// Guardian threshold not met for recovery execution.
+    RecoveryThresholdNotMet = 157,
+    /// Invalid threshold or guardian count for recovery setup.
+    InvalidThreshold = 158,
 }
 
 impl ContractError {
@@ -24893,6 +24905,60 @@ pub fn create_bootstrap(
     admin.require_auth();
     bootstrapping::set_bootstrap_config(&env, &key_id, start_price, end_price, duration_seconds);
     Ok(())
+}
+
+// --- Social recovery (guardian-based recovery) ---
+
+impl CreatorKeysContract {
+    /// Registers guardians for a holder's recovery process.
+    /// `guardians` must be 3-7 addresses, and `threshold` must be >= 2 and <= guardians.len().
+    pub fn set_guardians(
+        env: Env,
+        owner: Address,
+        guardians: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), ContractError> {
+        social_recovery::set_guardians(&env, &owner, guardians, threshold)
+    }
+
+    /// Initiates a recovery process, starting with the first guardian's approval.
+    /// Sets a delay period during which the owner can cancel.
+    pub fn initiate_recovery(
+        env: Env,
+        guardian: Address,
+        owner: Address,
+        new_address: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::initiate_recovery(&env, &guardian, &owner, &new_address)
+    }
+
+    /// Adds an approval from a guardian to an existing recovery process.
+    /// Requires the guardian to be in the owner's registered guardian set.
+    pub fn approve_recovery(
+        env: Env,
+        guardian: Address,
+        owner: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::approve_recovery(&env, &guardian, &owner)
+    }
+
+    /// Executes the recovery if the delay has elapsed and threshold is met.
+    /// After execution, the owner should initiate balance transfers via other methods.
+    pub fn execute_recovery(
+        env: Env,
+        owner: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::execute_recovery(&env, &owner)
+    }
+
+    /// Cancels an active recovery process during the delay period.
+    /// Only the original owner can cancel.
+    pub fn cancel_recovery(
+        env: Env,
+        owner: Address,
+    ) -> Result<(), ContractError> {
+        social_recovery::cancel_recovery(&env, &owner)
+    }
 }
 
 /// Returns current bootstrap price or None if bootstrap period has ended.
