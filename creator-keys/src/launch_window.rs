@@ -240,7 +240,7 @@ mod tests {
         let fraction = (elapsed as u128) * (cap_range as u128) / (window_ledgers as u128);
         let interpolated = start_cap.saturating_add((fraction as u32).min(cap_range));
         assert!(
-            interpolated >= 50 && interpolated <= 60,
+            (50..=60).contains(&interpolated),
             "At midpoint should be ~55"
         );
 

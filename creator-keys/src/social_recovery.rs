@@ -60,12 +60,12 @@ pub fn set_guardians(
     owner.require_auth();
 
     // Validate guardian count
-    if (guardians.len() as u32) < MIN_GUARDIANS || (guardians.len() as u32) > MAX_GUARDIANS {
+    if guardians.len() < MIN_GUARDIANS || guardians.len() > MAX_GUARDIANS {
         return Err(ContractError::InvalidThreshold);
     }
 
     // Validate threshold
-    if threshold < MIN_THRESHOLD || threshold > guardians.len() as u32 {
+    if threshold < MIN_THRESHOLD || threshold > guardians.len() {
         return Err(ContractError::InvalidThreshold);
     }
 
@@ -265,7 +265,7 @@ pub fn execute_recovery(env: &Env, owner: &Address) -> Result<(), ContractError>
     }
 
     // Check threshold
-    if (recovery_state.approvers.len() as u32) < guardian_set.threshold {
+    if recovery_state.approvers.len() < guardian_set.threshold {
         return Err(ContractError::RecoveryThresholdNotMet);
     }
 

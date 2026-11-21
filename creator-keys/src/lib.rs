@@ -650,10 +650,7 @@ pub mod fee {
         let Some(sum) = creator_bps.checked_add(protocol_bps) else {
             return false;
         };
-        if sum == 0 || sum > BPS_MAX {
-            return false;
-        }
-        true
+        sum != 0 && sum <= BPS_MAX
     }
 
     /// Shared guard for fee config updates that need structured contract errors.
@@ -15111,7 +15108,7 @@ impl CreatorKeysContract {
         let payout = if profile.supply == amount {
             reserve
         } else {
-            (reserve as i128)
+            reserve
                 .checked_mul(amount as i128)
                 .ok_or(ContractError::Overflow)?
                 .checked_div(profile.supply as i128)
