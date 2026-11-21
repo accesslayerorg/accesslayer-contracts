@@ -282,10 +282,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "creator-keys"
 version = "0.1.0"
 dependencies = [
  "circuit-breaker",
+ "common",
  "ed25519-dalek",
  "soroban-sdk",
 ]

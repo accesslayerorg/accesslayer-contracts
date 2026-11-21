@@ -848,6 +848,24 @@ pub struct KeysTransferredEvent {
     pub ledger: u32,
 }
 
+/// Event name for transfers that request receiver acknowledgement.
+pub const TRANSFER_CALLED_EVENT_NAME: &str = "transfer_called";
+
+/// Stable field order for a receiver callback transfer event.
+pub const TRANSFER_CALLED_DATA_FIELDS: [&str; 5] =
+    ["creator_id", "from", "recipient", "amount", "data_hash"];
+
+/// Emitted after a `transfer_and_call` succeeds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TransferCalledEvent {
+    pub creator_id: Address,
+    pub from: Address,
+    pub recipient: Address,
+    pub amount: u32,
+    pub data_hash: BytesN<32>,
+}
+
 /// Event name for creator key airdrops.
 pub const KEYS_AIRDROPPED_EVENT_NAME: Symbol = symbol_short!("airdrop");
 
