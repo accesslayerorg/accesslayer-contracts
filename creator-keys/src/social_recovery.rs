@@ -1,5 +1,5 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
 use crate::ContractError;
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 /// Recovery delay in ledgers (3 days on Stellar ≈ 17,280 ledgers at ~15.5 seconds per ledger)
 pub const RECOVERY_DELAY_LEDGERS: u32 = 17280;
@@ -82,7 +82,10 @@ pub fn set_guardians(
 
     // Store guardian set
     let guardian_key = soroban_sdk::Symbol::new(env, "guardian_set");
-    let guardian_set = GuardianSet { guardians, threshold };
+    let guardian_set = GuardianSet {
+        guardians,
+        threshold,
+    };
     env.storage()
         .persistent()
         .set(&(guardian_key, owner), &guardian_set);

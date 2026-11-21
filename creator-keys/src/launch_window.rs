@@ -209,9 +209,7 @@ pub fn remove_from_whitelist(
                 new_list.push_back(addr);
             }
         }
-        env.storage()
-            .persistent()
-            .set(&whitelist_key, &new_list);
+        env.storage().persistent().set(&whitelist_key, &new_list);
         crate::extend_key_ttl_to_full_window(env, &whitelist_key);
     }
 
@@ -243,7 +241,10 @@ mod tests {
         let elapsed = 50u32;
         let fraction = (elapsed as u128) * (cap_range as u128) / (window_ledgers as u128);
         let interpolated = start_cap.saturating_add((fraction as u32).min(cap_range));
-        assert!(interpolated >= 50 && interpolated <= 60, "At midpoint should be ~55");
+        assert!(
+            interpolated >= 50 && interpolated <= 60,
+            "At midpoint should be ~55"
+        );
 
         // At end (ledger 100 of window): should be end_cap
         let elapsed = 100u32;

@@ -88,12 +88,8 @@ impl KeyReceiver for MockReceiver {
             ReceiverMode::Reject => symbol_short!("reject"),
             ReceiverMode::Panic => panic!("receiver rejected transfer"),
             ReceiverMode::Reenter(keys_contract) => {
-                CreatorKeysContractClient::new(&env, &keys_contract).transfer_keys(
-                    &key_id,
-                    &from,
-                    &from,
-                    &amount,
-                );
+                CreatorKeysContractClient::new(&env, &keys_contract)
+                    .transfer_keys(&key_id, &from, &from, &amount);
                 KEY_RECEIVED_ACK
             }
         }
@@ -152,7 +148,10 @@ fn assert_balances(
     recipient_balance: u32,
 ) {
     assert_eq!(client.get_key_balance(creator, sender), sender_balance);
-    assert_eq!(client.get_key_balance(creator, recipient), recipient_balance);
+    assert_eq!(
+        client.get_key_balance(creator, recipient),
+        recipient_balance
+    );
 }
 
 #[test]

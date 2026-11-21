@@ -5016,7 +5016,6 @@ pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
     (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }
 
-
 /// Event name for price ceiling set.
 pub const CEILING_SET_EVENT_NAME: Symbol = symbol_short!("ceil_set");
 
