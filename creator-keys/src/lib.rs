@@ -401,6 +401,8 @@ pub enum ContractError {
     InvalidThreshold = 158,
     /// No guardians set for the wallet.
     NoGuardians = 159,
+    /// Emergency reserve escape is not enabled yet.
+    EscapeNotEnabled = 160,
 }
 
 impl ContractError {
@@ -852,6 +854,7 @@ pub mod constants {
         pub const PROTOCOL_FEE_RECIPIENT_BALANCE: DataKey = DataKey::ProtocolFeeRecipientBalance;
         pub const PROTOCOL_STATE_VERSION: DataKey = DataKey::ProtocolStateVersion;
         pub const PAUSED: DataKey = DataKey::Paused;
+        pub const PAUSED_SINCE: DataKey = DataKey::PausedSince;
         pub const CONTRACT_VERSION: DataKey = DataKey::ContractVersion;
         pub const SUPPLY_MILESTONES: DataKey = DataKey::SupplyMilestones;
         pub const CURVE_SLOPE: DataKey = DataKey::CurveSlope;
@@ -2342,6 +2345,10 @@ pub enum DataKey {
     PriceCeilingStatus(Address),
     /// Marks a `transfer_and_call` receiver callback as active.
     KeyReceiverCallbackActive,
+    /// Ledger at which the protocol was placed in a prolonged pause.
+    PausedSince,
+    /// Per-key reserve available to the emergency escape redemption flow.
+    EscapeReserve(Address),
 }
 
 /// Maximum callback payload size accepted by `transfer_and_call`.
@@ -2350,6 +2357,9 @@ pub enum DataKey {
 /// transaction, including receiver execution. This payload limit bounds the
 /// caller-controlled input; receivers should keep callback logic lightweight.
 pub const MAX_KEY_RECEIVER_DATA_LEN: u32 = 256;
+
+/// Ledgers a protocol pause must persist before emergency reserve escape is enabled.
+pub const ESCAPE_DELAY_LEDGERS: u32 = 17_280;
 
 fn key_receiver_callback_active(env: &Env) -> bool {
     env.storage()
@@ -2360,10 +2370,7 @@ fn key_receiver_callback_active(env: &Env) -> bool {
 
 fn is_contract_address(env: &Env, address: &Address) -> bool {
     let xdr = address.clone().to_xdr(env);
-    xdr.get(0) == Some(0)
-        && xdr.get(1) == Some(0)
-        && xdr.get(2) == Some(0)
-        && xdr.get(3) == Some(1)
+    xdr.get(0) == Some(0) && xdr.get(1) == Some(0) && xdr.get(2) == Some(0) && xdr.get(3) == Some(1)
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
@@ -3751,6 +3758,42 @@ fn is_paused(env: &Env) -> bool {
         .persistent()
         .get::<DataKey, bool>(&constants::storage::PAUSED)
         .unwrap_or(false)
+}
+
+fn set_protocol_paused(env: &Env, paused: bool) {
+    env.storage()
+        .persistent()
+        .set(&constants::storage::PAUSED, &paused);
+    if paused {
+        if !env
+            .storage()
+            .persistent()
+            .has(&constants::storage::PAUSED_SINCE)
+        {
+            env.storage()
+                .persistent()
+                .set(&constants::storage::PAUSED_SINCE, &env.ledger().sequence());
+            extend_key_ttl_to_full_window(env, &constants::storage::PAUSED_SINCE);
+        }
+    } else {
+        env.storage()
+            .persistent()
+            .remove(&constants::storage::PAUSED_SINCE);
+    }
+}
+
+pub fn escape_enabled(env: &Env) -> bool {
+    if !is_paused(env) {
+        return false;
+    }
+    let Some(paused_since) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, u32>(&constants::storage::PAUSED_SINCE)
+    else {
+        return false;
+    };
+    env.ledger().sequence().saturating_sub(paused_since) >= ESCAPE_DELAY_LEDGERS
 }
 
 /// Emits one `MilestoneCrossed` event per configured supply milestone crossed
@@ -9895,9 +9938,7 @@ impl CreatorKeysContract {
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&constants::storage::PAUSED, &true);
+        set_protocol_paused(&env, true);
         env.events()
             .publish((events::PAUSE_EVENT_NAME, admin.clone()), ());
         env.events().publish(
@@ -9916,9 +9957,7 @@ impl CreatorKeysContract {
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&constants::storage::PAUSED, &false);
+        set_protocol_paused(&env, false);
         env.events()
             .publish((events::UNPAUSE_EVENT_NAME, admin.clone()), ());
         env.events().publish(
@@ -14982,6 +15021,155 @@ impl CreatorKeysContract {
         Ok(())
     }
 
+    /// Returns whether the prolonged-pause emergency escape is enabled.
+    pub fn escape_enabled(env: Env) -> bool {
+        escape_enabled(&env)
+    }
+
+    /// Funds a key's reserve used for emergency pro-rata redemption.
+    pub fn fund_escape_reserve(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        amount: i128,
+    ) -> Result<i128, ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        read_registered_creator_profile(&env, &key_id)?;
+        if amount <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        let reserve_key = DataKey::EscapeReserve(key_id);
+        let current: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+        let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&reserve_key, &updated);
+        extend_key_ttl_to_full_window(&env, &reserve_key);
+        Ok(updated)
+    }
+
+    /// Returns the reserve available for emergency redemption of a key.
+    pub fn get_escape_reserve(env: Env, key_id: Address) -> i128 {
+        let reserve_key = DataKey::EscapeReserve(key_id.clone());
+        let escape_reserve: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+        if escape_reserve > 0 {
+            return escape_reserve;
+        }
+        env.storage()
+            .persistent()
+            .get(&RetirementKey::Pool(key_id))
+            .unwrap_or(0)
+    }
+
+    /// Burns `amount` key units and pays the holder its pro-rata reserve share.
+    ///
+    /// Available only after [`ESCAPE_DELAY_LEDGERS`] ledgers of a continuous
+    /// protocol pause. The call is exact-once: the holder balance and creator
+    /// supply are reduced atomically before the pending payout is credited.
+    pub fn escape_redeem(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        amount: u32,
+    ) -> Result<i128, ContractError> {
+        holder.require_auth();
+        if !escape_enabled(&env) {
+            return Err(ContractError::EscapeNotEnabled);
+        }
+        if amount == 0 {
+            return Err(ContractError::ZeroTransferAmount);
+        }
+
+        let mut profile = read_registered_creator_profile(&env, &key_id)?;
+        let holder_key = constants::storage::holder_balance_key(&key_id, &holder);
+        let holder_balance: u32 = env.storage().persistent().get(&holder_key).unwrap_or(0);
+        if holder_balance < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+        if profile.supply < amount {
+            return Err(ContractError::InsufficientSupply);
+        }
+
+        let reserve_key = DataKey::EscapeReserve(key_id.clone());
+        let reserve: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+        if reserve == 0 {
+            let retirement_pool_key = RetirementKey::Pool(key_id.clone());
+            reserve = env
+                .storage()
+                .persistent()
+                .get(&retirement_pool_key)
+                .unwrap_or(0);
+        }
+
+        let payout = if profile.supply == amount {
+            reserve
+        } else {
+            (reserve as i128)
+                .checked_mul(amount as i128)
+                .ok_or(ContractError::Overflow)?
+                .checked_div(profile.supply as i128)
+                .ok_or(ContractError::Overflow)?
+        };
+        if payout < 0 || payout > reserve {
+            return Err(ContractError::Overflow);
+        }
+
+        let remaining_holder = holder_balance
+            .checked_sub(amount)
+            .ok_or(ContractError::InsufficientBalance)?;
+        let remaining_supply = profile
+            .supply
+            .checked_sub(amount)
+            .ok_or(ContractError::InsufficientSupply)?;
+
+        if remaining_holder == 0 {
+            env.storage().persistent().remove(&holder_key);
+            profile.holder_count = profile.holder_count.saturating_sub(1);
+            vote_delegation::prune_if_zero_balance(&env, &key_id, &holder);
+        } else {
+            env.storage()
+                .persistent()
+                .set(&holder_key, &remaining_holder);
+            extend_key_ttl_to_full_window(&env, &holder_key);
+        }
+
+        profile.supply = remaining_supply;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::creator(&key_id), &profile);
+        extend_key_ttl_to_full_window(&env, &constants::storage::creator(&key_id));
+
+        let remaining_reserve = reserve
+            .checked_sub(payout)
+            .ok_or(ContractError::InsufficientEscrow)?;
+        if remaining_reserve == 0 {
+            env.storage().persistent().remove(&reserve_key);
+            env.storage()
+                .persistent()
+                .remove(&RetirementKey::Pool(key_id.clone()));
+        } else {
+            env.storage()
+                .persistent()
+                .set(&reserve_key, &remaining_reserve);
+            extend_key_ttl_to_full_window(&env, &reserve_key);
+            env.storage()
+                .persistent()
+                .set(&RetirementKey::Pool(key_id.clone()), &remaining_reserve);
+        }
+
+        credit_holder_pending_dividend(&env, &key_id, &holder, payout)?;
+
+        env.events().publish(
+            events::escape_redeemed_topics(&holder, &key_id),
+            events::EscapeRedeemedEvent {
+                holder,
+                key_id,
+                amount,
+                payout,
+            },
+        );
+        Ok(payout)
+    }
+
     /// Transfers keys and invokes the receiver callback when `to` is a contract.
     ///
     /// Callback data is limited to [`MAX_KEY_RECEIVER_DATA_LEN`] bytes. Soroban
@@ -16320,9 +16508,7 @@ impl CreatorKeysContract {
         }
 
         // Threshold reached — execute pause
-        env.storage()
-            .persistent()
-            .set(&constants::storage::PAUSED, &true);
+        set_protocol_paused(&env, true);
 
         // Reset all proposals
         for admin in config.admins.iter() {
