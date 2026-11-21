@@ -79,6 +79,7 @@ pub mod performance_bonds;
 pub mod issue_primitives;
 pub mod key_freeze;
 pub mod key_ownership_transfer;
+pub mod launch_window;
 pub mod lp_reward;
 pub mod price_alerts;
 pub mod protocol_governance;
@@ -7634,6 +7635,30 @@ impl CreatorKeysContract {
                 }
             }
 
+            // Check launch window cap (anti-sniper mechanism)
+            if !launch_window::is_whitelisted(&env, &creator, &buyer) {
+                if let Some(cap) = launch_window::max_buy_now(&env, &creator) {
+                    let cumulative = launch_window::get_cumulative_purchases(&env, &creator, &buyer);
+                    let post_buy_cumulative = cumulative
+                        .checked_add(1)
+                        .ok_or(ContractError::Overflow)?;
+                    if post_buy_cumulative > cap {
+                        // Emit launch_cap_hit event and break out of the loop
+                        env.events().publish(
+                            events::launch_cap_hit_topics(&creator, &buyer),
+                            events::LaunchCapHitEvent {
+                                creator_id: creator.clone(),
+                                wallet: buyer.clone(),
+                                current_cap: cap,
+                                cumulative_purchased: cumulative,
+                                attempted_amount: 1u32,
+                            },
+                        );
+                        break;
+                    }
+                }
+            }
+
             if total_price
                 .checked_add(key_price)
                 .is_none_or(|t| t > payment)
@@ -7695,6 +7720,9 @@ impl CreatorKeysContract {
             // survive the same horizon as creator state between trades.
             extend_key_ttl_to_full_window(&env, &balance_key);
             append_holder_to_registry(&env, &creator, &buyer);
+
+            // Record purchase for launch window cap tracking
+            launch_window::record_purchase(&env, &creator, &buyer, 1)?;
 
             // Flash-loan guard (issue #781): record this buy's ledger so sell_key can
             // reject a same-ledger sell of the position just bought.
@@ -14451,6 +14479,85 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::max_buy_quantity(&creator))
+    }
+
+    // -------------------------------------------------------------------------
+    // Launch window anti-sniper caps
+    // -------------------------------------------------------------------------
+
+    /// Configures the launch window with per-wallet purchase caps and ramped limits.
+    ///
+    /// Only callable by the key creator before or during the launch window.
+    /// `window_ledgers` is the duration of the window in ledgers.
+    /// `start_cap` is the initial per-wallet cap (in keys) at window start.
+    /// `end_cap` is the final per-wallet cap at window end.
+    /// The cap increases monotonically (linearly) from start_cap to end_cap.
+    ///
+    /// After the window ends, no per-wallet cap applies unless reconfigured.
+    pub fn set_launch_window(
+        env: Env,
+        creator: Address,
+        window_ledgers: u32,
+        start_cap: u32,
+        end_cap: u32,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        launch_window::set_launch_window(&env, &creator, window_ledgers, start_cap, end_cap)
+    }
+
+    /// Read-only view: returns the current per-wallet purchase cap during the launch window.
+    ///
+    /// Returns `None` if outside the launch window (no cap applies).
+    /// Otherwise, returns the current cap in keys, interpolated between start_cap and end_cap.
+    pub fn get_launch_window_cap(env: Env, creator: Address) -> Option<u32> {
+        launch_window::max_buy_now(&env, &creator)
+    }
+
+    /// Read-only view: returns cumulative purchases for a wallet during the launch window.
+    pub fn get_cumulative_window_purchases(
+        env: Env,
+        creator: Address,
+        wallet: Address,
+    ) -> u32 {
+        launch_window::get_cumulative_purchases(&env, &creator, &wallet)
+    }
+
+    /// Enables or disables whitelist bypass for launch window caps.
+    ///
+    /// Only callable by the key creator. When enabled, the creator and whitelisted
+    /// addresses can bypass the launch window purchase cap.
+    pub fn set_launch_window_bypass_enabled(
+        env: Env,
+        creator: Address,
+        enabled: bool,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        launch_window::set_bypass_enabled(&env, &creator, enabled)
+    }
+
+    /// Adds an address to the launch window whitelist bypass.
+    ///
+    /// Only callable by the key creator. Whitelisted addresses bypass launch window caps.
+    /// Bypass must be enabled first via `set_launch_window_bypass_enabled`.
+    pub fn add_launch_window_whitelist(
+        env: Env,
+        creator: Address,
+        address: Address,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        launch_window::add_to_whitelist(&env, &creator, &address)
+    }
+
+    /// Removes an address from the launch window whitelist bypass.
+    ///
+    /// Only callable by the key creator.
+    pub fn remove_launch_window_whitelist(
+        env: Env,
+        creator: Address,
+        address: Address,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        launch_window::remove_from_whitelist(&env, &creator, &address)
     }
 
     /// Sets the launch penalty basis points for a creator's keys.
