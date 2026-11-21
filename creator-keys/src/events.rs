@@ -5016,6 +5016,37 @@ pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
     (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }
 
+/// Event name for a purchase rejected by the launch-window wallet cap.
+pub const LAUNCH_CAP_HIT_EVENT_NAME: Symbol = symbol_short!("lnch_cap");
+
+/// Stable field order for launch-window cap rejections.
+pub const LAUNCH_CAP_HIT_DATA_FIELDS: [&str; 5] = [
+    "creator_id",
+    "wallet",
+    "current_cap",
+    "cumulative_purchased",
+    "attempted_amount",
+];
+
+/// Emitted when a purchase reaches the launch-window per-wallet cap.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LaunchCapHitEvent {
+    pub creator_id: Address,
+    pub wallet: Address,
+    pub current_cap: u32,
+    pub cumulative_purchased: u32,
+    pub attempted_amount: u32,
+}
+
+/// Shared launch-window cap event topics tuple.
+pub fn launch_cap_hit_topics(
+    creator: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (LAUNCH_CAP_HIT_EVENT_NAME, creator.clone(), wallet.clone())
+}
+
 /// Event name for price ceiling set.
 pub const CEILING_SET_EVENT_NAME: Symbol = symbol_short!("ceil_set");
 

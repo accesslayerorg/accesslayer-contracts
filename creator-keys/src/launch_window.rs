@@ -218,8 +218,6 @@ pub fn remove_from_whitelist(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_launch_window_cap_ramp() {
         // This test demonstrates the ramping behavior.

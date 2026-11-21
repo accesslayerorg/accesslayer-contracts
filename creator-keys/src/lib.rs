@@ -391,8 +391,6 @@ pub enum ContractError {
     /// A buy would exceed the configured price ceiling; cool-off is active.
     CeilingReached = 154,
     // --- Social recovery (guardian-based recovery) ---
-    /// No guardians set for the wallet.
-    NoGuardians = 154,
     /// A recovery is already pending for this owner.
     RecoveryAlreadyPending = 155,
     /// No recovery in progress for this owner.
@@ -401,6 +399,8 @@ pub enum ContractError {
     RecoveryThresholdNotMet = 157,
     /// Invalid threshold or guardian count for recovery setup.
     InvalidThreshold = 158,
+    /// No guardians set for the wallet.
+    NoGuardians = 159,
 }
 
 impl ContractError {
@@ -2356,6 +2356,14 @@ fn key_receiver_callback_active(env: &Env) -> bool {
         .instance()
         .get::<_, bool>(&DataKey::KeyReceiverCallbackActive)
         .unwrap_or(false)
+}
+
+fn is_contract_address(env: &Env, address: &Address) -> bool {
+    let xdr = address.clone().to_xdr(env);
+    xdr.get(0) == Some(0)
+        && xdr.get(1) == Some(0)
+        && xdr.get(2) == Some(0)
+        && xdr.get(3) == Some(1)
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
@@ -15011,7 +15019,7 @@ impl CreatorKeysContract {
             amount,
         )?;
 
-        if to.is_contract() {
+        if is_contract_address(&env, &to) {
             env.storage()
                 .instance()
                 .set(&DataKey::KeyReceiverCallbackActive, &true);
@@ -15037,7 +15045,7 @@ impl CreatorKeysContract {
                 from,
                 recipient: to,
                 amount,
-                data_hash,
+                data_hash: data_hash.into(),
             },
         );
         Ok(())
