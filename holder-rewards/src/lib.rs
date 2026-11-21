@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, token::TokenClient,
     Address, Env, Vec,
 };
+use common::guard::ReentrancyGuard;
 
 pub mod events;
 
@@ -254,6 +255,7 @@ impl HolderRewardsContract {
         reward_token: Address,
         total_amount: i128,
     ) -> Result<u64, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         caller.require_auth();
 
         let admin = read_admin(&env).ok_or(ContractError::NotInitialized)?;
@@ -354,6 +356,7 @@ impl HolderRewardsContract {
         airdrop_id: u64,
         caller: Address,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         caller.require_auth();
 
         let mut airdrop = read_airdrop(&env, airdrop_id).ok_or(ContractError::AirdropNotFound)?;

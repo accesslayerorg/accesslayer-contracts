@@ -1,6 +1,7 @@
 #![no_std]
 #![allow(clippy::enum_variant_names)] // `contracttype` macro-generated enums share prefixes by design
 
+use common::guard::ReentrancyGuard;
 use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contracterror, contractimpl, contracttype,
@@ -8,6 +9,7 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, IntoVal, String, Symbol, Val, Vec,
 };
 pub mod bootstrapping;
+pub use common::{KeyReceiver, KeyReceiverClient, KEY_RECEIVED_ACK};
 pub mod events;
 pub use events::{SlippageExceeded, SlippageExceededEvent};
 pub mod quote_view_errors;
@@ -402,6 +404,11 @@ pub enum ContractError {
     RecoveryThresholdNotMet = 158,
     /// Invalid threshold or guardian count for recovery setup.
     InvalidThreshold = 159,
+    InvalidThreshold = 158,
+    /// No guardians set for the wallet.
+    NoGuardians = 159,
+    /// Emergency reserve escape is not enabled yet.
+    EscapeNotEnabled = 160,
 }
 
 impl ContractError {
@@ -544,6 +551,8 @@ pub enum AllowanceError {
     CooldownActive = 11,
     /// The key is frozen, so the transfer is rejected.
     KeyFrozen = 12,
+    /// A receiver callback is in progress, so a nested transfer is rejected.
+    CallbackInProgress = 13,
 }
 
 /// Errors raised by the sell-tax entrypoints
@@ -646,10 +655,7 @@ pub mod fee {
         let Some(sum) = creator_bps.checked_add(protocol_bps) else {
             return false;
         };
-        if sum == 0 || sum > BPS_MAX {
-            return false;
-        }
-        true
+        sum != 0 && sum <= BPS_MAX
     }
 
     /// Shared guard for fee config updates that need structured contract errors.
@@ -851,6 +857,7 @@ pub mod constants {
         pub const PROTOCOL_FEE_RECIPIENT_BALANCE: DataKey = DataKey::ProtocolFeeRecipientBalance;
         pub const PROTOCOL_STATE_VERSION: DataKey = DataKey::ProtocolStateVersion;
         pub const PAUSED: DataKey = DataKey::Paused;
+        pub const PAUSED_SINCE: DataKey = DataKey::PausedSince;
         pub const CONTRACT_VERSION: DataKey = DataKey::ContractVersion;
         pub const SUPPLY_MILESTONES: DataKey = DataKey::SupplyMilestones;
         pub const CURVE_SLOPE: DataKey = DataKey::CurveSlope;
@@ -2339,6 +2346,34 @@ pub enum DataKey {
     PriceCeilingConfig(Address),
     /// (creator) -> `PriceCeilingStatus` tracking active cool-off state and end ledger.
     PriceCeilingStatus(Address),
+    /// Marks a `transfer_and_call` receiver callback as active.
+    KeyReceiverCallbackActive,
+    /// Ledger at which the protocol was placed in a prolonged pause.
+    PausedSince,
+    /// Per-key reserve available to the emergency escape redemption flow.
+    EscapeReserve(Address),
+}
+
+/// Maximum callback payload size accepted by `transfer_and_call`.
+///
+/// Soroban applies its CPU and memory resource limits to the complete
+/// transaction, including receiver execution. This payload limit bounds the
+/// caller-controlled input; receivers should keep callback logic lightweight.
+pub const MAX_KEY_RECEIVER_DATA_LEN: u32 = 256;
+
+/// Ledgers a protocol pause must persist before emergency reserve escape is enabled.
+pub const ESCAPE_DELAY_LEDGERS: u32 = 17_280;
+
+fn key_receiver_callback_active(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get::<_, bool>(&DataKey::KeyReceiverCallbackActive)
+        .unwrap_or(false)
+}
+
+fn is_contract_address(env: &Env, address: &Address) -> bool {
+    let xdr = address.clone().to_xdr(env);
+    xdr.get(0) == Some(0) && xdr.get(1) == Some(0) && xdr.get(2) == Some(0) && xdr.get(3) == Some(1)
 }
 
 /// Per-key trade size limits enforced inside [`CreatorKeysContract::swap`].
@@ -3726,6 +3761,42 @@ fn is_paused(env: &Env) -> bool {
         .persistent()
         .get::<DataKey, bool>(&constants::storage::PAUSED)
         .unwrap_or(false)
+}
+
+fn set_protocol_paused(env: &Env, paused: bool) {
+    env.storage()
+        .persistent()
+        .set(&constants::storage::PAUSED, &paused);
+    if paused {
+        if !env
+            .storage()
+            .persistent()
+            .has(&constants::storage::PAUSED_SINCE)
+        {
+            env.storage()
+                .persistent()
+                .set(&constants::storage::PAUSED_SINCE, &env.ledger().sequence());
+            extend_key_ttl_to_full_window(env, &constants::storage::PAUSED_SINCE);
+        }
+    } else {
+        env.storage()
+            .persistent()
+            .remove(&constants::storage::PAUSED_SINCE);
+    }
+}
+
+pub fn escape_enabled(env: &Env) -> bool {
+    if !is_paused(env) {
+        return false;
+    }
+    let Some(paused_since) = env
+        .storage()
+        .persistent()
+        .get::<DataKey, u32>(&constants::storage::PAUSED_SINCE)
+    else {
+        return false;
+    };
+    env.ledger().sequence().saturating_sub(paused_since) >= ESCAPE_DELAY_LEDGERS
 }
 
 /// Emits one `MilestoneCrossed` event per configured supply milestone crossed
@@ -7356,6 +7427,7 @@ impl CreatorKeysContract {
         referrer: Option<Address>,
         max_slippage_bps: Option<u32>,
     ) -> Result<BuyOutcome, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
@@ -8523,6 +8595,7 @@ impl CreatorKeysContract {
         min_proceeds: Option<i128>,
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         seller.require_auth();
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
@@ -9174,6 +9247,7 @@ impl CreatorKeysContract {
         admin: Address,
         key_id: Address,
     ) -> Result<DeprecationExecution, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         assert_not_paused(&env)?;
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
@@ -9454,6 +9528,7 @@ impl CreatorKeysContract {
         admin: Address,
         key_id: Address,
     ) -> Result<RetirementExecution, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         assert_not_paused(&env)?;
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
@@ -9870,9 +9945,7 @@ impl CreatorKeysContract {
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&constants::storage::PAUSED, &true);
+        set_protocol_paused(&env, true);
         env.events()
             .publish((events::PAUSE_EVENT_NAME, admin.clone()), ());
         env.events().publish(
@@ -9891,9 +9964,7 @@ impl CreatorKeysContract {
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&constants::storage::PAUSED, &false);
+        set_protocol_paused(&env, false);
         env.events()
             .publish((events::UNPAUSE_EVENT_NAME, admin.clone()), ());
         env.events().publish(
@@ -12925,6 +12996,7 @@ impl CreatorKeysContract {
         key_id: Address,
         amount: i128,
     ) -> Result<(), BondError> {
+        let _guard = ReentrancyGuard::enter(&env);
         performance_bonds::deposit(&env, &key_id, amount)
     }
 
@@ -12938,6 +13010,7 @@ impl CreatorKeysContract {
 
     /// Release any remaining bond after a key has been deprecated.
     pub fn finalize_deprecation(env: Env, key_id: Address) -> Result<i128, BondError> {
+        let _guard = ReentrancyGuard::enter(&env);
         performance_bonds::finalize_deprecation(&env, &key_id)
     }
 
@@ -13932,6 +14005,7 @@ impl CreatorKeysContract {
         creator: Address,
         holder: Address,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         holder.require_auth();
         assert_not_paused(&env)?;
 
@@ -14946,6 +15020,7 @@ impl CreatorKeysContract {
     /// - [`ContractError::CooldownActive`] if the sender is inside the creator's buy cooldown.
     /// - [`ContractError::FrozenPosition`] if the sender's frozen keys block the transfer.
     /// - [`ContractError::InsufficientBalance`] if the sender holds fewer keys than `amount`.
+    /// - [`ContractError::TransferAlreadyAccepted`] if called during a receiver callback.
     pub fn transfer_keys(
         env: Env,
         creator: Address,
@@ -14953,6 +15028,9 @@ impl CreatorKeysContract {
         to: Address,
         amount: u32,
     ) -> Result<(), ContractError> {
+        if key_receiver_callback_active(&env) {
+            return Err(ContractError::TransferAlreadyAccepted);
+        }
         from.require_auth();
         assert_not_paused(&env)?;
         key_freeze::assert_key_not_frozen(&env, &creator)?;
@@ -15069,6 +15147,224 @@ impl CreatorKeysContract {
         Ok(())
     }
 
+    /// Returns whether the prolonged-pause emergency escape is enabled.
+    pub fn escape_enabled(env: Env) -> bool {
+        escape_enabled(&env)
+    }
+
+    /// Funds a key's reserve used for emergency pro-rata redemption.
+    pub fn fund_escape_reserve(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        amount: i128,
+    ) -> Result<i128, ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        read_registered_creator_profile(&env, &key_id)?;
+        if amount <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        let reserve_key = DataKey::EscapeReserve(key_id);
+        let current: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+        let updated = current.checked_add(amount).ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&reserve_key, &updated);
+        extend_key_ttl_to_full_window(&env, &reserve_key);
+        Ok(updated)
+    }
+
+    /// Returns the reserve available for emergency redemption of a key.
+    pub fn get_escape_reserve(env: Env, key_id: Address) -> i128 {
+        let reserve_key = DataKey::EscapeReserve(key_id.clone());
+        let escape_reserve: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+        if escape_reserve > 0 {
+            return escape_reserve;
+        }
+        env.storage()
+            .persistent()
+            .get(&RetirementKey::Pool(key_id))
+            .unwrap_or(0)
+    }
+
+    /// Burns `amount` key units and pays the holder its pro-rata reserve share.
+    ///
+    /// Available only after [`ESCAPE_DELAY_LEDGERS`] ledgers of a continuous
+    /// protocol pause. The call is exact-once: the holder balance and creator
+    /// supply are reduced atomically before the pending payout is credited.
+    pub fn escape_redeem(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        amount: u32,
+    ) -> Result<i128, ContractError> {
+        holder.require_auth();
+        if !escape_enabled(&env) {
+            return Err(ContractError::EscapeNotEnabled);
+        }
+        if amount == 0 {
+            return Err(ContractError::ZeroTransferAmount);
+        }
+
+        let mut profile = read_registered_creator_profile(&env, &key_id)?;
+        let holder_key = constants::storage::holder_balance_key(&key_id, &holder);
+        let holder_balance: u32 = env.storage().persistent().get(&holder_key).unwrap_or(0);
+        if holder_balance < amount {
+            return Err(ContractError::InsufficientBalance);
+        }
+        if profile.supply < amount {
+            return Err(ContractError::InsufficientSupply);
+        }
+
+        let reserve_key = DataKey::EscapeReserve(key_id.clone());
+        let mut reserve: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+        if reserve == 0 {
+            let retirement_pool_key = RetirementKey::Pool(key_id.clone());
+            reserve = env
+                .storage()
+                .persistent()
+                .get(&retirement_pool_key)
+                .unwrap_or(0);
+        }
+
+        let payout = if profile.supply == amount {
+            reserve
+        } else {
+            reserve
+                .checked_mul(amount as i128)
+                .ok_or(ContractError::Overflow)?
+                .checked_div(profile.supply as i128)
+                .ok_or(ContractError::Overflow)?
+        };
+        if payout < 0 || payout > reserve {
+            return Err(ContractError::Overflow);
+        }
+
+        let remaining_holder = holder_balance
+            .checked_sub(amount)
+            .ok_or(ContractError::InsufficientBalance)?;
+        let remaining_supply = profile
+            .supply
+            .checked_sub(amount)
+            .ok_or(ContractError::InsufficientSupply)?;
+
+        if remaining_holder == 0 {
+            env.storage().persistent().remove(&holder_key);
+            profile.holder_count = profile.holder_count.saturating_sub(1);
+            vote_delegation::prune_if_zero_balance(&env, &key_id, &holder);
+        } else {
+            env.storage()
+                .persistent()
+                .set(&holder_key, &remaining_holder);
+            extend_key_ttl_to_full_window(&env, &holder_key);
+        }
+
+        profile.supply = remaining_supply;
+        env.storage()
+            .persistent()
+            .set(&constants::storage::creator(&key_id), &profile);
+        extend_key_ttl_to_full_window(&env, &constants::storage::creator(&key_id));
+
+        let remaining_reserve = reserve
+            .checked_sub(payout)
+            .ok_or(ContractError::InsufficientEscrow)?;
+        if remaining_reserve == 0 {
+            env.storage().persistent().remove(&reserve_key);
+            env.storage()
+                .persistent()
+                .remove(&RetirementKey::Pool(key_id.clone()));
+        } else {
+            env.storage()
+                .persistent()
+                .set(&reserve_key, &remaining_reserve);
+            extend_key_ttl_to_full_window(&env, &reserve_key);
+            env.storage()
+                .persistent()
+                .set(&RetirementKey::Pool(key_id.clone()), &remaining_reserve);
+        }
+
+        credit_holder_pending_dividend(&env, &key_id, &holder, payout)?;
+
+        env.events().publish(
+            events::escape_redeemed_topics(&holder, &key_id),
+            events::EscapeRedeemedEvent {
+                holder,
+                key_id,
+                amount,
+                payout,
+            },
+        );
+        Ok(payout)
+    }
+
+    /// Transfers keys and invokes the receiver callback when `to` is a contract.
+    ///
+    /// Callback data is limited to [`MAX_KEY_RECEIVER_DATA_LEN`] bytes. Soroban
+    /// enforces CPU and memory budgets transaction-wide, so receiver code must
+    /// remain lightweight; a receiver that exhausts the transaction budget
+    /// causes the transfer to fail atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same transfer errors as [`Self::transfer_keys`], plus
+    /// [`ContractError::BatchTooLarge`] for oversized callback data,
+    /// [`ContractError::TransferNotAccepted`] when the receiver does not return
+    /// [`KEY_RECEIVED_ACK`], and [`ContractError::TransferAlreadyAccepted`] for
+    /// reentrant transfers during the callback.
+    pub fn transfer_and_call(
+        env: Env,
+        creator: Address,
+        from: Address,
+        to: Address,
+        amount: u32,
+        data: Bytes,
+    ) -> Result<(), ContractError> {
+        if data.len() > MAX_KEY_RECEIVER_DATA_LEN {
+            return Err(ContractError::BatchTooLarge);
+        }
+        if key_receiver_callback_active(&env) {
+            return Err(ContractError::TransferAlreadyAccepted);
+        }
+
+        Self::transfer_keys(
+            env.clone(),
+            creator.clone(),
+            from.clone(),
+            to.clone(),
+            amount,
+        )?;
+
+        if is_contract_address(&env, &to) {
+            env.storage()
+                .instance()
+                .set(&DataKey::KeyReceiverCallbackActive, &true);
+            let acknowledgement =
+                KeyReceiverClient::new(&env, &to).on_key_received(&from, &creator, &amount, &data);
+            env.storage()
+                .instance()
+                .remove(&DataKey::KeyReceiverCallbackActive);
+            if acknowledgement != KEY_RECEIVED_ACK {
+                return Err(ContractError::TransferNotAccepted);
+            }
+        }
+
+        let data_hash = env.crypto().sha256(&data);
+        env.events().publish(
+            (
+                Symbol::new(&env, events::TRANSFER_CALLED_EVENT_NAME),
+                creator.clone(),
+                to.clone(),
+            ),
+            events::TransferCalledEvent {
+                creator_id: creator,
+                from,
+                recipient: to,
+                amount,
+                data_hash: data_hash.into(),
+            },
+        );
+        Ok(())
+    }
+
     /// Returns the current withdrawable treasury balance.
     ///
     /// The treasury balance accumulates from the protocol fee portion of every
@@ -15099,12 +15395,16 @@ impl CreatorKeysContract {
     ///   (self-transfer is not allowed inside a batch).
     /// - [`ContractError::InsufficientBalance`] if the sender's available
     ///   balance is less than the sum of all requested quantities.
+    /// - [`ContractError::TransferAlreadyAccepted`] if called during a receiver callback.
     pub fn batch_transfer_keys(
         env: Env,
         creator: Address,
         from: Address,
         transfers: Vec<(Address, u32)>,
     ) -> Result<(), ContractError> {
+        if key_receiver_callback_active(&env) {
+            return Err(ContractError::TransferAlreadyAccepted);
+        }
         from.require_auth();
         assert_not_paused(&env)?;
         key_freeze::assert_key_not_frozen(&env, &creator)?;
@@ -15452,6 +15752,7 @@ impl CreatorKeysContract {
         holder: Address,
         amount: u32,
     ) -> Result<(), ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         holder.require_auth();
         assert_not_paused(&env)?;
 
@@ -15965,6 +16266,7 @@ impl CreatorKeysContract {
         holder: Address,
         stake_id: u32,
     ) -> Result<StakeRewardClaim, StakingError> {
+        let _guard = ReentrancyGuard::enter(&env);
         holder.require_auth();
         assert_not_paused(&env).map_err(map_staking_error)?;
 
@@ -16334,9 +16636,7 @@ impl CreatorKeysContract {
         }
 
         // Threshold reached — execute pause
-        env.storage()
-            .persistent()
-            .set(&constants::storage::PAUSED, &true);
+        set_protocol_paused(&env, true);
 
         // Reset all proposals
         for admin in config.admins.iter() {
@@ -18714,6 +19014,7 @@ impl CreatorKeysContract {
         key_id: Address,
         creator: Address,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         creator.require_auth();
         if key_id != creator {
             return Err(ContractError::Unauthorized);
@@ -18733,6 +19034,7 @@ impl CreatorKeysContract {
         key_id: Address,
         seller: Address,
     ) -> Result<i128, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         seller.require_auth();
         let key = FeatureKey::SellerProceeds(key_id, seller);
         let amount: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -21594,6 +21896,7 @@ impl CreatorKeysContract {
     /// - [`AllowanceError::InsufficientAllowance`] if the remaining allowance is
     ///   below `amount`.
     /// - [`AllowanceError::HoldingCapExceeded`] if `to` would exceed the cap.
+    /// - [`AllowanceError::CallbackInProgress`] if called during a receiver callback.
     pub fn transfer_from(
         env: Env,
         spender: Address,
@@ -21602,6 +21905,9 @@ impl CreatorKeysContract {
         key_id: Address,
         amount: u32,
     ) -> Result<(), AllowanceError> {
+        if key_receiver_callback_active(&env) {
+            return Err(AllowanceError::CallbackInProgress);
+        }
         spender.require_auth();
         assert_not_paused(&env).map_err(|_| AllowanceError::ProtocolPaused)?;
         // A frozen key rejects delegated transfers too (#1174).
