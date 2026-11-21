@@ -4997,3 +4997,86 @@ pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
 pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
     (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }
+
+
+/// Event name for price ceiling set.
+pub const CEILING_SET_EVENT_NAME: Symbol = symbol_short!("ceil_set");
+
+/// Stable price ceiling set event payload.
+///
+/// Event shape:
+/// - topics: `(CEILING_SET_EVENT_NAME, creator_id)`
+/// - data: `CeilingSetEvent`
+///
+/// Emitted when a price ceiling is initially configured for a key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CeilingSetEvent {
+    /// Creator whose key has a new ceiling.
+    pub creator_id: Address,
+    /// Maximum price in stroops.
+    pub ceiling: i128,
+    /// Cool-off duration in ledgers.
+    pub cooloff_ledgers: u32,
+}
+
+/// Shared price ceiling set event topics tuple.
+pub fn ceiling_set_topics(creator: &Address) -> (Symbol, Address) {
+    (CEILING_SET_EVENT_NAME, creator.clone())
+}
+
+/// Event name for price ceiling hit (rejection occurred).
+pub const CEILING_HIT_EVENT_NAME: Symbol = symbol_short!("ceil_hit");
+
+/// Stable price ceiling hit event payload.
+///
+/// Event shape:
+/// - topics: `(CEILING_HIT_EVENT_NAME, creator_id, buyer)`
+/// - data: `CeilingHitEvent`
+///
+/// Emitted when a buy is rejected because it would exceed the ceiling.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CeilingHitEvent {
+    /// Creator whose key has the ceiling.
+    pub creator_id: Address,
+    /// Buyer whose purchase was rejected.
+    pub buyer: Address,
+    /// The ceiling price in stroops.
+    pub ceiling: i128,
+    /// The post-trade price that would have been reached.
+    pub post_trade_price: i128,
+    /// Cool-off end ledger.
+    pub cooloff_end_ledger: u32,
+}
+
+/// Shared price ceiling hit event topics tuple.
+pub fn ceiling_hit_topics(creator: &Address, buyer: &Address) -> (Symbol, Address, Address) {
+    (CEILING_HIT_EVENT_NAME, creator.clone(), buyer.clone())
+}
+
+/// Event name for price ceiling raised.
+pub const CEILING_RAISED_EVENT_NAME: Symbol = symbol_short!("ceil_rai");
+
+/// Stable price ceiling raised event payload.
+///
+/// Event shape:
+/// - topics: `(CEILING_RAISED_EVENT_NAME, creator_id)`
+/// - data: `CeilingRaisedEvent`
+///
+/// Emitted when a creator or governance raises an existing ceiling.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CeilingRaisedEvent {
+    /// Creator whose ceiling was raised.
+    pub creator_id: Address,
+    /// Previous ceiling in stroops.
+    pub previous_ceiling: i128,
+    /// New ceiling in stroops.
+    pub new_ceiling: i128,
+}
+
+/// Shared price ceiling raised event topics tuple.
+pub fn ceiling_raised_topics(creator: &Address) -> (Symbol, Address) {
+    (CEILING_RAISED_EVENT_NAME, creator.clone())
+}
