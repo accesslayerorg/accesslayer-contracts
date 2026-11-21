@@ -64,6 +64,7 @@ pub enum CircuitBreakerRemoteError {
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
+pub mod balance_attestation;
 pub mod bundle;
 pub mod community_polls;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
@@ -12873,6 +12874,56 @@ impl CreatorKeysContract {
         amount: i128,
     ) -> Result<(), token_rescue::RescueError> {
         token_rescue::rescue(&env, &admin, &token, &to, amount)
+    }
+
+    /// Stores the ed25519 public key allowed to sign balance attestations (#1236).
+    pub fn set_attester(
+        env: Env,
+        admin: Address,
+        public_key: BytesN<32>,
+    ) -> Result<(), balance_attestation::AttestationError> {
+        balance_attestation::set_attester(&env, &admin, &public_key)
+    }
+
+    /// Replaces the attester key, invalidating attestations signed by the old key.
+    pub fn rotate_attester(
+        env: Env,
+        admin: Address,
+        new_key: BytesN<32>,
+    ) -> Result<(), balance_attestation::AttestationError> {
+        balance_attestation::rotate_attester(&env, &admin, &new_key)
+    }
+
+    /// The currently trusted attester key, if any.
+    pub fn get_attester(env: Env) -> Option<BytesN<32>> {
+        balance_attestation::attester(&env)
+    }
+
+    /// Canonical bytes the attester signs for `holder`'s `balance` of `key_id` at `ledger`.
+    pub fn attestation_payload(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        balance: i128,
+        ledger: u32,
+    ) -> Bytes {
+        balance_attestation::attestation_payload(&env, &holder, &key_id, balance, ledger)
+    }
+
+    /// Verifies a balance attestation's signature and freshness.
+    ///
+    /// Returns `true` when valid. Expired or future-dated attestations return
+    /// an [`balance_attestation::AttestationError`]; an invalid signature aborts
+    /// the call, so any failed invocation means "not verified".
+    pub fn verify_attestation(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        balance: i128,
+        ledger: u32,
+        signature: BytesN<64>,
+    ) -> Result<bool, balance_attestation::AttestationError> {
+        balance_attestation::verify_attestation(&env, &holder, &key_id, balance, ledger, &signature)
     }
 
     /// Configures the protocol trade fee charged on every buy and sell.
