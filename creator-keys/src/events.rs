@@ -4997,3 +4997,32 @@ pub fn key_frozen_topics(key_id: &Address) -> (Symbol, Address) {
 pub fn key_unfrozen_topics(key_id: &Address) -> (Symbol, Address) {
     (KEY_UNFROZEN_EVENT_NAME, key_id.clone())
 }
+
+
+/// Event name emitted when a purchase is rejected due to exceeding the launch window cap.
+pub const LAUNCH_CAP_HIT_EVENT_NAME: Symbol = symbol_short!("launch_c");
+
+/// Stable launch-cap-hit event payload.
+///
+/// Event shape:
+/// - topics: `(LAUNCH_CAP_HIT_EVENT_NAME, creator_id, wallet)`
+/// - data: `LaunchCapHitEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct LaunchCapHitEvent {
+    /// Creator (key) whose launch window cap was exceeded.
+    pub creator_id: Address,
+    /// Wallet that attempted to purchase beyond the cap.
+    pub wallet: Address,
+    /// Current cap in effect (in keys).
+    pub current_cap: u32,
+    /// Amount wallet already owns.
+    pub cumulative_purchased: u32,
+    /// Amount wallet tried to purchase.
+    pub attempted_amount: u32,
+}
+
+/// Shared launch-cap-hit event topics tuple.
+pub fn launch_cap_hit_topics(creator_id: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (LAUNCH_CAP_HIT_EVENT_NAME, creator_id.clone(), wallet.clone())
+}
