@@ -645,6 +645,8 @@ fn test_events_emitted() {
         create_milestone_input(&env, 3000, "Milestone 1"),
         create_milestone_input(&env, 7000, "Milestone 2"),
     ];
+    let key_id = String::from_str(&env, "key456");
+    client.collect_fee(&key_id, &10000);
     let grant_id2 = client.create_grant(&admin, &recipient, &10000, &milestones2, &false);
 
     let mut evidence3 = BytesN::from_array(&env, &[0u8; 32]);
