@@ -180,12 +180,7 @@ impl TreasuryContract {
         balance -= total_amount;
         env.storage().instance().set(&DataKey::Balance, &balance);
 
-        let epoch: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::Epoch)
-            .unwrap_or(0)
-            + 1;
+        let epoch: u32 = env.storage().instance().get(&DataKey::Epoch).unwrap_or(0) + 1;
         let distribution = EpochDistribution {
             epoch,
             recipients: recipients.clone(),
