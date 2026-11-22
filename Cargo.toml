@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "common",
+    "test-utils",
     "creator-keys",
     "creator-keys-factory",
     "referral-contract",
