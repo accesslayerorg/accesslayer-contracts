@@ -559,12 +559,12 @@ fn test_events_emitted() {
     let grant_created_event = events
         .iter()
         .find(|e| {
-            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            let topics = e.1.clone();
             let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
             event_name == Symbol::new(&env, "grant_created")
         })
         .expect("grant_created event not found");
-    let topics: Vec<soroban_sdk::Val> = grant_created_event.1.clone().into();
+    let topics = grant_created_event.1.clone();
     let event_grant_id: u32 = topics.get(1).unwrap().into_val(&env);
     assert_eq!(event_grant_id, grant_id);
 
@@ -578,12 +578,12 @@ fn test_events_emitted() {
     let submitted_event = events
         .iter()
         .find(|e| {
-            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            let topics = e.1.clone();
             let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
             event_name == Symbol::new(&env, "milestone_submitted")
         })
         .expect("milestone_submitted event not found");
-    let topics: Vec<soroban_sdk::Val> = submitted_event.1.clone().into();
+    let topics = submitted_event.1.clone();
     let event_grant_id: u32 = topics.get(1).unwrap().into_val(&env);
     assert_eq!(event_grant_id, grant_id);
 
@@ -595,12 +595,12 @@ fn test_events_emitted() {
     let approved_event = events
         .iter()
         .find(|e| {
-            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            let topics = e.1.clone();
             let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
             event_name == Symbol::new(&env, "milestone_approved")
         })
         .expect("milestone_approved event not found");
-    let topics: Vec<soroban_sdk::Val> = approved_event.1.clone().into();
+    let topics = approved_event.1.clone();
     let event_grant_id: u32 = topics.get(1).unwrap().into_val(&env);
     assert_eq!(event_grant_id, grant_id);
 
@@ -612,12 +612,12 @@ fn test_events_emitted() {
     let cancelled_event = events
         .iter()
         .find(|e| {
-            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            let topics = e.1.clone();
             let event_name: Symbol = topics.get(0).unwrap().into_val(&env);
             event_name == Symbol::new(&env, "grant_cancelled")
         })
         .expect("grant_cancelled event not found");
-    let topics: Vec<soroban_sdk::Val> = cancelled_event.1.clone().into();
+    let topics = cancelled_event.1.clone();
     let event_grant_id: u32 = topics.get(1).unwrap().into_val(&env);
     assert_eq!(event_grant_id, grant_id);
 }
