@@ -16,6 +16,7 @@ members = [
     "key-analytics",
     "dividend-contract",
     "subscription-contract",
+    "treasury-contract",
 ]
 resolver = "2"
 
