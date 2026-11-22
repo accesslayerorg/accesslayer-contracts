@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events},
-    vec, Address, BytesN, Env, String, Symbol, Val,
+    vec, Address, BytesN, Env, IntoVal, String, Symbol,
 };
 
 fn create_test_env() -> (
@@ -350,7 +350,7 @@ fn test_sequential_submission() {
 
 #[test]
 fn test_non_sequential_submission() {
-    let (env, client, admin, recipient, _reviewer) = create_test_env();
+    let (env, client, admin, recipient, reviewer) = create_test_env();
 
     let milestones = vec![
         &env,
@@ -378,7 +378,7 @@ fn test_non_sequential_submission() {
 
 #[test]
 fn test_submit_milestone_wrong_recipient() {
-    let (env, client, admin, recipient, reviewer) = create_test_env();
+    let (env, client, admin, recipient, _reviewer) = create_test_env();
 
     let milestones = vec![&env, create_milestone_input(&env, 3000, "Milestone 1")];
 
