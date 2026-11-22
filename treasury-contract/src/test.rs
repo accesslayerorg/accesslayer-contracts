@@ -22,6 +22,9 @@ fn create_test_env() -> (
     let reviewer = Address::generate(&env);
 
     client.initialize(&admin);
+
+    // Mock admin auth for set_reviewer_role
+    env.mock_all_auths();
     client.set_reviewer_role(&reviewer);
 
     // Fund the treasury
