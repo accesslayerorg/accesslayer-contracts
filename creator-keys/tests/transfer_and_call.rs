@@ -3,8 +3,10 @@
 mod contract_test_env;
 
 use common::{KeyReceiver, KEY_RECEIVED_ACK};
-use contract_test_env::{register_creator_keys, set_pricing_and_fees, test_env_with_auths};
-use creator_keys::{events, ContractError, CreatorKeysContractClient, RegisterCreatorParams};
+use contract_test_env::{set_pricing_and_fees, test_env_with_auths};
+use creator_keys::{
+    events, ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
+};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short,
     testutils::{Address as _, Events},
@@ -105,7 +107,8 @@ fn setup() -> (
     Address,
 ) {
     let env = test_env_with_auths();
-    let (client, keys_contract) = register_creator_keys(&env);
+    let keys_contract = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &keys_contract);
     set_pricing_and_fees(&env, &client, 100, 9000, 1000);
     let creator = Address::generate(&env);
     let sender = Address::generate(&env);
@@ -122,14 +125,13 @@ fn setup() -> (
         &None,
     );
     client.buy_key(&creator, &sender, &100i128, &None);
-    (
-        env,
-        client,
-        creator,
-        sender,
-        Address::generate(&env),
-        keys_contract,
-    )
+    // `Address::generate` yields contract addresses; use a Stellar account
+    // (G...) strkey so the account-recipient path skips the callback.
+    let recipient = Address::from_str(
+        &env,
+        "GA37NRXDHG22SCVEEOKUAKJMP6EPAAXNVM3TBEFGBAXEPYEUCWLPWNMA",
+    );
+    (env, client, creator, sender, recipient, keys_contract)
 }
 
 fn register_receiver(env: &Env, mode: ReceiverMode) -> (Address, MockReceiverClient<'static>) {
@@ -161,6 +163,8 @@ fn contract_receiver_acknowledgement_accepts_transfer_and_emits_data_hash() {
     let data = Bytes::from_slice(&env, &[1, 2, 3]);
 
     client.transfer_and_call(&creator, &sender, &receiver, &1, &data);
+    // Capture events before any other top-level call resets the event log.
+    let (_, topics, payload) = env.events().all().last().unwrap();
 
     assert_balances(&client, &creator, &sender, &receiver, 0, 1);
     assert_eq!(
@@ -172,15 +176,12 @@ fn contract_receiver_acknowledgement_accepts_transfer_and_emits_data_hash() {
             data: data.clone(),
         })
     );
-    let (_, topics, payload) = env.events().all().last().unwrap();
     let event: events::TransferCalledEvent = payload.try_into_val(&env).unwrap();
     assert_eq!(event.creator_id, creator);
     assert_eq!(event.recipient, receiver);
-    assert_eq!(event.data_hash, env.crypto().sha256(&data));
-    assert_eq!(
-        topics.get(0).unwrap().try_into_val::<Symbol>(&env).unwrap(),
-        Symbol::new(&env, events::TRANSFER_CALLED_EVENT_NAME)
-    );
+    assert_eq!(event.data_hash, env.crypto().sha256(&data).to_bytes());
+    let topic: Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
+    assert_eq!(topic, Symbol::new(&env, events::TRANSFER_CALLED_EVENT_NAME));
 }
 
 #[test]

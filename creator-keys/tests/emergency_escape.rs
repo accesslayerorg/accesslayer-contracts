@@ -2,8 +2,10 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, set_pricing_and_fees, test_env_with_auths};
-use creator_keys::{ContractError, CreatorKeysContractClient, RegisterCreatorParams};
+use contract_test_env::{set_pricing_and_fees, test_env_with_auths};
+use creator_keys::{
+    ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams,
+};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env, String,
@@ -17,7 +19,14 @@ fn setup() -> (
     Address,
 ) {
     let env = test_env_with_auths();
-    let (client, _) = register_creator_keys(&env);
+    // Keep contract entries alive across the ESCAPE_DELAY_LEDGERS advance.
+    env.ledger().with_mut(|l| {
+        l.min_persistent_entry_ttl = 200_000;
+        l.min_temp_entry_ttl = 200_000;
+        l.max_entry_ttl = 200_000;
+    });
+    let contract_id = env.register(CreatorKeysContract, ());
+    let client = CreatorKeysContractClient::new(&env, &contract_id);
     let admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
     let creator = Address::generate(&env);
     let holder = Address::generate(&env);
@@ -39,7 +48,7 @@ fn setup() -> (
 
 #[test]
 fn escape_redeem_rejects_before_delay() {
-    let (env, client, admin, creator, holder) = setup();
+    let (_env, client, admin, creator, holder) = setup();
     client.fund_escape_reserve(&admin, &creator, &1_000i128);
     client.pause(&admin);
 

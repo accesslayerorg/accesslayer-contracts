@@ -15,6 +15,7 @@ use contract_test_env::{
     register_creator_keys, register_test_creator, set_pricing_and_fees, test_env_with_auths,
 };
 
+#[allow(dead_code)]
 #[contractclient(name = "GovernanceReentryClient")]
 trait GovernanceReentry {
     fn execute_proposal(env: Env, proposal_id: u32) -> Result<(), creator_keys::ContractError>;
