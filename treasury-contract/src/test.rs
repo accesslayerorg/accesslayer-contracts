@@ -34,30 +34,6 @@ fn create_test_env() -> (
     (env, client, admin, recipient, reviewer)
 }
 
-fn create_test_env_empty() -> (
-    Env,
-    TreasuryContractClient<'static>,
-    Address,
-    Address,
-    Address,
-) {
-    let env = Env::default();
-    let contract_id = env.register(TreasuryContract, ());
-    let client = TreasuryContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let reviewer = Address::generate(&env);
-
-    client.initialize(&admin);
-
-    // Mock admin auth for set_reviewer_role
-    env.mock_all_auths();
-    client.set_reviewer_role(&reviewer);
-
-    (env, client, admin, recipient, reviewer)
-}
-
 fn create_milestone_input(env: &Env, amount: i128, desc: &str) -> MilestoneInput {
     let mut bytes = [0u8; 32];
     let desc_bytes = desc.as_bytes();
@@ -565,12 +541,15 @@ fn test_reject_then_resubmit_not_allowed() {
 
 #[test]
 fn test_original_treasury_functions_still_work() {
-    let (env, client, _admin, _recipient, _reviewer) = create_test_env_empty();
+    let (env, client, _admin, _recipient, _reviewer) = create_test_env();
 
     // Test original fee collection and distribution
+    // Initial balance from create_test_env is 10000
+    assert_eq!(client.get_treasury_balance(), 10000);
+
     let key_id = String::from_str(&env, "key456");
     client.collect_fee(&key_id, &5000);
-    assert_eq!(client.get_treasury_balance(), 5000);
+    assert_eq!(client.get_treasury_balance(), 15000);
 
     let recipient1 = Address::generate(&env);
     let recipient2 = Address::generate(&env);
@@ -580,7 +559,7 @@ fn test_original_treasury_functions_still_work() {
     env.mock_all_auths();
     client.distribute(&recipients, &amounts);
 
-    assert_eq!(client.get_treasury_balance(), 1000);
+    assert_eq!(client.get_treasury_balance(), 11000);
 
     let history = client.get_distribution_history(&1).unwrap();
     assert_eq!(history.epoch, 1);
@@ -656,9 +635,11 @@ fn test_events_emitted() {
     client.submit_milestone(&recipient, &grant_id, &1, &evidence2);
     client.approve_milestone(&reviewer, &grant_id, &1);
 
-    // Now cancel grant - should return unreleased 7000 (milestone 2 not approved yet)
-    // Actually, all milestones are approved now, so nothing to cancel.
-    // Let's create a new grant for cancellation test
+    // Re-fund treasury for second grant (first grant used all 10000)
+    let key_id2 = String::from_str(&env, "key999");
+    client.collect_fee(&key_id2, &10000);
+
+    // Now create a new grant for cancellation test
     let milestones2 = vec![
         &env,
         create_milestone_input(&env, 3000, "Milestone 1"),
