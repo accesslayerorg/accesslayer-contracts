@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events},
-    vec, Address, BytesN, Env, IntoVal, String, Symbol,
+    vec, Address, BytesN, Env, Error, IntoVal, String, Symbol,
 };
 
 fn create_test_env() -> (
@@ -108,7 +108,10 @@ fn test_create_grant_mismatch_amount() {
     ];
 
     let result = client.try_create_grant(&admin, &recipient, &10000, &milestones, &false);
-    assert_eq!(result, Err(Ok(TreasuryError::MilestoneAmountMismatch)));
+    assert_eq!(
+        result,
+        Err(Ok(Error::from(TreasuryError::MilestoneAmountMismatch)))
+    );
 }
 
 #[test]
@@ -118,7 +121,10 @@ fn test_create_grant_insufficient_balance() {
     let milestones = vec![&env, create_milestone_input(&env, 15000, "Milestone 1")];
 
     let result = client.try_create_grant(&admin, &recipient, &15000, &milestones, &false);
-    assert_eq!(result, Err(Ok(TreasuryError::InsufficientBalance)));
+    assert_eq!(
+        result,
+        Err(Ok(Error::from(TreasuryError::InsufficientBalance)))
+    );
 }
 
 #[test]
@@ -128,7 +134,10 @@ fn test_create_grant_zero_milestone() {
     let milestones = vec![&env, create_milestone_input(&env, 0, "Milestone 1")];
 
     let result = client.try_create_grant(&admin, &recipient, &0, &milestones, &false);
-    assert_eq!(result, Err(Ok(TreasuryError::InvalidMilestoneAmount)));
+    assert_eq!(
+        result,
+        Err(Ok(Error::from(TreasuryError::InvalidMilestoneAmount)))
+    );
 }
 
 #[test]
@@ -239,7 +248,7 @@ fn test_approve_milestone_unauthorized() {
     // Try to approve with non-reviewer
     let fake_reviewer = Address::generate(&env);
     let result = client.try_approve_milestone(&fake_reviewer, &grant_id, &0);
-    assert_eq!(result, Err(Ok(TreasuryError::Unauthorized)));
+    assert_eq!(result, Err(Ok(Error::from(TreasuryError::Unauthorized))));
 }
 
 #[test]
@@ -252,7 +261,10 @@ fn test_approve_milestone_not_submitted() {
 
     // Try to approve without submitting
     let result = client.try_approve_milestone(&reviewer, &grant_id, &0);
-    assert_eq!(result, Err(Ok(TreasuryError::MilestoneNotSubmitted)));
+    assert_eq!(
+        result,
+        Err(Ok(Error::from(TreasuryError::MilestoneNotSubmitted)))
+    );
 }
 
 #[test]
@@ -270,7 +282,10 @@ fn test_approve_milestone_already_approved() {
 
     // Try to approve again
     let result = client.try_approve_milestone(&reviewer, &grant_id, &0);
-    assert_eq!(result, Err(Ok(TreasuryError::MilestoneAlreadyApproved)));
+    assert_eq!(
+        result,
+        Err(Ok(Error::from(TreasuryError::MilestoneAlreadyApproved)))
+    );
 }
 
 #[test]
@@ -316,7 +331,7 @@ fn test_cancel_grant_nothing_to_cancel() {
 
     // All funds released, nothing to cancel
     let result = client.try_cancel_grant(&admin, &grant_id);
-    assert_eq!(result, Err(Ok(TreasuryError::NothingToCancel)));
+    assert_eq!(result, Err(Ok(Error::from(TreasuryError::NothingToCancel))));
 }
 
 #[test]
@@ -333,7 +348,7 @@ fn test_cancel_grant_unauthorized() {
 
     let fake_admin = Address::generate(&env);
     let result = client.try_cancel_grant(&fake_admin, &grant_id);
-    assert_eq!(result, Err(Ok(TreasuryError::Unauthorized)));
+    assert_eq!(result, Err(Ok(Error::from(TreasuryError::Unauthorized))));
 }
 
 #[test]
