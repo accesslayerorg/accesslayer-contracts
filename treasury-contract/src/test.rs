@@ -1,9 +1,18 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, vec, Address, BytesN, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Events},
+    vec, Address, BytesN, Env, String,
+};
 
-fn create_test_env() -> (Env, TreasuryContractClient, Address, Address, Address) {
+fn create_test_env() -> (
+    Env,
+    TreasuryContractClient<'static>,
+    Address,
+    Address,
+    Address,
+) {
     let env = Env::default();
     let contract_id = env.register(TreasuryContract, ());
     let client = TreasuryContractClient::new(&env, &contract_id);
@@ -23,16 +32,16 @@ fn create_test_env() -> (Env, TreasuryContractClient, Address, Address, Address)
 }
 
 fn create_milestone_input(env: &Env, amount: i128, desc: &str) -> MilestoneInput {
-    let mut hash = BytesN::<32>::default();
+    let mut bytes = [0u8; 32];
     let desc_bytes = desc.as_bytes();
     for (i, b) in desc_bytes.iter().enumerate() {
         if i < 32 {
-            hash.set(i as u32, *b);
+            bytes[i] = *b;
         }
     }
     MilestoneInput {
         amount,
-        description_hash: hash,
+        description_hash: BytesN::from_array(env, &bytes),
     }
 }
 
@@ -108,7 +117,7 @@ fn test_submit_and_approve_milestone() {
     let grant_id = client.create_grant(&admin, &recipient, &10000, &milestones, &false);
 
     // Submit milestone 0
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
 
@@ -127,7 +136,7 @@ fn test_submit_and_approve_milestone() {
     );
 
     // Submit and approve milestone 1
-    let mut evidence2 = BytesN::<32>::default();
+    let mut evidence2 = BytesN::from_array(&env, &[0u8; 32]);
     evidence2.set(0, 2);
     client.submit_milestone(&recipient, &grant_id, &1, &evidence2);
     client.approve_milestone(&reviewer, &grant_id, &1);
@@ -153,12 +162,12 @@ fn test_reject_milestone() {
     let grant_id = client.create_grant(&admin, &recipient, &10000, &milestones, &false);
 
     // Submit milestone 0
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
 
     // Reject milestone 0
-    let mut reason = BytesN::<32>::default();
+    let mut reason = BytesN::from_array(&env, &[0u8; 32]);
     reason.set(0, 99);
     client.reject_milestone(&reviewer, &grant_id, &0, &reason);
 
@@ -179,7 +188,7 @@ fn test_reject_milestone() {
     );
 
     // Milestone 1 can still be submitted and approved
-    let mut evidence2 = BytesN::<32>::default();
+    let mut evidence2 = BytesN::from_array(&env, &[0u8; 32]);
     evidence2.set(0, 2);
     client.submit_milestone(&recipient, &grant_id, &1, &evidence2);
     client.approve_milestone(&reviewer, &grant_id, &1);
@@ -197,7 +206,7 @@ fn test_approve_milestone_unauthorized() {
 
     let grant_id = client.create_grant(&admin, &recipient, &3000, &milestones, &false);
 
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
 
@@ -228,7 +237,7 @@ fn test_approve_milestone_already_approved() {
 
     let grant_id = client.create_grant(&admin, &recipient, &3000, &milestones, &false);
 
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
     client.approve_milestone(&reviewer, &grant_id, &0);
@@ -250,7 +259,7 @@ fn test_cancel_grant() {
     let grant_id = client.create_grant(&admin, &recipient, &10000, &milestones, &false);
 
     // Submit and approve milestone 0
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
     client.approve_milestone(&reviewer, &grant_id, &0);
@@ -274,7 +283,7 @@ fn test_cancel_grant_nothing_to_cancel() {
 
     let grant_id = client.create_grant(&admin, &recipient, &3000, &milestones, &false);
 
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
     client.approve_milestone(&reviewer, &grant_id, &0);
@@ -313,14 +322,14 @@ fn test_sequential_submission() {
     let grant_id = client.create_grant(&admin, &recipient, &10000, &milestones, &true);
 
     // Try to submit milestone 1 before milestone 0 is approved - should fail
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 2);
 
     let result = client.try_submit_milestone(&recipient, &grant_id, &1, &evidence);
     assert!(result.is_err());
 
     // Submit milestone 0
-    let mut evidence0 = BytesN::<32>::default();
+    let mut evidence0 = BytesN::from_array(&env, &[0u8; 32]);
     evidence0.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence0);
 
@@ -352,13 +361,13 @@ fn test_non_sequential_submission() {
     let grant_id = client.create_grant(&admin, &recipient, &10000, &milestones, &false);
 
     // Submit milestone 1 first (out of order) - should succeed with non-sequential
-    let mut evidence1 = BytesN::<32>::default();
+    let mut evidence1 = BytesN::from_array(&env, &[0u8; 32]);
     evidence1.set(0, 2);
     client.submit_milestone(&recipient, &grant_id, &1, &evidence1);
     client.approve_milestone(&reviewer, &grant_id, &1);
 
     // Then submit milestone 0
-    let mut evidence0 = BytesN::<32>::default();
+    let mut evidence0 = BytesN::from_array(&env, &[0u8; 32]);
     evidence0.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence0);
     client.approve_milestone(&reviewer, &grant_id, &0);
@@ -376,7 +385,7 @@ fn test_submit_milestone_wrong_recipient() {
     let grant_id = client.create_grant(&admin, &recipient, &3000, &milestones, &false);
 
     let fake_recipient = Address::generate(&env);
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
 
     let result = client.try_submit_milestone(&fake_recipient, &grant_id, &0, &evidence);
@@ -413,7 +422,7 @@ fn test_grant_status_view() {
     );
 
     // Submit and approve first milestone
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
 
@@ -465,13 +474,13 @@ fn test_multiple_grants() {
     assert_eq!(status2.total_amount, 7000);
 
     // Approve grant 1
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id1, &0, &evidence);
     client.approve_milestone(&reviewer, &grant_id1, &0);
 
     // Approve grant 2 milestone 0
-    let mut evidence2 = BytesN::<32>::default();
+    let mut evidence2 = BytesN::from_array(&env, &[0u8; 32]);
     evidence2.set(0, 2);
     client.submit_milestone(&recipient, &grant_id2, &0, &evidence2);
     client.approve_milestone(&reviewer, &grant_id2, &0);
@@ -491,16 +500,16 @@ fn test_reject_then_resubmit_not_allowed() {
 
     let grant_id = client.create_grant(&admin, &recipient, &3000, &milestones, &false);
 
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
 
-    let mut reason = BytesN::<32>::default();
+    let mut reason = BytesN::from_array(&env, &[0u8; 32]);
     reason.set(0, 99);
     client.reject_milestone(&reviewer, &grant_id, &0, &reason);
 
     // Try to submit again - should fail
-    let mut evidence2 = BytesN::<32>::default();
+    let mut evidence2 = BytesN::from_array(&env, &[0u8; 32]);
     evidence2.set(0, 2);
     let result = client.try_submit_milestone(&recipient, &grant_id, &0, &evidence2);
     assert!(result.is_err());
@@ -554,7 +563,7 @@ fn test_events_emitted() {
     assert_eq!(grant_created_event.topics.get(1).unwrap(), grant_id);
 
     // Submit milestone
-    let mut evidence = BytesN::<32>::default();
+    let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
     evidence.set(0, 1);
     client.submit_milestone(&recipient, &grant_id, &0, &evidence);
 

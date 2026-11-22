@@ -1,7 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
+    String, Symbol, Vec,
 };
 
 #[contracterror]
@@ -317,12 +318,11 @@ impl TreasuryContract {
             panic_with_error!(&env, TreasuryError::Unauthorized);
         }
 
-        let milestone_index: usize = index as usize;
-        if milestone_index >= grant.milestones.len() {
+        if index >= grant.milestones.len() {
             panic_with_error!(&env, TreasuryError::InvalidMilestoneIndex);
         }
 
-        let mut milestone = grant.milestones.get(milestone_index).unwrap();
+        let mut milestone = grant.milestones.get(index).unwrap();
 
         if milestone.submitted {
             panic!("Milestone already submitted");
@@ -333,7 +333,7 @@ impl TreasuryContract {
         }
 
         if grant.require_sequential && index > 0 {
-            let prev_milestone = grant.milestones.get((index - 1) as usize).unwrap();
+            let prev_milestone = grant.milestones.get(index - 1).unwrap();
             if !prev_milestone.approved {
                 panic_with_error!(&env, TreasuryError::OutOfOrderSubmission);
             }
@@ -342,7 +342,7 @@ impl TreasuryContract {
         milestone.submitted = true;
         milestone.evidence_hash = Some(evidence_hash);
 
-        grant.milestones.set(milestone_index, milestone);
+        grant.milestones.set(index, milestone);
         env.storage()
             .persistent()
             .set(&DataKey::Grant(grant_id), &grant);
@@ -375,12 +375,11 @@ impl TreasuryContract {
             panic!("Grant is cancelled");
         }
 
-        let milestone_index: usize = index as usize;
-        if milestone_index >= grant.milestones.len() {
+        if index >= grant.milestones.len() {
             panic_with_error!(&env, TreasuryError::InvalidMilestoneIndex);
         }
 
-        let mut milestone = grant.milestones.get(milestone_index).unwrap();
+        let mut milestone = grant.milestones.get(index).unwrap();
 
         if !milestone.submitted {
             panic_with_error!(&env, TreasuryError::MilestoneNotSubmitted);
@@ -397,7 +396,7 @@ impl TreasuryContract {
         milestone.approved = true;
         grant.released_amount += milestone.amount;
 
-        grant.milestones.set(milestone_index, milestone);
+        grant.milestones.set(index, milestone);
         env.storage()
             .persistent()
             .set(&DataKey::Grant(grant_id), &grant);
@@ -436,12 +435,11 @@ impl TreasuryContract {
             panic!("Grant is cancelled");
         }
 
-        let milestone_index: usize = index as usize;
-        if milestone_index >= grant.milestones.len() {
+        if index >= grant.milestones.len() {
             panic_with_error!(&env, TreasuryError::InvalidMilestoneIndex);
         }
 
-        let mut milestone = grant.milestones.get(milestone_index).unwrap();
+        let mut milestone = grant.milestones.get(index).unwrap();
 
         if !milestone.submitted {
             panic_with_error!(&env, TreasuryError::MilestoneNotSubmitted);
@@ -458,7 +456,7 @@ impl TreasuryContract {
         milestone.rejected = true;
         milestone.reject_reason_hash = Some(reason_hash);
 
-        grant.milestones.set(milestone_index, milestone);
+        grant.milestones.set(index, milestone);
         env.storage()
             .persistent()
             .set(&DataKey::Grant(grant_id), &grant);
