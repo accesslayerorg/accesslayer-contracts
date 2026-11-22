@@ -340,7 +340,7 @@ impl TreasuryContract {
         }
 
         milestone.submitted = true;
-        milestone.evidence_hash = Some(evidence_hash);
+        milestone.evidence_hash = Some(evidence_hash.clone());
 
         grant.milestones.set(index, milestone);
         env.storage()
@@ -396,6 +396,7 @@ impl TreasuryContract {
         milestone.approved = true;
         grant.released_amount += milestone.amount;
 
+        let amount = milestone.amount;
         grant.milestones.set(index, milestone);
         env.storage()
             .persistent()
@@ -407,7 +408,7 @@ impl TreasuryContract {
 
         env.events().publish(
             (Symbol::new(&env, "milestone_approved"), grant_id),
-            (reviewer, index, milestone.amount),
+            (reviewer, index, amount),
         );
     }
 
@@ -454,7 +455,7 @@ impl TreasuryContract {
         }
 
         milestone.rejected = true;
-        milestone.reject_reason_hash = Some(reason_hash);
+        milestone.reject_reason_hash = Some(reason_hash.clone());
 
         grant.milestones.set(index, milestone);
         env.storage()

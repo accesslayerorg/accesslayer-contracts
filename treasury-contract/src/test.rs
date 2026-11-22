@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events},
-    vec, Address, BytesN, Env, String,
+    vec, Address, BytesN, Env, String, Symbol, Val,
 };
 
 fn create_test_env() -> (
@@ -200,7 +200,7 @@ fn test_reject_milestone() {
 #[test]
 #[should_panic(expected = "Unauthorized")]
 fn test_approve_milestone_unauthorized() {
-    let (env, client, admin, recipient, reviewer) = create_test_env();
+    let (env, client, admin, recipient, _reviewer) = create_test_env();
 
     let milestones = vec![&env, create_milestone_input(&env, 3000, "Milestone 1")];
 
@@ -350,7 +350,7 @@ fn test_sequential_submission() {
 
 #[test]
 fn test_non_sequential_submission() {
-    let (env, client, admin, recipient, reviewer) = create_test_env();
+    let (env, client, admin, recipient, _reviewer) = create_test_env();
 
     let milestones = vec![
         &env,
@@ -523,7 +523,7 @@ fn test_reject_then_resubmit_not_allowed() {
 
 #[test]
 fn test_original_treasury_functions_still_work() {
-    let (env, client, admin, _recipient, _reviewer) = create_test_env();
+    let (env, client, _admin, _recipient, _reviewer) = create_test_env();
 
     // Test original fee collection and distribution
     let key_id = String::from_str(&env, "key456");
@@ -558,9 +558,13 @@ fn test_events_emitted() {
     let events = env.events().all();
     let grant_created_event = events
         .iter()
-        .find(|e| e.topics.get(0).unwrap() == Symbol::new(&env, "grant_created"))
+        .find(|e| {
+            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            topics.get(0).unwrap() == Symbol::new(&env, "grant_created").into_val(&env)
+        })
         .expect("grant_created event not found");
-    assert_eq!(grant_created_event.topics.get(1).unwrap(), grant_id);
+    let topics: Vec<soroban_sdk::Val> = grant_created_event.1.clone().into();
+    assert_eq!(topics.get(1).unwrap(), grant_id.into_val(&env));
 
     // Submit milestone
     let mut evidence = BytesN::from_array(&env, &[0u8; 32]);
@@ -571,9 +575,13 @@ fn test_events_emitted() {
     let events = env.events().all();
     let submitted_event = events
         .iter()
-        .find(|e| e.topics.get(0).unwrap() == Symbol::new(&env, "milestone_submitted"))
+        .find(|e| {
+            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            topics.get(0).unwrap() == Symbol::new(&env, "milestone_submitted").into_val(&env)
+        })
         .expect("milestone_submitted event not found");
-    assert_eq!(submitted_event.topics.get(1).unwrap(), grant_id);
+    let topics: Vec<soroban_sdk::Val> = submitted_event.1.clone().into();
+    assert_eq!(topics.get(1).unwrap(), grant_id.into_val(&env));
 
     // Approve milestone
     client.approve_milestone(&reviewer, &grant_id, &0);
@@ -582,9 +590,13 @@ fn test_events_emitted() {
     let events = env.events().all();
     let approved_event = events
         .iter()
-        .find(|e| e.topics.get(0).unwrap() == Symbol::new(&env, "milestone_approved"))
+        .find(|e| {
+            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            topics.get(0).unwrap() == Symbol::new(&env, "milestone_approved").into_val(&env)
+        })
         .expect("milestone_approved event not found");
-    assert_eq!(approved_event.topics.get(1).unwrap(), grant_id);
+    let topics: Vec<soroban_sdk::Val> = approved_event.1.clone().into();
+    assert_eq!(topics.get(1).unwrap(), grant_id.into_val(&env));
 
     // Cancel grant
     client.cancel_grant(&admin, &grant_id);
@@ -593,7 +605,11 @@ fn test_events_emitted() {
     let events = env.events().all();
     let cancelled_event = events
         .iter()
-        .find(|e| e.topics.get(0).unwrap() == Symbol::new(&env, "grant_cancelled"))
+        .find(|e| {
+            let topics: Vec<soroban_sdk::Val> = e.1.clone().into();
+            topics.get(0).unwrap() == Symbol::new(&env, "grant_cancelled").into_val(&env)
+        })
         .expect("grant_cancelled event not found");
-    assert_eq!(cancelled_event.topics.get(1).unwrap(), grant_id);
+    let topics: Vec<soroban_sdk::Val> = cancelled_event.1.clone().into();
+    assert_eq!(topics.get(1).unwrap(), grant_id.into_val(&env));
 }
