@@ -34,6 +34,30 @@ fn create_test_env() -> (
     (env, client, admin, recipient, reviewer)
 }
 
+fn create_test_env_empty() -> (
+    Env,
+    TreasuryContractClient<'static>,
+    Address,
+    Address,
+    Address,
+) {
+    let env = Env::default();
+    let contract_id = env.register(TreasuryContract, ());
+    let client = TreasuryContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let reviewer = Address::generate(&env);
+
+    client.initialize(&admin);
+
+    // Mock admin auth for set_reviewer_role
+    env.mock_all_auths();
+    client.set_reviewer_role(&reviewer);
+
+    (env, client, admin, recipient, reviewer)
+}
+
 fn create_milestone_input(env: &Env, amount: i128, desc: &str) -> MilestoneInput {
     let mut bytes = [0u8; 32];
     let desc_bytes = desc.as_bytes();
@@ -74,7 +98,6 @@ fn test_create_grant() {
 }
 
 #[test]
-#[should_panic(expected = "MilestoneAmountMismatch")]
 fn test_create_grant_mismatch_amount() {
     let (env, client, admin, recipient, _reviewer) = create_test_env();
 
@@ -84,27 +107,28 @@ fn test_create_grant_mismatch_amount() {
         create_milestone_input(&env, 5000, "Milestone 2"),
     ];
 
-    client.create_grant(&admin, &recipient, &10000, &milestones, &false);
+    let result = client.try_create_grant(&admin, &recipient, &10000, &milestones, &false);
+    assert_eq!(result, Err(Ok(TreasuryError::MilestoneAmountMismatch)));
 }
 
 #[test]
-#[should_panic(expected = "InsufficientBalance")]
 fn test_create_grant_insufficient_balance() {
     let (env, client, admin, recipient, _reviewer) = create_test_env();
 
     let milestones = vec![&env, create_milestone_input(&env, 15000, "Milestone 1")];
 
-    client.create_grant(&admin, &recipient, &15000, &milestones, &false);
+    let result = client.try_create_grant(&admin, &recipient, &15000, &milestones, &false);
+    assert_eq!(result, Err(Ok(TreasuryError::InsufficientBalance)));
 }
 
 #[test]
-#[should_panic(expected = "InvalidMilestoneAmount")]
 fn test_create_grant_zero_milestone() {
     let (env, client, admin, recipient, _reviewer) = create_test_env();
 
     let milestones = vec![&env, create_milestone_input(&env, 0, "Milestone 1")];
 
-    client.create_grant(&admin, &recipient, &0, &milestones, &false);
+    let result = client.try_create_grant(&admin, &recipient, &0, &milestones, &false);
+    assert_eq!(result, Err(Ok(TreasuryError::InvalidMilestoneAmount)));
 }
 
 #[test]
@@ -201,7 +225,6 @@ fn test_reject_milestone() {
 }
 
 #[test]
-#[should_panic(expected = "Unauthorized")]
 fn test_approve_milestone_unauthorized() {
     let (env, client, admin, recipient, _reviewer) = create_test_env();
 
@@ -215,11 +238,11 @@ fn test_approve_milestone_unauthorized() {
 
     // Try to approve with non-reviewer
     let fake_reviewer = Address::generate(&env);
-    client.approve_milestone(&fake_reviewer, &grant_id, &0);
+    let result = client.try_approve_milestone(&fake_reviewer, &grant_id, &0);
+    assert_eq!(result, Err(Ok(TreasuryError::Unauthorized)));
 }
 
 #[test]
-#[should_panic(expected = "MilestoneNotSubmitted")]
 fn test_approve_milestone_not_submitted() {
     let (env, client, admin, recipient, reviewer) = create_test_env();
 
@@ -228,11 +251,11 @@ fn test_approve_milestone_not_submitted() {
     let grant_id = client.create_grant(&admin, &recipient, &3000, &milestones, &false);
 
     // Try to approve without submitting
-    client.approve_milestone(&reviewer, &grant_id, &0);
+    let result = client.try_approve_milestone(&reviewer, &grant_id, &0);
+    assert_eq!(result, Err(Ok(TreasuryError::MilestoneNotSubmitted)));
 }
 
 #[test]
-#[should_panic(expected = "MilestoneAlreadyApproved")]
 fn test_approve_milestone_already_approved() {
     let (env, client, admin, recipient, reviewer) = create_test_env();
 
@@ -246,7 +269,8 @@ fn test_approve_milestone_already_approved() {
     client.approve_milestone(&reviewer, &grant_id, &0);
 
     // Try to approve again
-    client.approve_milestone(&reviewer, &grant_id, &0);
+    let result = client.try_approve_milestone(&reviewer, &grant_id, &0);
+    assert_eq!(result, Err(Ok(TreasuryError::MilestoneAlreadyApproved)));
 }
 
 #[test]
@@ -278,7 +302,6 @@ fn test_cancel_grant() {
 }
 
 #[test]
-#[should_panic(expected = "NothingToCancel")]
 fn test_cancel_grant_nothing_to_cancel() {
     let (env, client, admin, recipient, reviewer) = create_test_env();
 
@@ -292,11 +315,11 @@ fn test_cancel_grant_nothing_to_cancel() {
     client.approve_milestone(&reviewer, &grant_id, &0);
 
     // All funds released, nothing to cancel
-    client.cancel_grant(&admin, &grant_id);
+    let result = client.try_cancel_grant(&admin, &grant_id);
+    assert_eq!(result, Err(Ok(TreasuryError::NothingToCancel)));
 }
 
 #[test]
-#[should_panic(expected = "Unauthorized")]
 fn test_cancel_grant_unauthorized() {
     let (env, client, admin, recipient, _reviewer) = create_test_env();
 
@@ -309,7 +332,8 @@ fn test_cancel_grant_unauthorized() {
     let grant_id = client.create_grant(&admin, &recipient, &10000, &milestones, &false);
 
     let fake_admin = Address::generate(&env);
-    client.cancel_grant(&fake_admin, &grant_id);
+    let result = client.try_cancel_grant(&fake_admin, &grant_id);
+    assert_eq!(result, Err(Ok(TreasuryError::Unauthorized)));
 }
 
 #[test]
@@ -526,7 +550,7 @@ fn test_reject_then_resubmit_not_allowed() {
 
 #[test]
 fn test_original_treasury_functions_still_work() {
-    let (env, client, _admin, _recipient, _reviewer) = create_test_env();
+    let (env, client, _admin, _recipient, _reviewer) = create_test_env_empty();
 
     // Test original fee collection and distribution
     let key_id = String::from_str(&env, "key456");
@@ -553,9 +577,13 @@ fn test_original_treasury_functions_still_work() {
 fn test_events_emitted() {
     let (env, client, admin, recipient, reviewer) = create_test_env();
 
-    let milestones = vec![&env, create_milestone_input(&env, 3000, "Milestone 1")];
+    let milestones = vec![
+        &env,
+        create_milestone_input(&env, 3000, "Milestone 1"),
+        create_milestone_input(&env, 7000, "Milestone 2"),
+    ];
 
-    let grant_id = client.create_grant(&admin, &recipient, &3000, &milestones, &false);
+    let grant_id = client.create_grant(&admin, &recipient, &10000, &milestones, &false);
 
     // Check grant_created event
     let events = env.events().all();
@@ -607,8 +635,29 @@ fn test_events_emitted() {
     let event_grant_id: u32 = topics.get(1).unwrap().into_val(&env);
     assert_eq!(event_grant_id, grant_id);
 
-    // Cancel grant
-    client.cancel_grant(&admin, &grant_id);
+    // Submit and approve milestone 1 (so there's unreleased funds to cancel)
+    let mut evidence2 = BytesN::from_array(&env, &[0u8; 32]);
+    evidence2.set(0, 2);
+    client.submit_milestone(&recipient, &grant_id, &1, &evidence2);
+    client.approve_milestone(&reviewer, &grant_id, &1);
+
+    // Now cancel grant - should return unreleased 7000 (milestone 2 not approved yet)
+    // Actually, all milestones are approved now, so nothing to cancel.
+    // Let's create a new grant for cancellation test
+    let milestones2 = vec![
+        &env,
+        create_milestone_input(&env, 3000, "Milestone 1"),
+        create_milestone_input(&env, 7000, "Milestone 2"),
+    ];
+    let grant_id2 = client.create_grant(&admin, &recipient, &10000, &milestones2, &false);
+
+    let mut evidence3 = BytesN::from_array(&env, &[0u8; 32]);
+    evidence3.set(0, 1);
+    client.submit_milestone(&recipient, &grant_id2, &0, &evidence3);
+    client.approve_milestone(&reviewer, &grant_id2, &0);
+
+    // Cancel grant - should return unreleased 7000
+    client.cancel_grant(&admin, &grant_id2);
 
     // Check grant_cancelled event
     let events = env.events().all();
@@ -622,5 +671,5 @@ fn test_events_emitted() {
         .expect("grant_cancelled event not found");
     let topics = cancelled_event.1.clone();
     let event_grant_id: u32 = topics.get(1).unwrap().into_val(&env);
-    assert_eq!(event_grant_id, grant_id);
+    assert_eq!(event_grant_id, grant_id2);
 }
