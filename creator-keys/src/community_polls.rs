@@ -8,8 +8,8 @@
 //! named distinctly (`*_snapshot_poll`, [`SnapshotPoll`]) to avoid colliding
 //! with that existing feature.
 use crate::{
-    extend_key_ttl_to_full_window, read_registered_creator_profile, ContractError,
-    CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient,
+    balance_checkpoints, extend_key_ttl_to_full_window, read_registered_creator_profile,
+    ContractError, CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient,
 };
 use soroban_sdk::{contractimpl, contracttype, symbol_short, Address, Env, String, Vec};
 
@@ -116,8 +116,12 @@ impl CreatorKeysContract {
             .checked_add(duration_seconds)
             .ok_or(ContractError::Overflow)?;
 
+        // Weights come from the ledger-indexed checkpoint, so the value is the
+        // balance in force at the snapshot ledger rather than a later mutation.
+        let snapshot_ledger = env.ledger().sequence();
         for holder in holders.iter() {
-            let balance = Self::get_key_balance(env.clone(), key_id.clone(), holder.clone());
+            let balance =
+                balance_checkpoints::balance_at_or_live(&env, &key_id, &holder, snapshot_ledger);
             if balance > 0 {
                 let key = SnapshotPollKey::Weight(id, holder);
                 env.storage().persistent().set(&key, &balance);
