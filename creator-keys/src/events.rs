@@ -5254,5 +5254,121 @@ pub fn co_creator_role_removed_topics(
         CO_CREATOR_ROLE_REMOVED_EVENT_NAME,
         key_id.clone(),
         wallet.clone(),
+// ============================================================================
+// Feature: redeemable event pass keys (issue #1257)
+// ============================================================================
+
+/// Event name emitted when a creator creates a redeemable event pass.
+pub const EVENT_CREATED_EVENT_NAME: Symbol = symbol_short!("evt_crt");
+
+/// Event name emitted when a holder redeems an event pass.
+pub const REDEEMED_EVENT_NAME: Symbol = symbol_short!("evt_rdm");
+
+/// Event name emitted when a creator closes an event early.
+pub const EVENT_CLOSED_EVENT_NAME: Symbol = symbol_short!("evt_clo");
+
+/// Stable event-created event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(EVENT_CREATED_EVENT_NAME, creator, key_id, event_id)`
+/// - data: `EventCreatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EventCreatedEvent {
+    /// Key's creator.
+    pub creator: Address,
+    /// Key the event is attached to.
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Minimum available key balance required to redeem.
+    pub min_balance: u32,
+    /// Maximum total redemptions allowed.
+    pub max_redemptions: u32,
+    /// First ledger (inclusive) at which redemptions are accepted.
+    pub start_ledger: u32,
+    /// Last ledger (inclusive) at which redemptions are accepted.
+    pub end_ledger: u32,
+    /// When true, redeemed keys are locked until `end_ledger`.
+    pub lock_on_redeem: bool,
+    /// Ledger sequence at which the event was created.
+    pub ledger: u32,
+}
+
+/// Shared event-created event topics tuple.
+pub fn event_created_topics(
+    creator: &Address,
+    key_id: &Address,
+    event_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (
+        EVENT_CREATED_EVENT_NAME,
+        creator.clone(),
+        key_id.clone(),
+        event_id,
+    )
+}
+
+/// Stable redeemed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(REDEEMED_EVENT_NAME, key_id, event_id, holder)`
+/// - data: `RedeemedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RedeemedEvent {
+    /// Key the event is attached to.
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Holder that redeemed the event pass.
+    pub holder: Address,
+    /// Ledger sequence at which the redemption was recorded.
+    pub ledger: u32,
+}
+
+/// Shared redeemed event topics tuple.
+pub fn redeemed_topics(
+    key_id: &Address,
+    event_id: u32,
+    holder: &Address,
+) -> (Symbol, Address, u32, Address) {
+    (
+        REDEEMED_EVENT_NAME,
+        key_id.clone(),
+        event_id,
+        holder.clone(),
+    )
+}
+
+/// Stable event-closed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(EVENT_CLOSED_EVENT_NAME, creator, key_id, event_id)`
+/// - data: `EventClosedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EventClosedEvent {
+    /// Key's creator.
+    pub creator: Address,
+    /// Key the event was attached to.
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Ledger sequence at which the event was closed.
+    pub ledger: u32,
+}
+
+/// Shared event-closed event topics tuple.
+pub fn event_closed_topics(
+    creator: &Address,
+    key_id: &Address,
+    event_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (
+        EVENT_CLOSED_EVENT_NAME,
+        creator.clone(),
+        key_id.clone(),
+        event_id,
     )
 }

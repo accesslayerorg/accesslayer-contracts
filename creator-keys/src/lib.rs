@@ -471,6 +471,34 @@ impl ContractError {
     pub const DeprecationWindowClosed: Self = Self::DeprecationNoticePeriodActive;
 }
 
+/// Errors raised by the redeemable event-pass key entrypoints
+/// ([`CreatorKeysContract::create_event`], [`CreatorKeysContract::redeem`],
+/// [`CreatorKeysContract::close_event`]).
+///
+/// Kept separate from [`ContractError`] because Soroban caps `#[contracterror]`
+/// enums at 50 variants and `ContractError` is already at that limit.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum EventError {
+    /// The event does not exist.
+    EventNotFound = 1,
+    /// The current ledger is outside `[start_ledger, end_ledger]`.
+    EventNotActive = 2,
+    /// `close_event` was called on an already closed event.
+    EventClosed = 3,
+    /// The holder's available balance is below `min_balance`.
+    InsufficientBalance = 4,
+    /// The event has reached `max_redemptions`.
+    CapacityExceeded = 5,
+    /// The holder has already redeemed this event.
+    AlreadyRedeemed = 6,
+    /// The caller is not the key's creator.
+    Unauthorized = 7,
+    /// Arithmetic overflow.
+    Overflow = 8,
+}
+
 /// Errors raised by the staking entrypoints
 /// ([`CreatorKeysContract::stake_keys_locked`], [`CreatorKeysContract::stake_extend`],
 /// [`CreatorKeysContract::early_unstake`] and [`CreatorKeysContract::claim_stake_reward`]).
@@ -1071,6 +1099,26 @@ pub mod constants {
 
         pub fn key_balance(creator: &Address, holder: &Address) -> DataKey {
             key_balance_key(creator, holder)
+        }
+
+        /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
+        pub fn event_config(key_id: &Address, event_id: &u32) -> DataKey {
+            DataKey::EventConfig(key_id.clone(), *event_id)
+        }
+
+        /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
+        pub fn event_redemption(key_id: &Address, event_id: &u32, holder: &Address) -> DataKey {
+            DataKey::EventRedeemed(key_id.clone(), *event_id, holder.clone())
+        }
+
+        /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
+        pub fn event_redeemed_count(key_id: &Address, event_id: &u32) -> DataKey {
+            DataKey::EventRedeemedCount(key_id.clone(), *event_id)
+        }
+
+        /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
+        pub fn event_lock_until(key_id: &Address, holder: &Address) -> DataKey {
+            DataKey::EventLockUntil(key_id.clone(), holder.clone())
         }
 
         pub fn snapshot_meta(creator: &Address, snapshot_id: u32) -> DataKey {
@@ -2510,6 +2558,14 @@ pub struct PriceCeilingStatus {
     pub active: bool,
     /// Ledger sequence when the cool-off period expires (unused if `active` is `false`).
     pub cooloff_end_ledger: u32,
+    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
+    EventConfig(Address, u32),
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
+    EventRedeemed(Address, u32, Address),
+    /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
+    EventRedeemedCount(Address, u32),
+    /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
+    EventLockUntil(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3022,6 +3078,28 @@ pub const MAX_SNAPSHOT_HOLDERS: u32 = 100;
 pub struct RegisterCreatorParams {
     pub creator: Address,
     pub handle: String,
+}
+
+/// Parameters for [`CreatorKeysContract::create_event`] (issue #1257).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EventParams {
+    /// Key's creator, who may create and close the event.
+    pub creator: Address,
+    /// Key the event is attached to.
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Minimum available key balance a holder must hold to redeem.
+    pub min_balance: u32,
+    /// Maximum total redemptions allowed for the event.
+    pub max_redemptions: u32,
+    /// First ledger (inclusive) at which redemptions are accepted.
+    pub start_ledger: u32,
+    /// Last ledger (inclusive) at which redemptions are accepted.
+    pub end_ledger: u32,
+    /// When true, redeemed keys are locked until `end_ledger`.
+    pub lock_on_redeem: bool,
 }
 
 /// Vesting schedule for linear key release over a fixed period.
@@ -7301,6 +7379,32 @@ pub enum TradeLimitError {
 
 #[contract]
 pub struct CreatorKeysContract;
+
+/// On-chain configuration for a redeemable event pass (issue #1257).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EventConfig {
+    /// Key's creator, who may create and close the event.
+    pub creator: Address,
+    /// Key the event is attached to (identical to `creator` in practice).
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Minimum available key balance a holder must hold to redeem.
+    pub min_balance: u32,
+    /// Maximum total redemptions allowed for the event.
+    pub max_redemptions: u32,
+    /// First ledger (inclusive) at which redemptions are accepted.
+    pub start_ledger: u32,
+    /// Last ledger (inclusive) at which redemptions are accepted.
+    pub end_ledger: u32,
+    /// When true, redeemed keys are locked until `end_ledger`.
+    pub lock_on_redeem: bool,
+    /// Set to `true` by `close_event` to stop further redemptions early.
+    pub closed: bool,
+    /// Ledger at which the event was created.
+    pub created_at_ledger: u32,
+}
 
 #[contractimpl]
 impl CreatorKeysContract {
@@ -23820,6 +23924,74 @@ impl CreatorKeysContract {
                 creator_id: creator,
                 quantity,
                 ledger: env.ledger().sequence(),
+    // -----------------------------------------------------------------------
+    // Feature: redeemable event pass keys (issue #1257)
+    // -----------------------------------------------------------------------
+
+    /// Creates a redeemable event pass for `key_id`.
+    ///
+    /// The caller must be the key's creator and authorise the call. The event
+    /// accepts redemptions between `start_ledger` and `end_ledger` (inclusive)
+    /// and at most `max_redemptions` total redemptions. A holder may redeem
+    /// at most once per event. When `lock_on_redeem` is set, the holder's
+    /// redeemed keys are locked until `end_ledger`.
+    ///
+    /// # Errors
+    /// - [`EventError::Unauthorized`] if `creator` does not own `key_id`.
+    /// - [`EventError::EventClosed`] if an event with `event_id` already exists.
+    pub fn create_event(env: Env, params: EventParams) -> Result<(), EventError> {
+        let creator = params.creator.clone();
+        let key_id = params.key_id.clone();
+        creator.require_auth();
+
+        // Only the key's creator may create events for it.
+        let creator_profile: Option<CreatorProfile> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::creator(&key_id));
+        let Some(profile) = creator_profile else {
+            return Err(EventError::Unauthorized);
+        };
+        if profile.creator != creator {
+            return Err(EventError::Unauthorized);
+        }
+
+        let config_key = constants::storage::event_config(&key_id, &params.event_id);
+        if env.storage().persistent().has(&config_key) {
+            return Err(EventError::EventClosed);
+        }
+
+        let current_ledger = env.ledger().sequence();
+        let config = EventConfig {
+            creator: creator.clone(),
+            key_id: key_id.clone(),
+            event_id: params.event_id,
+            min_balance: params.min_balance,
+            max_redemptions: params.max_redemptions,
+            start_ledger: params.start_ledger,
+            end_ledger: params.end_ledger,
+            lock_on_redeem: params.lock_on_redeem,
+            closed: false,
+            created_at_ledger: current_ledger,
+        };
+        env.storage().persistent().set(&config_key, &config);
+        env.storage().persistent().set(
+            &constants::storage::event_redeemed_count(&key_id, &params.event_id),
+            &0u32,
+        );
+
+        env.events().publish(
+            events::event_created_topics(&creator, &key_id, params.event_id),
+            events::EventCreatedEvent {
+                creator: creator.clone(),
+                key_id: key_id.clone(),
+                event_id: params.event_id,
+                min_balance: params.min_balance,
+                max_redemptions: params.max_redemptions,
+                start_ledger: params.start_ledger,
+                end_ledger: params.end_ledger,
+                lock_on_redeem: params.lock_on_redeem,
+                ledger: current_ledger,
             },
         );
 
@@ -23928,6 +24100,140 @@ impl CreatorKeysContract {
 
     pub fn get_payment_base_reserve(env: Env) -> i128 {
         multi_asset_payment::get_base_reserve(&env)
+    /// Redeems an event pass for `holder`.
+    ///
+    /// Checks that the holder's available balance is at least `min_balance`,
+    /// the current ledger is within the event window, capacity remains, and
+    /// the holder has not already redeemed. Records the redemption and emits
+    /// [`RedeemedEvent`]. When `lock_on_redeem` is set, the holder's redeemed
+    /// keys are locked until `end_ledger`.
+    ///
+    /// # Errors
+    /// - [`EventError::EventNotFound`] if the event does not exist.
+    /// - [`EventError::EventClosed`] if the event was closed early.
+    /// - [`EventError::EventNotActive`] if outside the redemption window.
+    /// - [`EventError::InsufficientBalance`] if the holder's balance is below
+    ///   `min_balance`.
+    /// - [`EventError::CapacityExceeded`] if the event is at capacity.
+    /// - [`EventError::AlreadyRedeemed`] if the holder already redeemed.
+    pub fn redeem_event(
+        env: Env,
+        holder: Address,
+        key_id: Address,
+        event_id: u32,
+    ) -> Result<(), EventError> {
+        let config_key = constants::storage::event_config(&key_id, &event_id);
+        let config: EventConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(EventError::EventNotFound)?;
+
+        if config.closed {
+            return Err(EventError::EventClosed);
+        }
+
+        let current_ledger = env.ledger().sequence();
+        if current_ledger < config.start_ledger || current_ledger > config.end_ledger {
+            return Err(EventError::EventNotActive);
+        }
+
+        let balance = available_holder_balance(&env, &key_id, &holder);
+        if balance < config.min_balance {
+            return Err(EventError::InsufficientBalance);
+        }
+
+        let redeemed_key = constants::storage::event_redemption(&key_id, &event_id, &holder);
+        if env.storage().persistent().has(&redeemed_key) {
+            return Err(EventError::AlreadyRedeemed);
+        }
+
+        let count_key = constants::storage::event_redeemed_count(&key_id, &event_id);
+        let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        if count >= config.max_redemptions {
+            return Err(EventError::CapacityExceeded);
+        }
+
+        env.storage().persistent().set(&redeemed_key, &true);
+        let new_count = count.checked_add(1).ok_or(EventError::Overflow)?;
+        env.storage().persistent().set(&count_key, &new_count);
+
+        if config.lock_on_redeem {
+            let lock_key = constants::storage::event_lock_until(&key_id, &holder);
+            env.storage()
+                .persistent()
+                .set(&lock_key, &config.end_ledger);
+        }
+
+        env.events().publish(
+            events::redeemed_topics(&key_id, event_id, &holder),
+            events::RedeemedEvent {
+                key_id: key_id.clone(),
+                event_id,
+                holder: holder.clone(),
+                ledger: current_ledger,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Returns whether `holder` has already redeemed `event_id` for `key_id`.
+    pub fn redemption_of(env: Env, key_id: Address, event_id: u32, holder: Address) -> bool {
+        let key = constants::storage::event_redemption(&key_id, &event_id, &holder);
+        env.storage().persistent().has(&key)
+    }
+
+    /// Returns the number of redemptions recorded for `event_id` on `key_id`.
+    pub fn redeemed_count(env: Env, key_id: Address, event_id: u32) -> u32 {
+        let key = constants::storage::event_redeemed_count(&key_id, &event_id);
+        env.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    /// Closes an event early, stopping further redemptions.
+    ///
+    /// Only the key's creator may close the event. Emits [`EventClosedEvent`].
+    ///
+    /// # Errors
+    /// - [`EventError::EventNotFound`] if the event does not exist.
+    /// - [`EventError::EventClosed`] if the event is already closed.
+    /// - [`EventError::Unauthorized`] if `creator` does not own `key_id`.
+    pub fn close_event(
+        env: Env,
+        creator: Address,
+        key_id: Address,
+        event_id: u32,
+    ) -> Result<(), EventError> {
+        creator.require_auth();
+
+        let config_key = constants::storage::event_config(&key_id, &event_id);
+        let mut config: EventConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(EventError::EventNotFound)?;
+
+        if config.closed {
+            return Err(EventError::EventClosed);
+        }
+        if config.creator != creator {
+            return Err(EventError::Unauthorized);
+        }
+
+        config.closed = true;
+        env.storage().persistent().set(&config_key, &config);
+
+        env.events().publish(
+            events::event_closed_topics(&creator, &key_id, event_id),
+            events::EventClosedEvent {
+                creator: creator.clone(),
+                key_id: key_id.clone(),
+                event_id,
+                ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
     }
 }
 
