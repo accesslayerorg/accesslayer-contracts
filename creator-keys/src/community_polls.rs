@@ -20,6 +20,60 @@ pub const MAX_POLL_OPTIONS: u32 = 4;
 /// Maximum number of holders whose balances can be snapshotted for a single poll.
 pub const MAX_POLL_HOLDERS: u32 = 1_000;
 
+/// Conviction decay factor per ledger interval, as a fixed-point numerator over `CONVICTION_SCALE`.
+pub const CONVICTION_DECAY_NUM: u128 = 999_000;
+/// Fixed-point scale used for conviction math.
+pub const CONVICTION_SCALE: u128 = 1_000_000;
+/// Base conviction threshold required for a request of zero treasury share.
+pub const CONVICTION_BASE_THRESHOLD: u128 = 1_000 * CONVICTION_SCALE;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ConvictionProposal {
+    pub id: u32,
+    pub proposer: Address,
+    pub requested_amount: u128,
+    pub treasury_total: u128,
+    pub conviction: u128,
+    pub last_updated: u64,
+    pub executed: bool,
+}
+
+#[derive(Clone)]
+#[contracttype]
+pub enum ConvictionKey {
+    NextId,
+    Proposal(u32),
+    /// (proposal_id, holder) -> staked amount.
+    Stake(u32, Address),
+    /// holder -> total staked across all proposals.
+    TotalStaked(Address),
+}
+
+fn conviction_decay_pow(steps: u64) -> u128 {
+    let mut result = CONVICTION_SCALE;
+    let mut i = 0u64;
+    while i < steps && i < 10_000 {
+        result = result * CONVICTION_DECAY_NUM / CONVICTION_SCALE;
+        i += 1;
+    }
+    result
+}
+
+/// Applies `conviction = conviction * decay + stake` for the elapsed intervals.
+fn advance_conviction(conviction: u128, elapsed_intervals: u64) -> u128 {
+    conviction * conviction_decay_pow(elapsed_intervals) / CONVICTION_SCALE
+}
+
+fn threshold_for_amount(requested_amount: u128, treasury_total: u128) -> u128 {
+    if treasury_total == 0 {
+        return u128::MAX;
+    }
+    CONVICTION_BASE_THRESHOLD.saturating_add(
+        CONVICTION_BASE_THRESHOLD * requested_amount / treasury_total,
+    )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub struct SnapshotPoll {
