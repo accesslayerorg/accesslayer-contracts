@@ -69,9 +69,8 @@ fn threshold_for_amount(requested_amount: u128, treasury_total: u128) -> u128 {
     if treasury_total == 0 {
         return u128::MAX;
     }
-    CONVICTION_BASE_THRESHOLD.saturating_add(
-        CONVICTION_BASE_THRESHOLD * requested_amount / treasury_total,
-    )
+    CONVICTION_BASE_THRESHOLD
+        .saturating_add(CONVICTION_BASE_THRESHOLD * requested_amount / treasury_total)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

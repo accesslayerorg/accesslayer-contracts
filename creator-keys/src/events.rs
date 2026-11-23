@@ -208,6 +208,8 @@ pub fn lockup_released_topics(wallet: &Address, key_id: &Address) -> (Symbol, Ad
 /// Event name for quorum threshold update.
 pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
 
+/// Event name for quorum threshold update (alias kept for conviction module consumers).
+
 /// Event name for a holder staking on a conviction-voting proposal.
 pub const STAKED_EVENT_NAME: Symbol = symbol_short!("staked");
 

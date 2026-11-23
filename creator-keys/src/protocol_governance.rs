@@ -483,10 +483,8 @@ impl CreatorKeysContract {
         env.storage().persistent().set(&key, &proposal);
         extend_key_ttl_to_full_window(&env, &key);
 
-        env.events().publish(
-            (symbol_short!("staked"), proposal_id, holder),
-            amount,
-        );
+        env.events()
+            .publish((symbol_short!("staked"), proposal_id, holder), amount);
         Ok(())
     }
 
@@ -536,10 +534,8 @@ impl CreatorKeysContract {
         env.storage().persistent().set(&key, &proposal);
         extend_key_ttl_to_full_window(&env, &key);
 
-        env.events().publish(
-            (symbol_short!("unstaked"), proposal_id, holder),
-            amount,
-        );
+        env.events()
+            .publish((symbol_short!("unstaked"), proposal_id, holder), amount);
         Ok(())
     }
 
@@ -552,10 +548,7 @@ impl CreatorKeysContract {
 
     /// Threshold a request must reach, scaled by its share of the treasury
     /// recorded at proposal creation.
-    pub fn threshold_for(
-        env: Env,
-        proposal_id: u32,
-    ) -> Result<i128, ContractError> {
+    pub fn threshold_for(env: Env, proposal_id: u32) -> Result<i128, ContractError> {
         let proposal = read_conviction(&env, proposal_id)?;
         threshold_for_amount(proposal.requested_amount, proposal.treasury_at_creation)
     }
@@ -568,10 +561,8 @@ impl CreatorKeysContract {
             return Err(ContractError::ActionNotPending);
         }
         advance_conviction(&env, &mut proposal)?;
-        let threshold = threshold_for_amount(
-            proposal.requested_amount,
-            proposal.treasury_at_creation,
-        )?;
+        let threshold =
+            threshold_for_amount(proposal.requested_amount, proposal.treasury_at_creation)?;
         if proposal.conviction < threshold {
             return Err(ContractError::Unauthorized);
         }
