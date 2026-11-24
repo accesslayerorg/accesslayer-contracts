@@ -13,6 +13,14 @@ pub const VEST_CREATED_EVENT_NAME: Symbol = symbol_short!("vest_new");
 /// Event name for claiming vested tokens.
 pub const VEST_CLAIMED_EVENT_NAME: Symbol = symbol_short!("vest_clm");
 
+/// Number of ledgers a proposed admin has to accept (~7 days at 5s per ledger).
+pub const ADMIN_TRANSFER_WINDOW_LEDGERS: u32 = 120_960;
+
+/// Strkey of the all-zero ed25519 account, rejected as a new admin.
+const ZERO_ACCOUNT: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+/// Strkey of the all-zero contract id, rejected as a new admin.
+const ZERO_CONTRACT: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+
 /// Default persistent storage TTL thresholds (~30 days).
 pub const VEST_TTL_THRESHOLD: u32 = 100_000;
 pub const VEST_TTL_EXTEND_TO: u32 = 518_400;
@@ -31,6 +39,12 @@ pub enum ContractError {
     InvalidCliff = 8,
     NoVestedTokens = 9,
     ArithmeticOverflow = 10,
+    /// The proposed admin is the current admin or a zero-equivalent address.
+    InvalidAdmin = 11,
+    /// There is no pending admin transfer.
+    NoPendingAdmin = 12,
+    /// The pending admin transfer expired before it was accepted.
+    AdminTransferExpired = 13,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,10 +89,19 @@ pub struct VestClaimed {
     pub remaining_locked: i128,
 }
 
+/// A proposed admin and the last ledger at which it may accept.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PendingAdmin {
+    pub address: Address,
+    pub expiry_ledger: u32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum DataKey {
     Admin,
+    PendingAdmin,
     NextVestId,
     Vest(u64),
 }
@@ -120,6 +143,19 @@ fn calculate_unlocked_amount(
 
 #[contractimpl]
 impl VestingContract {
+    fn require_admin(env: &Env, admin: &Address) -> Result<(), ContractError> {
+        let stored: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::NotInitialized)?;
+        if &stored != admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+        Ok(())
+    }
+
     /// Initializes the vesting contract with an admin.
     pub fn init(env: Env, admin: Address) -> Result<(), ContractError> {
         if env.storage().instance().has(&DataKey::Admin) {
@@ -140,21 +176,97 @@ impl VestingContract {
         env.storage().instance().get(&DataKey::Admin)
     }
 
-    /// Updates the admin address. Requires authorization from current admin.
-    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(ContractError::NotInitialized)?;
-        admin.require_auth();
+    /// Proposes `new_admin` as the next admin. The current admin keeps full
+    /// rights until `new_admin` calls `accept_admin` before the expiry ledger.
+    /// A new proposal replaces any earlier pending one.
+    pub fn propose_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), ContractError> {
+        Self::require_admin(&env, &admin)?;
 
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        if new_admin == admin
+            || new_admin == Address::from_str(&env, ZERO_ACCOUNT)
+            || new_admin == Address::from_str(&env, ZERO_CONTRACT)
+        {
+            return Err(ContractError::InvalidAdmin);
+        }
+
+        let expiry_ledger = env
+            .ledger()
+            .sequence()
+            .checked_add(ADMIN_TRANSFER_WINDOW_LEDGERS)
+            .ok_or(ContractError::ArithmeticOverflow)?;
+        env.storage().instance().set(
+            &DataKey::PendingAdmin,
+            &PendingAdmin {
+                address: new_admin.clone(),
+                expiry_ledger,
+            },
+        );
         env.storage()
             .instance()
             .extend_ttl(VEST_TTL_THRESHOLD, VEST_TTL_EXTEND_TO);
 
+        env.events().publish(
+            (Symbol::new(&env, "admin_proposed"), admin),
+            (new_admin, expiry_ledger),
+        );
         Ok(())
+    }
+
+    /// Finalizes the transfer. Only the pending admin can call this, and only
+    /// up to and including the expiry ledger.
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+        let pending: PendingAdmin = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(ContractError::NoPendingAdmin)?;
+        if pending.address != new_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        new_admin.require_auth();
+        if env.ledger().sequence() > pending.expiry_ledger {
+            return Err(ContractError::AdminTransferExpired);
+        }
+
+        let old_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::NotInitialized)?;
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        env.storage()
+            .instance()
+            .extend_ttl(VEST_TTL_THRESHOLD, VEST_TTL_EXTEND_TO);
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_accepted"), new_admin),
+            old_admin,
+        );
+        Ok(())
+    }
+
+    /// Clears the pending proposal. Admin-only.
+    pub fn cancel_admin_transfer(env: Env, admin: Address) -> Result<(), ContractError> {
+        Self::require_admin(&env, &admin)?;
+        let pending: PendingAdmin = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(ContractError::NoPendingAdmin)?;
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_transfer_cancelled"), admin),
+            pending.address,
+        );
+        Ok(())
+    }
+
+    /// Returns the pending admin and its expiry ledger, if a transfer is open.
+    /// An expired proposal is still returned until it is replaced or cancelled.
+    pub fn pending_admin(env: Env) -> Option<PendingAdmin> {
+        env.storage().instance().get(&DataKey::PendingAdmin)
     }
 
     /// Creates a new vesting schedule for a creator key allocation. Admin-only.
