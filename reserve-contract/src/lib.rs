@@ -19,6 +19,8 @@ pub enum ReserveError {
 pub enum DataKey {
     Admin,
     Reserve(Address),
+    Liabilities,
+    TotalReserve,
 }
 
 #[contract]
@@ -53,6 +55,8 @@ impl ReserveContract {
         env.storage()
             .persistent()
             .set(&DataKey::Reserve(key_id.clone()), &balance);
+        let total: i128 = env.storage().instance().get(&DataKey::TotalReserve).unwrap_or(0);
+        env.storage().instance().set(&DataKey::TotalReserve, &(total + accrued));
         env.events()
             .publish((Symbol::new(&env, "ReserveAccrued"), key_id), accrued);
 
@@ -83,6 +87,8 @@ impl ReserveContract {
         env.storage()
             .persistent()
             .set(&DataKey::Reserve(key_id.clone()), &(balance - amount));
+        let total: i128 = env.storage().instance().get(&DataKey::TotalReserve).unwrap_or(0);
+        env.storage().instance().set(&DataKey::TotalReserve, &(total - amount));
         env.events()
             .publish((Symbol::new(&env, "ReserveDeployed"), key_id), amount);
 
@@ -91,6 +97,20 @@ impl ReserveContract {
 
     pub fn get_reserve_balance(env: Env, key_id: Address) -> i128 {
         read_reserve_balance(&env, &key_id)
+    }
+
+    pub fn set_outstanding_liabilities(env: Env, amount: i128) -> Result<(), ReserveError> {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(ReserveError::NotInitialized)?;
+        admin.require_auth(); if amount < 0 { return Err(ReserveError::NotPositiveAmount); }
+        env.storage().instance().set(&DataKey::Liabilities, &amount); Ok(())
+    }
+
+    pub fn total_reserves(env: Env) -> i128 { env.storage().instance().get(&DataKey::TotalReserve).unwrap_or(0) }
+
+    pub fn is_solvent(env: Env, liabilities: i128) -> bool {
+        if liabilities < 0 { return false; }
+        let reserves: i128 = env.storage().instance().get(&DataKey::TotalReserve).unwrap_or(0);
+        reserves >= liabilities
     }
 }
 
