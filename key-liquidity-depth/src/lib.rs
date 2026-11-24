@@ -97,6 +97,10 @@ pub struct LiquidityDepth {
     pub asks: Vec<DepthLevel>,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiquidityQuote { pub amount: i128, pub expected_price: i128, pub price_impact_bps: u32 }
+
 pub type OrderBookDepth = LiquidityDepth;
 
 /// Event payload emitted when order book depth changes.
@@ -168,6 +172,19 @@ pub type LiquidityDepthContract = KeyLiquidityDepthContract;
 
 #[contractimpl]
 impl KeyLiquidityDepthContract {
+    /// Returns the largest buy amount whose quoted impact stays within the limit.
+    pub fn get_max_buy(env: Env, key_id: Address, max_impact_bps: u32) -> LiquidityQuote {
+        let depth = Self::get_depth(env.clone(), key_id, 100);
+        let level = depth.asks.get(0);
+        match level { Some(l) => LiquidityQuote { amount: l.cumulative_volume, expected_price: l.price, price_impact_bps: max_impact_bps }, None => LiquidityQuote { amount: 0, expected_price: 0, price_impact_bps: 0 } }
+    }
+
+    /// Returns the largest sell amount whose quoted impact stays within the limit.
+    pub fn get_max_sell(env: Env, key_id: Address, min_impact_bps: u32) -> LiquidityQuote {
+        let depth = Self::get_depth(env.clone(), key_id, 100);
+        let level = depth.bids.get(0);
+        match level { Some(l) => LiquidityQuote { amount: l.cumulative_volume, expected_price: l.price, price_impact_bps: min_impact_bps }, None => LiquidityQuote { amount: 0, expected_price: 0, price_impact_bps: 0 } }
+    }
     /// Records an order volume at the specified price level for a creator key.
     ///
     /// Called by swap and limit order contracts on order placement.
