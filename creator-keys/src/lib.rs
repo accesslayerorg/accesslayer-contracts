@@ -101,6 +101,13 @@ pub mod test_feature_impl;
 pub mod test_issues_1086_1087_1088_1093;
 pub mod test_new_features;
 
+// New features for issues #1283-#1286
+pub mod creator_allocation;
+pub mod english_auction;
+pub mod holder_enumeration;
+pub mod badge_access_control;
+pub mod test_issues_1283_1284_1285_1286;
+
 // Contract error variants stability and ordering:
 //
 // IMPORTANT: New error variants MUST be appended to the end of this enum and NEVER
@@ -406,6 +413,9 @@ pub enum ContractError {
     NoGuardians = 159,
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
+    // --- New error variants for issues #1283-#1286 ---
+    /// Badge required for this action (Issue #1286).
+    BadgeRequired = 161,
 }
 
 impl ContractError {
