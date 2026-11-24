@@ -115,6 +115,7 @@ pub use vote_delegation::VoteDelegationKey;
 pub mod test_feature_impl;
 pub mod test_issues_1086_1087_1088_1093;
 pub mod test_new_features;
+pub mod test_issue_1253;
 
 // New features for issues #1283-#1286
 pub mod creator_allocation;
@@ -442,25 +443,38 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 161,
+    BadgeRequired = 166,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 162,
+    StalePrice = 167,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 163,
-    QuorumNotMet = 164,
-    InvalidOracleSet = 165,
-    InvalidBasket = 166,
-    BasketNotFound = 167,
-    RebalanceTimelock = 168,
-    RebalanceLimitExceeded = 169,
-    JointKeyNotFound = 170,
-    NotJointOwner = 172,
-    JointProposalNotFound = 173,
-    ProposalActive = 174,
-    ThresholdNotMet = 175,
-    InvalidWeights = 176,
-    NoticePeriodActive = 177,
-    CyclicReferral = 178,
+    PriceDeviation = 168,
+    QuorumNotMet = 169,
+    InvalidOracleSet = 170,
+    InvalidBasket = 171,
+    BasketNotFound = 172,
+    RebalanceTimelock = 173,
+    RebalanceLimitExceeded = 174,
+    JointKeyNotFound = 175,
+    NotJointOwner = 176,
+    JointProposalNotFound = 177,
+    ProposalActive = 178,
+    ThresholdNotMet = 179,
+    InvalidWeights = 180,
+    NoticePeriodActive = 181,
+    CyclicReferral = 182,
+    // --- Rage-quit (Issue #1253) ---
+    /// The holder voted in favour of the proposal and is not eligible to rage-quit.
+    RageQuitVotedFor = 183,
+    /// The rage-quit window for this proposal has not opened yet (voting still ongoing)
+    /// or has already closed.
+    RageQuitWindowClosed = 184,
+    /// The holder did not hold any keys at the proposal snapshot and cannot rage-quit.
+    RageQuitNotEligible = 185,
+    /// The rage-quit cap (max_ragequit_bps of snapshot supply) has been reached for
+    /// this proposal.
+    RageQuitCapReached = 186,
+    /// The rage-quit window ledger setting is zero or exceeds the allowed ceiling.
+    InvalidRageQuitWindow = 187,
 }
 
 impl ContractError {
