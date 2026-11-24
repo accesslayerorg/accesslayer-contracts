@@ -84,6 +84,7 @@ pub mod key_freeze;
 pub mod key_ownership_transfer;
 pub mod launch_window;
 pub mod lp_reward;
+pub mod p2p_swap_dividend_stream_oracle;
 pub mod price_alerts;
 pub mod protocol_governance;
 pub mod proxy;
@@ -406,6 +407,10 @@ pub enum ContractError {
     NoGuardians = 159,
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
+    /// Oracle price is older than the configured max age and no fresh fallback exists.
+    StalePrice = 161,
+    /// Fresh primary and fallback prices differ by more than the allowed bps.
+    PriceDeviation = 162,
 }
 
 impl ContractError {
@@ -25659,3 +25664,5 @@ mod test_issue_1056;
 mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
+#[cfg(test)]
+mod test_issues_1072_1186_1250_1251;
