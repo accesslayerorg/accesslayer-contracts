@@ -16,6 +16,10 @@ members = [
     "key-analytics",
     "dividend-contract",
     "subscription-contract",
+    "fee-discount-contract",
+    "batch-trade-contract",
+    "social-metadata-contract",
+    "key-liquidity-depth",
 ]
 resolver = "2"
 
