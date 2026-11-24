@@ -84,6 +84,7 @@ pub mod key_freeze;
 pub mod key_ownership_transfer;
 pub mod launch_window;
 pub mod lp_reward;
+pub mod p2p_swap_dividend_stream_oracle;
 pub mod price_alerts;
 pub mod protocol_governance;
 pub mod proxy;
@@ -102,6 +103,13 @@ pub use vote_delegation::VoteDelegationKey;
 pub mod test_feature_impl;
 pub mod test_issues_1086_1087_1088_1093;
 pub mod test_new_features;
+
+// New features for issues #1283-#1286
+pub mod creator_allocation;
+pub mod english_auction;
+pub mod holder_enumeration;
+pub mod badge_access_control;
+pub mod test_issues_1283_1284_1285_1286;
 
 // Contract error variants stability and ordering:
 //
@@ -408,6 +416,13 @@ pub enum ContractError {
     NoGuardians = 159,
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
+    // --- New error variants for issues #1283-#1286 ---
+    /// Badge required for this action (Issue #1286).
+    BadgeRequired = 161,
+    /// Oracle price is older than the configured max age and no fresh fallback exists.
+    StalePrice = 161,
+    /// Fresh primary and fallback prices differ by more than the allowed bps.
+    PriceDeviation = 162,
 }
 
 impl ContractError {
@@ -25831,3 +25846,5 @@ mod test_issue_1056;
 mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
+#[cfg(test)]
+mod test_issues_1072_1186_1250_1251;

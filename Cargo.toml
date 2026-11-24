@@ -24,6 +24,12 @@ members = [
     "storage-cleanup",
     "key-health-score",
     "personhood-hook",
+    "creator-penalty",
+    "sponsored-transactions",
+    "vote-escrow-contract",
+    "safe-mode-contract",
+    "holder-insurance-pool",
+    "sealed-launch-auction",
 ]
 resolver = "2"
 
@@ -47,8 +53,7 @@ lto = true
 
 # Suppress PDB generation on Windows to prevent linker exhaustion (LNK1318)
 # under disk-constrained environments. Setting debug = 0 disables the Program
-# Database file that the MSVC linker writes alongside the test binary.
-# [profile.test] inherits from [profile.dev], so setting debug = 0 here
-# covers both `cargo build` and `cargo test` invocations.
+# Database file that the MSVC linker writes alongside the test binary. It also
+# keeps local test builds small on constrained environments.
 [profile.dev]
 debug = 0
