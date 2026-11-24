@@ -618,6 +618,9 @@ pub enum CurveConfigError {
     NotRegistered = 4,
     /// Arithmetic overflow occurred during curve calculation.
     Overflow = 5,
+    /// The curve is already in use: keys have been sold, so the configuration
+    /// can no longer change and would reprice existing holdings.
+    CurveAlreadyActive = 6,
 }
 
 pub mod fee {
@@ -4978,17 +4981,71 @@ fn read_graduated_curve(env: &Env, creator: &Address) -> Option<Vec<(u32, u32)>>
         .get(&constants::storage::graduated_curve(creator))
 }
 
-pub fn graduated_exponent_for_supply(milestones: &Vec<(u32, u32)>, supply: u32) -> u32 {
-    let mut last_exponent = 1u32;
-    for (threshold, exponent) in milestones.iter() {
-        last_exponent = exponent;
-        if supply <= threshold {
-            return exponent;
-        }
+/// Validates and persists a graduated curve configuration.
+///
+/// Shared by [`CreatorKeysContract::set_graduated_curve`] and
+/// [`CreatorKeysContract::configure_graduated_curve`]; performs no
+/// authorization itself, so callers must have authenticated the key creator.
+fn write_graduated_curve(
+    env: &Env,
+    creator: &Address,
+    milestones: Vec<(u32, u32)>,
+) -> Result<(), CurveConfigError> {
+    read_registered_creator_profile(env, creator).map_err(|_| CurveConfigError::NotRegistered)?;
+
+    if milestones.is_empty() || milestones.len() > 5 {
+        return Err(CurveConfigError::InvalidMilestoneCount);
     }
-    last_exponent
+
+    let mut prev_threshold = 0u32;
+    for (threshold, exponent) in milestones.iter() {
+        if threshold <= prev_threshold {
+            return Err(CurveConfigError::ThresholdNotAscending);
+        }
+        if !(1..=5).contains(&exponent) {
+            return Err(CurveConfigError::InvalidExponent);
+        }
+        prev_threshold = threshold;
+    }
+
+    let key = constants::storage::graduated_curve(creator);
+    env.storage().persistent().set(&key, &milestones);
+    extend_key_ttl_to_full_window(env, &key);
+
+    env.events().publish(
+        events::graduated_curve_configured_topics(creator),
+        events::GraduatedCurveConfiguredEvent {
+            creator: creator.clone(),
+            milestones,
+            ledger: env.ledger().sequence(),
+        },
+    );
+
+    Ok(())
 }
 
+/// Returns the exponent that applies at `supply`.
+///
+/// Supply below the first milestone is priced with the base exponent (`1`);
+/// each milestone switches to its own exponent once its threshold is reached.
+pub fn graduated_exponent_for_supply(milestones: &Vec<(u32, u32)>, supply: u32) -> u32 {
+    let mut exponent = 1u32;
+    for (threshold, tier_exponent) in milestones.iter() {
+        if supply >= threshold {
+            exponent = tier_exponent;
+        } else {
+            break;
+        }
+    }
+    exponent
+}
+
+/// Bonding-curve price at `supply` under a graduated milestone schedule.
+///
+/// Each milestone band is integrated separately: the band starting at the
+/// previous threshold is priced with the exponent in force for that band, so
+/// the steepness steps up at exactly the configured thresholds and the price
+/// stays continuous across them.
 pub fn compute_graduated_curve_price(
     milestones: &Vec<(u32, u32)>,
     base_price: i128,
@@ -4999,40 +5056,34 @@ pub fn compute_graduated_curve_price(
         return Ok(base_price);
     }
 
-    let mut current_base = base_price;
-    let mut prev_threshold = 0u32;
-    let mut last_exponent = 1u32;
+    let mut price = base_price;
+    let mut band_start = 0u32;
+    // Supply below the first milestone uses the base exponent.
+    let mut exponent = 1u32;
 
-    for (threshold, exponent) in milestones.iter() {
-        last_exponent = exponent;
+    for (threshold, tier_exponent) in milestones.iter() {
         if supply <= threshold {
-            let delta = (supply - prev_threshold) as i128;
-            let delta_exp = checked_pow_i128(delta, exponent)?;
-            let delta_component = slope
-                .checked_mul(delta_exp)
+            let span = supply.saturating_sub(band_start) as i128;
+            let component = slope
+                .checked_mul(checked_pow_i128(span, exponent)?)
                 .ok_or(ContractError::Overflow)?;
-            return current_base
-                .checked_add(delta_component)
-                .ok_or(ContractError::Overflow);
-        } else {
-            let span = (threshold - prev_threshold) as i128;
-            let span_exp = checked_pow_i128(span, exponent)?;
-            let span_component = slope.checked_mul(span_exp).ok_or(ContractError::Overflow)?;
-            current_base = current_base
-                .checked_add(span_component)
-                .ok_or(ContractError::Overflow)?;
-            prev_threshold = threshold;
+            return price.checked_add(component).ok_or(ContractError::Overflow);
         }
+
+        let span = (threshold - band_start) as i128;
+        let component = slope
+            .checked_mul(checked_pow_i128(span, exponent)?)
+            .ok_or(ContractError::Overflow)?;
+        price = price.checked_add(component).ok_or(ContractError::Overflow)?;
+        band_start = threshold;
+        exponent = tier_exponent;
     }
 
-    let delta = (supply - prev_threshold) as i128;
-    let delta_exp = checked_pow_i128(delta, last_exponent)?;
-    let delta_component = slope
-        .checked_mul(delta_exp)
+    let span = (supply - band_start) as i128;
+    let component = slope
+        .checked_mul(checked_pow_i128(span, exponent)?)
         .ok_or(ContractError::Overflow)?;
-    current_base
-        .checked_add(delta_component)
-        .ok_or(ContractError::Overflow)
+    price.checked_add(component).ok_or(ContractError::Overflow)
 }
 
 fn compute_bonding_curve_price(
@@ -19840,38 +19891,40 @@ impl CreatorKeysContract {
         milestones: Vec<(u32, u32)>,
     ) -> Result<(), CurveConfigError> {
         creator.require_auth();
-        read_registered_creator_profile(&env, &creator)
-            .map_err(|_| CurveConfigError::NotRegistered)?;
+        write_graduated_curve(&env, &creator, milestones)
+    }
 
-        if milestones.is_empty() || milestones.len() > 5 {
-            return Err(CurveConfigError::InvalidMilestoneCount);
+    /// Configures the graduated bonding curve for a key before its first sale.
+    ///
+    /// Each milestone is a `(supply_threshold, exponent)` pair. Supply below the
+    /// first threshold is priced with the base exponent (`1`); reaching a
+    /// threshold switches the curve to that milestone's steeper exponent.
+    ///
+    /// Milestones must have 1..=5 tiers, thresholds must be strictly ascending,
+    /// and exponents must be in `1..=5`.
+    ///
+    /// # Panics
+    ///
+    /// Panics with [`CurveConfigError::CurveAlreadyActive`] once any key has
+    /// been sold. Repricing a curve that holders already bought into would let
+    /// a creator change what those buyers paid.
+    pub fn configure_graduated_curve(
+        env: Env,
+        key_id: Address,
+        milestones: Vec<(u32, u32)>,
+    ) -> Result<(), CurveConfigError> {
+        key_id.require_auth();
+
+        // The first-sale marker is written when the first key is bought.
+        if env
+            .storage()
+            .persistent()
+            .has(&constants::storage::created_at_ledger(&key_id))
+        {
+            soroban_sdk::panic_with_error!(&env, CurveConfigError::CurveAlreadyActive);
         }
 
-        let mut prev_threshold = 0u32;
-        for (threshold, exponent) in milestones.iter() {
-            if threshold <= prev_threshold {
-                return Err(CurveConfigError::ThresholdNotAscending);
-            }
-            if !(1..=5).contains(&exponent) {
-                return Err(CurveConfigError::InvalidExponent);
-            }
-            prev_threshold = threshold;
-        }
-
-        let key = constants::storage::graduated_curve(&creator);
-        env.storage().persistent().set(&key, &milestones);
-        extend_key_ttl_to_full_window(&env, &key);
-
-        env.events().publish(
-            events::graduated_curve_configured_topics(&creator),
-            events::GraduatedCurveConfiguredEvent {
-                creator: creator.clone(),
-                milestones,
-                ledger: env.ledger().sequence(),
-            },
-        );
-
-        Ok(())
+        write_graduated_curve(&env, &key_id, milestones)
     }
 
     /// Read-only view: returns the graduated bonding curve milestones for a creator, if set.
