@@ -20,6 +20,8 @@ members = [
     "batch-trade-contract",
     "social-metadata-contract",
     "key-liquidity-depth",
+    "creator-penalty",
+    "sponsored-transactions",
     "vote-escrow-contract",
     "safe-mode-contract",
     "holder-insurance-pool",
