@@ -68,6 +68,7 @@ pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
 pub mod balance_attestation;
 pub mod bundle;
+pub mod co_creators;
 pub mod community_polls;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
 ///
@@ -84,6 +85,7 @@ pub mod key_freeze;
 pub mod key_ownership_transfer;
 pub mod launch_window;
 pub mod lp_reward;
+pub mod multi_buy;
 pub mod price_alerts;
 pub mod protocol_governance;
 pub mod proxy;
@@ -406,6 +408,16 @@ pub enum ContractError {
     NoGuardians = 159,
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
+    /// A multi-buy was called without any legs.
+    LegsEmpty = 161,
+    /// A multi-buy contained more than ten legs.
+    TooManyLegs = 162,
+    /// The same creator appeared in more than one multi-buy leg.
+    DuplicateCreator = 163,
+    /// The buyer cannot cover the worst-case cost of a multi-buy.
+    InsufficientFunds = 164,
+    /// A sell was attempted at or below its configured price floor.
+    PriceFloorBreached = 165,
 }
 
 impl ContractError {
@@ -991,6 +1003,11 @@ pub mod constants {
 
         pub fn price_ceiling_status(creator: &Address) -> DataKey {
             DataKey::PriceCeilingStatus(creator.clone())
+        }
+
+        /// Storage key for the admin-configured per-key sell price floor.
+        pub fn price_floor(key_id: &Address) -> DataKey {
+            DataKey::PriceFloor(key_id.clone())
         }
 
         pub fn auction_config(creator: &Address) -> DataKey {
@@ -2349,6 +2366,8 @@ pub enum DataKey {
     PausedSince,
     /// Per-key reserve available to the emergency escape redemption flow.
     EscapeReserve(Address),
+    /// (key) -> minimum bonding-curve price in stroops below which sells are blocked.
+    PriceFloor(Address),
 }
 
 /// Maximum callback payload size accepted by `transfer_and_call`.
@@ -3388,6 +3407,40 @@ pub fn read_trade_limit(env: &Env, key_id: &Address) -> Option<TradeLimit> {
     env.storage()
         .persistent()
         .get::<DataKey, TradeLimit>(&constants::storage::trade_limit(key_id))
+}
+
+/// Reads the configured sell price floor for `key_id`, if any.
+pub fn read_price_floor(env: &Env, key_id: &Address) -> Option<i128> {
+    let key = constants::storage::price_floor(key_id);
+    if !env.storage().persistent().has(&key) {
+        return None;
+    }
+    bump_persistent_ttl(env, &key);
+    env.storage().persistent().get::<DataKey, i128>(&key)
+}
+
+/// Rejects a sell when the current bonding-curve price is at or below the
+/// configured floor. The numeric values travel in the accompanying event.
+pub(crate) fn assert_price_floor_not_breached(
+    env: &Env,
+    key_id: &Address,
+    attempted_price: i128,
+) -> Result<(), ContractError> {
+    if let Some(floor_price) = read_price_floor(env, key_id) {
+        if floor_price > 0 && attempted_price <= floor_price {
+            env.events().publish(
+                events::price_floor_triggered_topics(key_id),
+                events::PriceFloorTriggeredEvent {
+                    key_id: key_id.clone(),
+                    attempted_price,
+                    floor_price,
+                    ledger: env.ledger().sequence(),
+                },
+            );
+            return Err(ContractError::PriceFloorBreached);
+        }
+    }
+    Ok(())
 }
 
 /// Maps a [`TradeLimitError`] onto the primary [`ContractError`] surface so the
@@ -8706,6 +8759,7 @@ impl CreatorKeysContract {
             .checked_sub(1)
             .ok_or(ContractError::SellUnderflow)?;
         let curve_price = compute_bonding_curve_price(&env, &creator, base_price, sell_supply)?;
+        assert_price_floor_not_breached(&env, &creator, curve_price)?;
         // Apply bid-ask spread after bonding curve, before slippage check.
         let price = apply_spread(&env, &creator, curve_price)?;
 
@@ -11500,7 +11554,20 @@ impl CreatorKeysContract {
     ) -> Result<(), FeatureError> {
         caller.require_auth();
         if caller != creator {
-            return Err(FeatureError::Unauthorized);
+            // A role-based co-creator may be revoked by passing its wallet as
+            // `caller`; all other wallets remain unauthorized.
+            let role = crate::co_creators::remove_role_entry(&env, &creator, &caller)
+                .ok_or(FeatureError::Unauthorized)?;
+            env.events().publish(
+                events::co_creator_role_removed_topics(&creator, &caller),
+                events::CoCreatorRoleRemovedEvent {
+                    key_id: creator,
+                    wallet: caller,
+                    role,
+                    ledger: env.ledger().sequence(),
+                },
+            );
+            return Ok(());
         }
         let key = constants::storage::co_creator(&creator);
         let config: Option<CoCreatorConfig> = env.storage().persistent().get(&key);
@@ -13785,7 +13852,13 @@ impl CreatorKeysContract {
 
         // Record the pre-swap price and compute the post-swap price before any
         // state is committed, so a breach reverts without side effects.
-        let (_, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
+        let (pre_price, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
+
+        // A configured floor blocks sells at or below the floor. Buys are
+        // deliberately unaffected.
+        if direction == SwapDirection::Sell {
+            assert_price_floor_not_breached(&env, &creator, pre_price)?;
+        }
 
         // A zero tolerance skips the check entirely for advanced callers.
         if max_slippage_bps > 0 && impact_bps > max_slippage_bps {
@@ -14374,6 +14447,42 @@ impl CreatorKeysContract {
         env.storage()
             .persistent()
             .get(&constants::storage::trade_limit(&key_id))
+    }
+
+    /// Configures the minimum bonding-curve price at which `key_id` may be sold.
+    ///
+    /// Only the protocol admin may set or replace the floor. A floor of `0`
+    /// disables the guard. The attempted price and configured floor are
+    /// published in a `PriceFloorTriggeredEvent` when a sell is blocked,
+    /// because contract errors cannot carry data.
+    pub fn set_price_floor(
+        env: Env,
+        admin: Address,
+        key_id: Address,
+        floor_price: i128,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if floor_price < 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        let key = constants::storage::price_floor(&key_id);
+        env.storage().persistent().set(&key, &floor_price);
+        extend_key_ttl_to_full_window(&env, &key);
+        env.events().publish(
+            events::price_floor_set_topics(&key_id),
+            events::PriceFloorSetEvent {
+                key_id: key_id.clone(),
+                floor_price,
+                ledger: env.ledger().sequence(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Returns the configured sell price floor for `key_id`, or zero when unset.
+    pub fn get_price_floor(env: Env, key_id: Address) -> i128 {
+        read_price_floor(&env, &key_id).unwrap_or(0)
     }
 
     /// Updates the creator fee recipient address.
