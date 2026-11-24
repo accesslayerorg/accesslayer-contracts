@@ -5065,31 +5065,8 @@ fn compute_bonding_curve_price(
             .persistent()
             .get(&constants::storage::curve_preset(creator))
             .unwrap_or(CurvePreset::Linear);
-
-        match preset {
-            CurvePreset::Flat => base_price,
-            CurvePreset::Linear => {
-                let slope = resolve_curve_slope(env, creator);
-                let supply_component = slope
-                    .checked_mul(i128::from(curve_supply))
-                    .ok_or(ContractError::Overflow)?;
-                base_price
-                    .checked_add(supply_component)
-                    .ok_or(ContractError::Overflow)?
-            }
-            CurvePreset::Quadratic => {
-                let slope = resolve_curve_slope(env, creator);
-                let supply_sq = (curve_supply as i128)
-                    .checked_mul(curve_supply as i128)
-                    .ok_or(ContractError::Overflow)?;
-                let supply_component = slope
-                    .checked_mul(supply_sq)
-                    .ok_or(ContractError::Overflow)?;
-                base_price
-                    .checked_add(supply_component)
-                    .ok_or(ContractError::Overflow)?
-            }
-        }
+        let slope = resolve_curve_slope(env, creator);
+        compute_price(base_price, slope, curve_supply, 1, preset)?
     };
     raw_price
         .checked_div(i128::from(divisor))
@@ -5104,6 +5081,46 @@ fn checked_pow_i128(base: i128, exp: u32) -> Result<i128, ContractError> {
         _exp -= 1;
     }
     Ok(result)
+}
+
+/// Prices `amount` keys bought back-to-back starting at `supply` under `preset`.
+///
+/// This is the single dispatch point for curve math: the buy and sell paths
+/// both price through it, so neither direction can drift from the other. With
+/// `amount == 1` it returns the spot price at `supply`; larger amounts sum the
+/// per-key prices as supply walks upward.
+pub fn compute_price(
+    base_price: i128,
+    slope: i128,
+    supply: u32,
+    amount: u32,
+    preset: CurvePreset,
+) -> Result<i128, ContractError> {
+    let mut total = 0i128;
+
+    for offset in 0..amount {
+        let step_supply = supply.checked_add(offset).ok_or(ContractError::Overflow)?;
+        let component = match preset {
+            CurvePreset::Flat => 0,
+            CurvePreset::Linear => slope
+                .checked_mul(i128::from(step_supply))
+                .ok_or(ContractError::Overflow)?,
+            CurvePreset::Quadratic => {
+                let supply_sq = (step_supply as i128)
+                    .checked_mul(step_supply as i128)
+                    .ok_or(ContractError::Overflow)?;
+                slope
+                    .checked_mul(supply_sq)
+                    .ok_or(ContractError::Overflow)?
+            }
+        };
+        let key_price = base_price
+            .checked_add(component)
+            .ok_or(ContractError::Overflow)?;
+        total = total.checked_add(key_price).ok_or(ContractError::Overflow)?;
+    }
+
+    Ok(total)
 }
 
 fn zero_quote_response() -> QuoteResponse {
@@ -15000,7 +15017,7 @@ impl CreatorKeysContract {
             .storage()
             .persistent()
             .get(&constants::storage::curve_preset(&creator))
-            .unwrap_or(CurvePreset::Flat);
+            .unwrap_or(CurvePreset::Linear);
         Ok(preset)
     }
 
