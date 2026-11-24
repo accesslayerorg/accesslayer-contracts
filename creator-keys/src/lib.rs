@@ -89,6 +89,8 @@ pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod social_recovery;
+pub mod subscription_tiers;
+pub use subscription_tiers::{SubscriptionTier, SubscriptionTierError, TierSubscription};
 pub mod supply_milestones;
 pub mod timed_pause;
 pub mod token_rescue;
@@ -2076,6 +2078,10 @@ pub enum DataKey {
     MaxSupply(Address),
     CurveSlope,
     CurvePreset(Address),
+    /// Per-key subscription tier configuration, keyed by `(key_id, tier_id)`.
+    SubscriptionTier(Address, u32),
+    /// Active tier subscription record, keyed by `(key_id, wallet, tier_id)`.
+    TierSubscription(Address, Address, u32),
     /// Per-creator royalty configuration (buy/sell fee bps) (PR #795).
     RoyaltyConfig(Address),
     /// Per-creator bonding curve exponent override (PR #795).
@@ -10640,7 +10646,7 @@ impl CreatorKeysContract {
     ///   operator can tell "gating is off" from "you need more keys".
     /// - [`ContractError::InsufficientBalance`] if the wallet holds less than
     ///   the minimum.
-    pub fn subscribe(
+    pub fn subscribe_access(
         env: Env,
         creator: Address,
         subscriber: Address,
@@ -10687,14 +10693,14 @@ impl CreatorKeysContract {
     ///
     /// Returns `false` for an unknown subscription, an expired one, or a
     /// balance that has since fallen below the recorded minimum.
-    pub fn is_subscribed(env: Env, creator: Address, subscriber: Address) -> bool {
+    pub fn has_gated_access(env: Env, creator: Address, subscriber: Address) -> bool {
         let balance = Self::get_key_balance(env.clone(), creator.clone(), subscriber.clone());
         crate::curve_subscriptions_swaps::is_subscribed(&env, &creator, &subscriber, balance)
     }
 
     /// The stored subscription record, if any.
     ///
-    /// Exposed alongside [`Self::is_subscribed`] because the boolean alone
+    /// Exposed alongside [`Self::has_gated_access`] because the boolean alone
     /// cannot tell a caller *why* access was denied — expired, or under the
     /// threshold. A UI needs to say which.
     pub fn get_subscription(
@@ -10705,6 +10711,70 @@ impl CreatorKeysContract {
         env.storage().instance().get(
             &crate::curve_subscriptions_swaps::EmdevelopaDataKey::Subscription(creator, subscriber),
         )
+    }
+
+    // ── Subscription tier management (Issue #1179) ─────────────────────────
+
+    /// Defines a paid access tier for a key.
+    ///
+    /// Callable by the key creator. Each tier stores a per-period fee, the
+    /// period length in seconds, and a human-readable label. Tiers are written
+    /// once: re-creating an existing `(key_id, tier_id)` fails with
+    /// [`SubscriptionTierError::TierAlreadyExists`].
+    pub fn create_tier(
+        env: Env,
+        key_id: Address,
+        tier_id: u32,
+        fee_per_period: i128,
+        period_seconds: u64,
+        label: String,
+    ) -> Result<(), SubscriptionTierError> {
+        key_id.require_auth();
+        subscription_tiers::create_tier(
+            &env,
+            &key_id,
+            tier_id,
+            fee_per_period,
+            period_seconds,
+            label,
+        )
+    }
+
+    /// Read-only view: the configuration of a key's tier, if it exists.
+    pub fn get_tier(env: Env, key_id: Address, tier_id: u32) -> Option<SubscriptionTier> {
+        subscription_tiers::get_tier(&env, &key_id, tier_id)
+    }
+
+    /// Subscribes `subscriber` to `tier_id` for one period.
+    ///
+    /// The tier's `fee_per_period` is charged to the subscriber and credited to
+    /// the creator's earnings ledger. Renewing an active subscription extends it
+    /// from its current expiry (`max(now, current_expiry) + period_seconds`) so
+    /// no paid-for time is lost. Returns the new expiry timestamp.
+    pub fn subscribe(
+        env: Env,
+        key_id: Address,
+        subscriber: Address,
+        tier_id: u32,
+    ) -> Result<u64, SubscriptionTierError> {
+        subscriber.require_auth();
+        subscription_tiers::subscribe(&env, &key_id, &subscriber, tier_id)
+    }
+
+    /// On-chain access check: `true` only while `wallet` has an unexpired
+    /// subscription to `tier_id` of `key_id`.
+    pub fn is_subscribed(env: Env, key_id: Address, wallet: Address, tier_id: u32) -> bool {
+        subscription_tiers::is_subscribed(&env, &key_id, &wallet, tier_id)
+    }
+
+    /// Read-only view: the stored tier subscription record, if any.
+    pub fn get_tier_subscription(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        tier_id: u32,
+    ) -> Option<TierSubscription> {
+        subscription_tiers::get_tier_subscription(&env, &key_id, &wallet, tier_id)
     }
 
     /// Read-only view: returns a stable view of a holder's key count for a creator.
