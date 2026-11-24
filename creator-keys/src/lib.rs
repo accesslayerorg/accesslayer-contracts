@@ -4651,6 +4651,47 @@ pub fn read_leaderboard_config(env: &Env) -> LeaderboardConfig {
         .unwrap_or_else(default_leaderboard_config)
 }
 
+/// Buy-side slippage guard: rejects only when the execution price is above the
+/// caller's `max_price` ceiling.
+pub fn check_buy_slippage(
+    execution_price: i128,
+    max_price: Option<i128>,
+) -> Result<(), ContractError> {
+    if let Some(max) = max_price {
+        if execution_price > max {
+            return Err(ContractError::SlippageExceeded);
+        }
+    }
+    Ok(())
+}
+
+/// Sell-side slippage guard: rejects only when the execution proceeds are below
+/// the caller's `min_proceeds` floor.
+pub fn check_sell_slippage(
+    execution_proceeds: i128,
+    min_proceeds: Option<i128>,
+) -> Result<(), ContractError> {
+    if let Some(min) = min_proceeds {
+        if execution_proceeds < min {
+            return Err(ContractError::SlippageExceeded);
+        }
+    }
+    Ok(())
+}
+
+/// Cooldown guard: rejects while fewer than `cooldown` ledgers have elapsed
+/// since the wallet's previous buy. A `cooldown` of `0` never blocks.
+pub fn check_trade_cooldown(
+    current_ledger: u32,
+    last_buy_ledger: u32,
+    cooldown: u32,
+) -> Result<(), ContractError> {
+    if cooldown > 0 && current_ledger.saturating_sub(last_buy_ledger) < cooldown {
+        return Err(ContractError::CooldownActive);
+    }
+    Ok(())
+}
+
 fn assert_buy_price_slippage(
     env: &Env,
     creator: &Address,
@@ -4658,9 +4699,7 @@ fn assert_buy_price_slippage(
     max_price: Option<i128>,
 ) -> Result<(), ContractError> {
     if let Some(max) = max_price {
-        if price > max {
-            return Err(ContractError::SlippageExceeded);
-        }
+        check_buy_slippage(price, max_price)?;
         env.events().publish(
             events::slippage_check_passed_topics(creator),
             events::SlippageCheckPassedEvent {
@@ -4678,12 +4717,7 @@ fn assert_buyback_total_cost_slippage(
     total_cost: i128,
     max_total_cost: Option<i128>,
 ) -> Result<(), ContractError> {
-    if let Some(max) = max_total_cost {
-        if total_cost > max {
-            return Err(ContractError::SlippageExceeded);
-        }
-    }
-    Ok(())
+    check_buy_slippage(total_cost, max_total_cost)
 }
 
 fn compute_sell_proceeds(env: &Env, creator: &Address, price: i128) -> Result<i128, ContractError> {
@@ -4708,9 +4742,7 @@ fn assert_sell_proceeds_slippage(
 ) -> Result<(), ContractError> {
     if let Some(min) = min_proceeds {
         let proceeds = compute_sell_proceeds(env, creator, price)?;
-        if proceeds < min {
-            return Err(ContractError::SlippageExceeded);
-        }
+        check_sell_slippage(proceeds, min_proceeds)?;
         env.events().publish(
             events::slippage_check_passed_topics(creator),
             events::SlippageCheckPassedEvent {
@@ -7936,8 +7968,8 @@ impl CreatorKeysContract {
                 .get::<DataKey, u32>(&last_buy_ledger_key)
             {
                 let current_ledger = env.ledger().sequence();
-                let elapsed = current_ledger.saturating_sub(last_ledger);
-                if elapsed < cooldown_ledgers {
+                if check_trade_cooldown(current_ledger, last_ledger, cooldown_ledgers).is_err() {
+                    let elapsed = current_ledger.saturating_sub(last_ledger);
                     let ledgers_remaining = cooldown_ledgers - elapsed;
                     env.events().publish(
                         events::cooldown_blocked_topics(&creator, &buyer),
