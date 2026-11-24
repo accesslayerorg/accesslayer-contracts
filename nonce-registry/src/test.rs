@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     NonceConsumed, NonceRegistryContract, NonceRegistryContractClient, NonceRegistryError,
     NONCE_CONSUMED_EVENT_NAME,

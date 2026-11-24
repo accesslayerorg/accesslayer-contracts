@@ -66,9 +66,11 @@ pub enum CircuitBreakerRemoteError {
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
+pub mod acl_roles;
 pub mod balance_attestation;
 pub mod bundle;
 pub mod community_polls;
+pub mod content_gating;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
 ///
 /// Declared here as part of Issue #953 — the file existed but had no `mod`
@@ -77,7 +79,9 @@ pub mod community_polls;
 pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
+pub mod key_merge;
 pub mod performance_bonds;
+pub mod tipping;
 
 pub mod issue_primitives;
 pub mod key_freeze;
@@ -10472,6 +10476,116 @@ impl CreatorKeysContract {
     /// that has never bought or been transferred keys, or that has sold all keys, without panicking or returning an error.
     pub fn get_balance(env: Env, creator: Address, wallet: Address) -> u32 {
         Self::get_key_balance(env, creator, wallet)
+    }
+
+    /// Configure content access gating for a creator key.
+    pub fn set_gate(
+        env: Env,
+        key_id: Address,
+        gate_type: content_gating::GateType,
+        min_balance: u32,
+    ) -> Result<(), ContractError> {
+        content_gating::set_gate(&env, &key_id, gate_type, min_balance)
+    }
+
+    /// Check a wallet against the key's configured content gate.
+    pub fn check_access(env: Env, wallet: Address, key_id: Address) -> bool {
+        content_gating::check_access(&env, &wallet, &key_id)
+    }
+
+    /// Read the current content gate configuration for a key.
+    pub fn get_gate_config(env: Env, key_id: Address) -> Option<content_gating::GateConfig> {
+        content_gating::get_gate_config(&env, &key_id)
+    }
+
+    /// Send a direct tip to a key creator. The caller is the tipper.
+    pub fn send_tip(
+        env: Env,
+        key_id: Address,
+        tipper: Address,
+        amount: i128,
+        message_hash: Option<String>,
+    ) -> Result<tipping::TipRecord, ContractError> {
+        tipping::send_tip(&env, &key_id, &tipper, amount, message_hash)
+    }
+
+    pub fn get_tip_history(
+        env: Env,
+        key_id: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<tipping::TipRecord> {
+        tipping::get_tip_history(&env, &key_id, offset, limit)
+    }
+
+    pub fn get_total_tips(env: Env, key_id: Address) -> i128 {
+        tipping::get_total_tips(&env, &key_id)
+    }
+
+    pub fn grant_role(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        role: acl_roles::Role,
+    ) -> Result<(), ContractError> {
+        acl_roles::grant_role(&env, &key_id, &wallet, role)
+    }
+
+    pub fn revoke_role(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        role: acl_roles::Role,
+    ) -> Result<(), ContractError> {
+        acl_roles::revoke_role(&env, &key_id, &wallet, role)
+    }
+
+    pub fn has_role(env: Env, key_id: Address, wallet: Address, role: acl_roles::Role) -> bool {
+        acl_roles::has_role(&env, &key_id, &wallet, &role)
+    }
+
+    /// Role-gated dividend declaration for distributor wallets.
+    pub fn declare_dividend(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        acl_roles::require_role(&env, &key_id, &caller, &acl_roles::Role::Distributor)?;
+        Self::distribute_dividend(env, key_id, caller, amount)
+    }
+
+    /// Role-gated royalty configuration for moderator wallets.
+    pub fn set_royalty_by_role(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+        buy_fee_bps: u32,
+        sell_fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        acl_roles::require_role(&env, &key_id, &caller, &acl_roles::Role::Moderator)?;
+        Self::set_royalty(env, key_id, buy_fee_bps, sell_fee_bps)
+    }
+
+    pub fn merge(
+        env: Env,
+        key_a: Address,
+        key_b: Address,
+        merge_ratio_a_bps: u32,
+    ) -> Result<key_merge::MergeStatus, ContractError> {
+        key_merge::merge(&env, &key_a, &key_b, merge_ratio_a_bps)
+    }
+
+    pub fn finalize_merge(env: Env, key_a: Address, key_b: Address) -> Result<(), ContractError> {
+        key_merge::finalize_merge(&env, &key_a, &key_b)
+    }
+
+    pub fn get_merge_status(
+        env: Env,
+        key_a: Address,
+        key_b: Address,
+    ) -> Option<key_merge::MergeStatus> {
+        key_merge::get_merge_status(&env, &key_a, &key_b)
     }
 
     // ── Subscription access gating (Issue #953) ────────────────────────────
