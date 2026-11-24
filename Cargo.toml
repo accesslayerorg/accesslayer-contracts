@@ -20,6 +20,8 @@ members = [
     "batch-trade-contract",
     "social-metadata-contract",
     "key-liquidity-depth",
+    "creator-penalty",
+    "sponsored-transactions",
 ]
 resolver = "2"
 
