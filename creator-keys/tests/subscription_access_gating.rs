@@ -63,7 +63,9 @@ fn subscribe_rejects_a_wallet_below_the_minimum() {
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
 
     // Holds nothing at all.
-    assert!(client.try_subscribe_access(&creator, &wallet, &DURATION).is_err());
+    assert!(client
+        .try_subscribe_access(&creator, &wallet, &DURATION)
+        .is_err());
     assert!(!client.has_gated_access(&creator, &wallet));
 }
 
@@ -75,7 +77,9 @@ fn subscribe_rejects_a_wallet_one_key_short() {
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
     buy(&client, &creator, &wallet, MIN_HOLD - 1);
 
-    assert!(client.try_subscribe_access(&creator, &wallet, &DURATION).is_err());
+    assert!(client
+        .try_subscribe_access(&creator, &wallet, &DURATION)
+        .is_err());
 }
 
 #[test]
@@ -164,7 +168,9 @@ fn subscribe_rejects_when_gating_is_not_configured() {
 
     buy(&client, &creator, &wallet, 10);
 
-    assert!(client.try_subscribe_access(&creator, &wallet, &DURATION).is_err());
+    assert!(client
+        .try_subscribe_access(&creator, &wallet, &DURATION)
+        .is_err());
     assert!(client.get_min_hold_for_access(&creator).is_none());
 }
 

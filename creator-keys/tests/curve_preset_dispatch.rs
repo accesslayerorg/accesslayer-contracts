@@ -50,7 +50,11 @@ fn compute_price_dispatches_per_preset() {
 
 #[test]
 fn compute_price_is_symmetric_for_n_keys_in_and_out() {
-    for preset in [CurvePreset::Linear, CurvePreset::Quadratic, CurvePreset::Flat] {
+    for preset in [
+        CurvePreset::Linear,
+        CurvePreset::Quadratic,
+        CurvePreset::Flat,
+    ] {
         // Buying N keys from supply S and selling the same N keys at supply S+N
         // must quote the same total: both walk the identical supply range.
         let bought = compute_price(KEY_PRICE, SLOPE, 20, 5, preset).unwrap();
@@ -61,7 +65,11 @@ fn compute_price_is_symmetric_for_n_keys_in_and_out() {
 
 #[test]
 fn buy_and_sell_quotes_are_symmetric_for_each_preset() {
-    for preset in [CurvePreset::Linear, CurvePreset::Quadratic, CurvePreset::Flat] {
+    for preset in [
+        CurvePreset::Linear,
+        CurvePreset::Quadratic,
+        CurvePreset::Flat,
+    ] {
         let env = test_env_with_auths();
         let (client, _) = register_creator_keys(&env);
         set_pricing_and_fees(&env, &client, KEY_PRICE, 9_000, 1_000);

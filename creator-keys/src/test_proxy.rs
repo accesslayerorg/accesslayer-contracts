@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::proxy::{BondingCurveProxy, BondingCurveProxyClient, ProxyError};
 use crate::CreatorKeysContract;
 use soroban_sdk::{

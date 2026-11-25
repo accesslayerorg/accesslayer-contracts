@@ -24,7 +24,11 @@ struct Rng {
 impl Rng {
     fn new(seed: u64) -> Self {
         Self {
-            state: if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed },
+            state: if seed == 0 {
+                0x9e37_79b9_7f4a_7c15
+            } else {
+                seed
+            },
         }
     }
 
@@ -165,7 +169,12 @@ fn buy_above_max_price_reverts_with_slippage_exceeded() {
     let buyer = Address::generate(&env);
 
     let quote = client.get_buy_quote(&creator);
-    let result = client.try_buy_key(&creator, &buyer, &quote.total_amount, &Some(quote.price - 1));
+    let result = client.try_buy_key(
+        &creator,
+        &buyer,
+        &quote.total_amount,
+        &Some(quote.price - 1),
+    );
     assert_eq!(result, Err(Ok(ContractError::SlippageExceeded)));
 }
 

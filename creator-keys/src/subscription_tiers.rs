@@ -82,7 +82,8 @@ pub fn create_tier(
     period_seconds: u64,
     label: String,
 ) -> Result<(), SubscriptionTierError> {
-    read_registered_creator_profile(env, key_id).map_err(|_| SubscriptionTierError::NotRegistered)?;
+    read_registered_creator_profile(env, key_id)
+        .map_err(|_| SubscriptionTierError::NotRegistered)?;
 
     if fee_per_period < 0 {
         return Err(SubscriptionTierError::InvalidFee);
@@ -106,8 +107,10 @@ pub fn create_tier(
     env.storage().persistent().set(&key, &tier);
     crate::extend_key_ttl_to_full_window(env, &key);
 
-    env.events()
-        .publish((TIER_CREATED_EVENT, key_id.clone()), (tier_id, fee_per_period, period_seconds));
+    env.events().publish(
+        (TIER_CREATED_EVENT, key_id.clone()),
+        (tier_id, fee_per_period, period_seconds),
+    );
 
     Ok(())
 }
@@ -130,7 +133,8 @@ pub fn subscribe(
     wallet: &Address,
     tier_id: u32,
 ) -> Result<u64, SubscriptionTierError> {
-    read_registered_creator_profile(env, key_id).map_err(|_| SubscriptionTierError::NotRegistered)?;
+    read_registered_creator_profile(env, key_id)
+        .map_err(|_| SubscriptionTierError::NotRegistered)?;
 
     let tier = get_tier(env, key_id, tier_id).ok_or(SubscriptionTierError::TierNotFound)?;
 
