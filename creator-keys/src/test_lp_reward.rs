@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     lp_reward::{
         LPAdded, LPRewardClaimed, LpRewardError, RewardRateUpdated, LP_ADDED_EVENT_NAME,

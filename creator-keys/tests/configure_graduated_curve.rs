@@ -12,7 +12,7 @@ use contract_test_env::{
 };
 use creator_keys::events::{GraduatedCurveConfiguredEvent, GRADUATED_CURVE_CONFIGURED_EVENT_NAME};
 use creator_keys::{CreatorKeysContractClient, CurveConfigError};
-use soroban_sdk::{testutils::{Address as _, Events as _}, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 const KEY_PRICE: i128 = 1_000;
 const CURVE_SLOPE: i128 = 10;
@@ -94,7 +94,10 @@ fn configuring_after_a_sale_panics_with_curve_already_active() {
     client.buy_key(&creator, &buyer, &quote.total_amount, &None);
 
     let result = client.try_configure_graduated_curve(&creator, &milestones(&env, &[(100, 2)]));
-    assert_eq!(result.err().unwrap().unwrap(), CurveConfigError::CurveAlreadyActive);
+    assert_eq!(
+        result.err().unwrap().unwrap(),
+        CurveConfigError::CurveAlreadyActive
+    );
 }
 
 #[test]
@@ -103,8 +106,12 @@ fn exponents_outside_one_to_five_are_rejected() {
     let (client, _, creator) = setup(&env);
 
     for exponent in [0u32, 6u32] {
-        let result = client.try_configure_graduated_curve(&creator, &milestones(&env, &[(100, exponent)]));
-        assert_eq!(result.err().unwrap().unwrap(), CurveConfigError::InvalidExponent);
+        let result =
+            client.try_configure_graduated_curve(&creator, &milestones(&env, &[(100, exponent)]));
+        assert_eq!(
+            result.err().unwrap().unwrap(),
+            CurveConfigError::InvalidExponent
+        );
     }
 }
 
