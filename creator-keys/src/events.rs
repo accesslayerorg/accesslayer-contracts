@@ -5254,6 +5254,9 @@ pub fn co_creator_role_removed_topics(
         CO_CREATOR_ROLE_REMOVED_EVENT_NAME,
         key_id.clone(),
         wallet.clone(),
+    )
+}
+
 // ============================================================================
 // Feature: redeemable event pass keys (issue #1257)
 // ============================================================================
