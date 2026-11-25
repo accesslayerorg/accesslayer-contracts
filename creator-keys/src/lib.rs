@@ -6,6 +6,9 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, String, Vec,
 };
 
+// Standalone example contracts whose exported symbols (`init`) collide with the
+// main contract in a wasm build. Native (test) builds only, see #1309.
+#[cfg(not(target_family = "wasm"))]
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
@@ -195,6 +198,9 @@ pub enum ContractError {
     // --- Price impact circuit breaker (Issue #996) ---
     /// Price impact circuit breaker tripped.
     CircuitBreakerTripped = 102,
+    // --- Storage migration (Issue #1309) ---
+    /// `migrate` has already run for this storage layout version.
+    AlreadyMigrated = 103,
 }
 
 /// Errors raised by the staking entrypoints
@@ -607,6 +613,7 @@ pub mod constants {
         pub const PROTOCOL_STATE_VERSION: DataKey = DataKey::ProtocolStateVersion;
         pub const PAUSED: DataKey = DataKey::Paused;
         pub const CONTRACT_VERSION: DataKey = DataKey::ContractVersion;
+        pub const STORAGE_VERSION: DataKey = DataKey::StorageVersion;
         pub const SUPPLY_MILESTONES: DataKey = DataKey::SupplyMilestones;
         pub const CURVE_SLOPE: DataKey = DataKey::CurveSlope;
         pub const TREASURY_BALANCE: DataKey = DataKey::TreasuryBalance;
@@ -1605,6 +1612,9 @@ pub struct RetentionPolicy {
     pub batch_size: u32,
 }
 
+/// Current storage layout version. Bump when `DataKey` or stored types change.
+pub const CURRENT_STORAGE_VERSION: u32 = 1;
+
 /// Canonical storage key schema for persistent protocol state.
 ///
 /// For quote-related key usage and invariants, see
@@ -1864,6 +1874,8 @@ pub enum DataKey {
     WhitelistPermanentlyDisabled(Address),
     /// (creator, beneficiary) -> cliff-vesting config (issue #916).
     VestingCliffConfig(Address, Address),
+    /// Storage layout version, written once by `migrate` (Issue #1309).
+    StorageVersion,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -7334,6 +7346,34 @@ impl CreatorKeysContract {
             .persistent()
             .get(&constants::storage::CONTRACT_VERSION)
             .unwrap_or(1)
+    }
+
+    /// Read-only view: the storage layout version. 0 means `migrate` has not
+    /// run since deployment or since the last layout change (Issue #1309).
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::STORAGE_VERSION)
+            .unwrap_or(0)
+    }
+
+    /// One-shot post-upgrade migration to [`CURRENT_STORAGE_VERSION`].
+    ///
+    /// Admin only. Fails with [`ContractError::AlreadyMigrated`] once the stored
+    /// version has reached the current one. Existing balances, supply and
+    /// pending records are not rewritten.
+    pub fn migrate(env: Env, admin: Address) -> Result<u32, ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if Self::get_storage_version(env.clone()) >= CURRENT_STORAGE_VERSION {
+            return Err(ContractError::AlreadyMigrated);
+        }
+        env.storage().persistent().set(
+            &constants::storage::STORAGE_VERSION,
+            &CURRENT_STORAGE_VERSION,
+        );
+        extend_key_ttl_to_full_window(&env, &constants::storage::STORAGE_VERSION);
+        Ok(CURRENT_STORAGE_VERSION)
     }
 
     /// Sets the protocol-wide deadline ledger after which buys are rejected.
@@ -18983,3 +19023,6 @@ mod test_issue_998;
 
 #[cfg(test)]
 mod test_issue_1000;
+
+#[cfg(test)]
+mod test_upgrade_rehearsal;
