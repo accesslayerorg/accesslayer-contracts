@@ -265,8 +265,7 @@ impl CreatorKeysContract {
             .checked_add(rq_window_ledgers)
             .ok_or(ContractError::Overflow)?;
 
-        let ragequit_cap =
-            (u64::from(supply) * u64::from(max_rq_bps) / 10_000) as u32;
+        let ragequit_cap = (u64::from(supply) * u64::from(max_rq_bps) / 10_000) as u32;
 
         for holder in holders.iter() {
             let balance = balance_checkpoints::balance_at_or_live(
@@ -387,8 +386,7 @@ impl CreatorKeysContract {
 
         // Check the rage-quit window is open.
         let now = env.ledger().sequence();
-        if now < proposal.ragequit_window_start_ledger
-            || now >= proposal.ragequit_window_end_ledger
+        if now < proposal.ragequit_window_start_ledger || now >= proposal.ragequit_window_end_ledger
         {
             return Err(ContractError::RageQuitWindowClosed);
         }
@@ -397,22 +395,14 @@ impl CreatorKeysContract {
         // ProtocolGovVoteDir stores true=voted-for, false=voted-against.
         // If the key is absent the holder abstained (did not vote) — eligible.
         let dir_key = GovernanceKey::ProtocolGovVoteDir(proposal_id, holder.clone());
-        let voted_support: bool = env
-            .storage()
-            .persistent()
-            .get(&dir_key)
-            .unwrap_or(false);
+        let voted_support: bool = env.storage().persistent().get(&dir_key).unwrap_or(false);
         if voted_support {
             return Err(ContractError::RageQuitVotedFor);
         }
 
         // Check the holder had a snapshot weight (held keys at proposal time).
         let weight_key = GovernanceKey::ProtocolGovWeight(proposal_id, holder.clone());
-        let snapshot_weight: u32 = env
-            .storage()
-            .persistent()
-            .get(&weight_key)
-            .unwrap_or(0);
+        let snapshot_weight: u32 = env.storage().persistent().get(&weight_key).unwrap_or(0);
         if snapshot_weight == 0 {
             return Err(ContractError::RageQuitNotEligible);
         }
@@ -433,13 +423,8 @@ impl CreatorKeysContract {
         }
 
         // Check the holder has enough liquid balance.
-        let balance_key =
-            constants::storage::holder_balance_key(&proposal.key_id, &holder);
-        let current_balance: u32 = env
-            .storage()
-            .persistent()
-            .get(&balance_key)
-            .unwrap_or(0);
+        let balance_key = constants::storage::holder_balance_key(&proposal.key_id, &holder);
+        let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         if current_balance < amount {
             return Err(ContractError::InsufficientBalance);
         }
@@ -466,8 +451,7 @@ impl CreatorKeysContract {
         extend_key_ttl_to_full_window(&env, &balance_key);
 
         // 2. Reduce supply.
-        let mut profile =
-            read_registered_creator_profile(&env, &proposal.key_id)?;
+        let mut profile = read_registered_creator_profile(&env, &proposal.key_id)?;
         if new_balance == 0 && current_balance > 0 {
             profile.holder_count = profile.holder_count.saturating_sub(1);
         }
@@ -481,14 +465,9 @@ impl CreatorKeysContract {
 
         // 3. Deduct from reserve (fees are skipped — full pro-rata payout).
         if payout > 0 {
-            let new_reserve = reserve
-                .checked_sub(payout)
-                .ok_or(ContractError::Overflow)?;
-            let reserve_key =
-                constants::storage::creator_fee_balance(&proposal.key_id);
-            env.storage()
-                .persistent()
-                .set(&reserve_key, &new_reserve);
+            let new_reserve = reserve.checked_sub(payout).ok_or(ContractError::Overflow)?;
+            let reserve_key = constants::storage::creator_fee_balance(&proposal.key_id);
+            env.storage().persistent().set(&reserve_key, &new_reserve);
             extend_key_ttl_to_full_window(&env, &reserve_key);
         }
 
