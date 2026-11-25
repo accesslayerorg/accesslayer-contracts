@@ -9,8 +9,6 @@
 //! - `DividendSnapshotCreated` and `DividendClaimed` events are emitted with
 //!   correct snapshot and amount data.
 
-#![cfg(test)]
-
 use crate::{
     DividendDistributionContract, DividendDistributionContractClient, DividendError,
     DividendSnapshotCreatedEvent, DIVIDEND_CLAIMED_EVENT, DIVIDEND_SNAPSHOT_CREATED_EVENT,

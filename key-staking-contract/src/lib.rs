@@ -22,6 +22,8 @@ mod test;
 
 /// Upper bound on a single lock, keeping per-stake epoch iteration bounded.
 pub const MAX_LOCK_EPOCHS: u32 = 52;
+pub const UNBONDING_COOLDOWN: u64 = 7 * 24 * 60 * 60;
+pub const EARLY_EXIT_PENALTY_BPS: i128 = 500;
 
 pub const STAKED_EVENT_NAME: Symbol = symbol_short!("staked");
 pub const UNSTAKED_EVENT_NAME: Symbol = symbol_short!("unstaked");
@@ -45,6 +47,7 @@ pub enum KeyStakingError {
     EpochAlreadyDistributed = 9,
     ArithmeticOverflow = 10,
     InvalidEpochDuration = 11,
+    UnbondingNotReady = 12,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +102,10 @@ pub struct Unstaked {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
+pub struct UnbondingRequest { pub stake_id: u64, pub staker: Address, pub amount: i128, pub available_at: u64 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
 pub struct EpochFunded {
     pub epoch_id: u32,
     pub amount: i128,
@@ -120,6 +127,7 @@ pub enum DataKey {
     EpochDuration,
     NextStakeId,
     Stake(u64),
+    Unbonding(u64),
     Epoch(u32),
 }
 
@@ -340,6 +348,23 @@ impl KeyStakingContract {
         );
 
         Ok(total_return)
+    }
+
+    pub fn request_unstake(env: Env, stake_id: u64) -> Result<UnbondingRequest, KeyStakingError> {
+        let mut stake = read_stake(&env, stake_id)?; stake.staker.require_auth();
+        if stake.is_closed { return Err(KeyStakingError::StakeAlreadyClosed); }
+        let current = current_epoch_of(&env)?;
+        let gross = stake.amount.checked_add(compute_rewards(&env, &stake, current)?.accrued).ok_or(KeyStakingError::ArithmeticOverflow)?;
+        let amount = if current < stake.end_epoch { gross - gross.checked_mul(EARLY_EXIT_PENALTY_BPS).ok_or(KeyStakingError::ArithmeticOverflow)? / 10_000 } else { gross };
+        stake.is_closed = true; write_stake(&env, &stake);
+        let request = UnbondingRequest { stake_id, staker: stake.staker, amount, available_at: env.ledger().timestamp().saturating_add(UNBONDING_COOLDOWN) };
+        env.storage().persistent().set(&DataKey::Unbonding(stake_id), &request); Ok(request)
+    }
+
+    pub fn claim_unstake(env: Env, stake_id: u64) -> Result<i128, KeyStakingError> {
+        let request: UnbondingRequest = env.storage().persistent().get(&DataKey::Unbonding(stake_id)).ok_or(KeyStakingError::StakeNotFound)?;
+        request.staker.require_auth(); if env.ledger().timestamp() < request.available_at { return Err(KeyStakingError::UnbondingNotReady); }
+        env.storage().persistent().remove(&DataKey::Unbonding(stake_id)); Ok(request.amount)
     }
 
     /// Adds `amount` to the reward pool of `epoch_id` (current or future).

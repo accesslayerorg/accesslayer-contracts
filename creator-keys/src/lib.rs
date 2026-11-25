@@ -66,10 +66,12 @@ pub enum CircuitBreakerRemoteError {
 
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
+pub mod acl_roles;
 pub mod balance_attestation;
 pub mod bundle;
 pub mod co_creators;
 pub mod community_polls;
+pub mod content_gating;
 /// Bonding-curve migration, key subscriptions, and atomic swaps.
 ///
 /// Declared here as part of Issue #953 — the file existed but had no `mod`
@@ -78,7 +80,9 @@ pub mod community_polls;
 pub mod curve_subscriptions_swaps;
 pub mod dynamic_fees;
 pub mod emergency_pause;
+pub mod key_merge;
 pub mod performance_bonds;
+pub mod tipping;
 
 pub mod issue_primitives;
 pub mod key_freeze;
@@ -86,11 +90,14 @@ pub mod key_ownership_transfer;
 pub mod launch_window;
 pub mod lp_reward;
 pub mod multi_buy;
+pub mod p2p_swap_dividend_stream_oracle;
 pub mod price_alerts;
 pub mod protocol_governance;
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod social_recovery;
+pub mod subscription_tiers;
+pub use subscription_tiers::{SubscriptionTier, SubscriptionTierError, TierSubscription};
 pub mod supply_milestones;
 pub mod timed_pause;
 pub mod token_rescue;
@@ -102,6 +109,13 @@ pub use vote_delegation::VoteDelegationKey;
 pub mod test_feature_impl;
 pub mod test_issues_1086_1087_1088_1093;
 pub mod test_new_features;
+
+// New features for issues #1283-#1286
+pub mod creator_allocation;
+pub mod english_auction;
+pub mod holder_enumeration;
+pub mod badge_access_control;
+pub mod test_issues_1283_1284_1285_1286;
 
 // Contract error variants stability and ordering:
 //
@@ -418,6 +432,13 @@ pub enum ContractError {
     InsufficientFunds = 164,
     /// A sell was attempted at or below its configured price floor.
     PriceFloorBreached = 165,
+    // --- New error variants for issues #1283-#1286 ---
+    /// Badge required for this action (Issue #1286).
+    BadgeRequired = 161,
+    /// Oracle price is older than the configured max age and no fresh fallback exists.
+    StalePrice = 161,
+    /// Fresh primary and fallback prices differ by more than the allowed bps.
+    PriceDeviation = 162,
 }
 
 impl ContractError {
@@ -630,6 +651,9 @@ pub enum CurveConfigError {
     NotRegistered = 4,
     /// Arithmetic overflow occurred during curve calculation.
     Overflow = 5,
+    /// The curve is already in use: keys have been sold, so the configuration
+    /// can no longer change and would reprice existing holdings.
+    CurveAlreadyActive = 6,
 }
 
 pub mod fee {
@@ -2090,6 +2114,10 @@ pub enum DataKey {
     MaxSupply(Address),
     CurveSlope,
     CurvePreset(Address),
+    /// Per-key subscription tier configuration, keyed by `(key_id, tier_id)`.
+    SubscriptionTier(Address, u32),
+    /// Active tier subscription record, keyed by `(key_id, wallet, tier_id)`.
+    TierSubscription(Address, Address, u32),
     /// Per-creator royalty configuration (buy/sell fee bps) (PR #795).
     RoyaltyConfig(Address),
     /// Per-creator bonding curve exponent override (PR #795).
@@ -4701,6 +4729,47 @@ pub fn read_leaderboard_config(env: &Env) -> LeaderboardConfig {
         .unwrap_or_else(default_leaderboard_config)
 }
 
+/// Buy-side slippage guard: rejects only when the execution price is above the
+/// caller's `max_price` ceiling.
+pub fn check_buy_slippage(
+    execution_price: i128,
+    max_price: Option<i128>,
+) -> Result<(), ContractError> {
+    if let Some(max) = max_price {
+        if execution_price > max {
+            return Err(ContractError::SlippageExceeded);
+        }
+    }
+    Ok(())
+}
+
+/// Sell-side slippage guard: rejects only when the execution proceeds are below
+/// the caller's `min_proceeds` floor.
+pub fn check_sell_slippage(
+    execution_proceeds: i128,
+    min_proceeds: Option<i128>,
+) -> Result<(), ContractError> {
+    if let Some(min) = min_proceeds {
+        if execution_proceeds < min {
+            return Err(ContractError::SlippageExceeded);
+        }
+    }
+    Ok(())
+}
+
+/// Cooldown guard: rejects while fewer than `cooldown` ledgers have elapsed
+/// since the wallet's previous buy. A `cooldown` of `0` never blocks.
+pub fn check_trade_cooldown(
+    current_ledger: u32,
+    last_buy_ledger: u32,
+    cooldown: u32,
+) -> Result<(), ContractError> {
+    if cooldown > 0 && current_ledger.saturating_sub(last_buy_ledger) < cooldown {
+        return Err(ContractError::CooldownActive);
+    }
+    Ok(())
+}
+
 fn assert_buy_price_slippage(
     env: &Env,
     creator: &Address,
@@ -4708,9 +4777,7 @@ fn assert_buy_price_slippage(
     max_price: Option<i128>,
 ) -> Result<(), ContractError> {
     if let Some(max) = max_price {
-        if price > max {
-            return Err(ContractError::SlippageExceeded);
-        }
+        check_buy_slippage(price, max_price)?;
         env.events().publish(
             events::slippage_check_passed_topics(creator),
             events::SlippageCheckPassedEvent {
@@ -4728,12 +4795,7 @@ fn assert_buyback_total_cost_slippage(
     total_cost: i128,
     max_total_cost: Option<i128>,
 ) -> Result<(), ContractError> {
-    if let Some(max) = max_total_cost {
-        if total_cost > max {
-            return Err(ContractError::SlippageExceeded);
-        }
-    }
-    Ok(())
+    check_buy_slippage(total_cost, max_total_cost)
 }
 
 fn compute_sell_proceeds(env: &Env, creator: &Address, price: i128) -> Result<i128, ContractError> {
@@ -4758,9 +4820,7 @@ fn assert_sell_proceeds_slippage(
 ) -> Result<(), ContractError> {
     if let Some(min) = min_proceeds {
         let proceeds = compute_sell_proceeds(env, creator, price)?;
-        if proceeds < min {
-            return Err(ContractError::SlippageExceeded);
-        }
+        check_sell_slippage(proceeds, min_proceeds)?;
         env.events().publish(
             events::slippage_check_passed_topics(creator),
             events::SlippageCheckPassedEvent {
@@ -5031,17 +5091,71 @@ fn read_graduated_curve(env: &Env, creator: &Address) -> Option<Vec<(u32, u32)>>
         .get(&constants::storage::graduated_curve(creator))
 }
 
-pub fn graduated_exponent_for_supply(milestones: &Vec<(u32, u32)>, supply: u32) -> u32 {
-    let mut last_exponent = 1u32;
-    for (threshold, exponent) in milestones.iter() {
-        last_exponent = exponent;
-        if supply <= threshold {
-            return exponent;
-        }
+/// Validates and persists a graduated curve configuration.
+///
+/// Shared by [`CreatorKeysContract::set_graduated_curve`] and
+/// [`CreatorKeysContract::configure_graduated_curve`]; performs no
+/// authorization itself, so callers must have authenticated the key creator.
+fn write_graduated_curve(
+    env: &Env,
+    creator: &Address,
+    milestones: Vec<(u32, u32)>,
+) -> Result<(), CurveConfigError> {
+    read_registered_creator_profile(env, creator).map_err(|_| CurveConfigError::NotRegistered)?;
+
+    if milestones.is_empty() || milestones.len() > 5 {
+        return Err(CurveConfigError::InvalidMilestoneCount);
     }
-    last_exponent
+
+    let mut prev_threshold = 0u32;
+    for (threshold, exponent) in milestones.iter() {
+        if threshold <= prev_threshold {
+            return Err(CurveConfigError::ThresholdNotAscending);
+        }
+        if !(1..=5).contains(&exponent) {
+            return Err(CurveConfigError::InvalidExponent);
+        }
+        prev_threshold = threshold;
+    }
+
+    let key = constants::storage::graduated_curve(creator);
+    env.storage().persistent().set(&key, &milestones);
+    extend_key_ttl_to_full_window(env, &key);
+
+    env.events().publish(
+        events::graduated_curve_configured_topics(creator),
+        events::GraduatedCurveConfiguredEvent {
+            creator: creator.clone(),
+            milestones,
+            ledger: env.ledger().sequence(),
+        },
+    );
+
+    Ok(())
 }
 
+/// Returns the exponent that applies at `supply`.
+///
+/// Supply below the first milestone is priced with the base exponent (`1`);
+/// each milestone switches to its own exponent once its threshold is reached.
+pub fn graduated_exponent_for_supply(milestones: &Vec<(u32, u32)>, supply: u32) -> u32 {
+    let mut exponent = 1u32;
+    for (threshold, tier_exponent) in milestones.iter() {
+        if supply >= threshold {
+            exponent = tier_exponent;
+        } else {
+            break;
+        }
+    }
+    exponent
+}
+
+/// Bonding-curve price at `supply` under a graduated milestone schedule.
+///
+/// Each milestone band is integrated separately: the band starting at the
+/// previous threshold is priced with the exponent in force for that band, so
+/// the steepness steps up at exactly the configured thresholds and the price
+/// stays continuous across them.
 pub fn compute_graduated_curve_price(
     milestones: &Vec<(u32, u32)>,
     base_price: i128,
@@ -5052,40 +5166,34 @@ pub fn compute_graduated_curve_price(
         return Ok(base_price);
     }
 
-    let mut current_base = base_price;
-    let mut prev_threshold = 0u32;
-    let mut last_exponent = 1u32;
+    let mut price = base_price;
+    let mut band_start = 0u32;
+    // Supply below the first milestone uses the base exponent.
+    let mut exponent = 1u32;
 
-    for (threshold, exponent) in milestones.iter() {
-        last_exponent = exponent;
+    for (threshold, tier_exponent) in milestones.iter() {
         if supply <= threshold {
-            let delta = (supply - prev_threshold) as i128;
-            let delta_exp = checked_pow_i128(delta, exponent)?;
-            let delta_component = slope
-                .checked_mul(delta_exp)
+            let span = supply.saturating_sub(band_start) as i128;
+            let component = slope
+                .checked_mul(checked_pow_i128(span, exponent)?)
                 .ok_or(ContractError::Overflow)?;
-            return current_base
-                .checked_add(delta_component)
-                .ok_or(ContractError::Overflow);
-        } else {
-            let span = (threshold - prev_threshold) as i128;
-            let span_exp = checked_pow_i128(span, exponent)?;
-            let span_component = slope.checked_mul(span_exp).ok_or(ContractError::Overflow)?;
-            current_base = current_base
-                .checked_add(span_component)
-                .ok_or(ContractError::Overflow)?;
-            prev_threshold = threshold;
+            return price.checked_add(component).ok_or(ContractError::Overflow);
         }
+
+        let span = (threshold - band_start) as i128;
+        let component = slope
+            .checked_mul(checked_pow_i128(span, exponent)?)
+            .ok_or(ContractError::Overflow)?;
+        price = price.checked_add(component).ok_or(ContractError::Overflow)?;
+        band_start = threshold;
+        exponent = tier_exponent;
     }
 
-    let delta = (supply - prev_threshold) as i128;
-    let delta_exp = checked_pow_i128(delta, last_exponent)?;
-    let delta_component = slope
-        .checked_mul(delta_exp)
+    let span = (supply - band_start) as i128;
+    let component = slope
+        .checked_mul(checked_pow_i128(span, exponent)?)
         .ok_or(ContractError::Overflow)?;
-    current_base
-        .checked_add(delta_component)
-        .ok_or(ContractError::Overflow)
+    price.checked_add(component).ok_or(ContractError::Overflow)
 }
 
 fn compute_bonding_curve_price(
@@ -5118,31 +5226,8 @@ fn compute_bonding_curve_price(
             .persistent()
             .get(&constants::storage::curve_preset(creator))
             .unwrap_or(CurvePreset::Linear);
-
-        match preset {
-            CurvePreset::Flat => base_price,
-            CurvePreset::Linear => {
-                let slope = resolve_curve_slope(env, creator);
-                let supply_component = slope
-                    .checked_mul(i128::from(curve_supply))
-                    .ok_or(ContractError::Overflow)?;
-                base_price
-                    .checked_add(supply_component)
-                    .ok_or(ContractError::Overflow)?
-            }
-            CurvePreset::Quadratic => {
-                let slope = resolve_curve_slope(env, creator);
-                let supply_sq = (curve_supply as i128)
-                    .checked_mul(curve_supply as i128)
-                    .ok_or(ContractError::Overflow)?;
-                let supply_component = slope
-                    .checked_mul(supply_sq)
-                    .ok_or(ContractError::Overflow)?;
-                base_price
-                    .checked_add(supply_component)
-                    .ok_or(ContractError::Overflow)?
-            }
-        }
+        let slope = resolve_curve_slope(env, creator);
+        compute_price(base_price, slope, curve_supply, 1, preset)?
     };
     raw_price
         .checked_div(i128::from(divisor))
@@ -5157,6 +5242,46 @@ fn checked_pow_i128(base: i128, exp: u32) -> Result<i128, ContractError> {
         _exp -= 1;
     }
     Ok(result)
+}
+
+/// Prices `amount` keys bought back-to-back starting at `supply` under `preset`.
+///
+/// This is the single dispatch point for curve math: the buy and sell paths
+/// both price through it, so neither direction can drift from the other. With
+/// `amount == 1` it returns the spot price at `supply`; larger amounts sum the
+/// per-key prices as supply walks upward.
+pub fn compute_price(
+    base_price: i128,
+    slope: i128,
+    supply: u32,
+    amount: u32,
+    preset: CurvePreset,
+) -> Result<i128, ContractError> {
+    let mut total = 0i128;
+
+    for offset in 0..amount {
+        let step_supply = supply.checked_add(offset).ok_or(ContractError::Overflow)?;
+        let component = match preset {
+            CurvePreset::Flat => 0,
+            CurvePreset::Linear => slope
+                .checked_mul(i128::from(step_supply))
+                .ok_or(ContractError::Overflow)?,
+            CurvePreset::Quadratic => {
+                let supply_sq = (step_supply as i128)
+                    .checked_mul(step_supply as i128)
+                    .ok_or(ContractError::Overflow)?;
+                slope
+                    .checked_mul(supply_sq)
+                    .ok_or(ContractError::Overflow)?
+            }
+        };
+        let key_price = base_price
+            .checked_add(component)
+            .ok_or(ContractError::Overflow)?;
+        total = total.checked_add(key_price).ok_or(ContractError::Overflow)?;
+    }
+
+    Ok(total)
 }
 
 fn zero_quote_response() -> QuoteResponse {
@@ -7921,8 +8046,8 @@ impl CreatorKeysContract {
                 .get::<DataKey, u32>(&last_buy_ledger_key)
             {
                 let current_ledger = env.ledger().sequence();
-                let elapsed = current_ledger.saturating_sub(last_ledger);
-                if elapsed < cooldown_ledgers {
+                if check_trade_cooldown(current_ledger, last_ledger, cooldown_ledgers).is_err() {
+                    let elapsed = current_ledger.saturating_sub(last_ledger);
                     let ledgers_remaining = cooldown_ledgers - elapsed;
                     env.events().publish(
                         events::cooldown_blocked_topics(&creator, &buyer),
@@ -10528,6 +10653,116 @@ impl CreatorKeysContract {
         Self::get_key_balance(env, creator, wallet)
     }
 
+    /// Configure content access gating for a creator key.
+    pub fn set_gate(
+        env: Env,
+        key_id: Address,
+        gate_type: content_gating::GateType,
+        min_balance: u32,
+    ) -> Result<(), ContractError> {
+        content_gating::set_gate(&env, &key_id, gate_type, min_balance)
+    }
+
+    /// Check a wallet against the key's configured content gate.
+    pub fn check_access(env: Env, wallet: Address, key_id: Address) -> bool {
+        content_gating::check_access(&env, &wallet, &key_id)
+    }
+
+    /// Read the current content gate configuration for a key.
+    pub fn get_gate_config(env: Env, key_id: Address) -> Option<content_gating::GateConfig> {
+        content_gating::get_gate_config(&env, &key_id)
+    }
+
+    /// Send a direct tip to a key creator. The caller is the tipper.
+    pub fn send_tip(
+        env: Env,
+        key_id: Address,
+        tipper: Address,
+        amount: i128,
+        message_hash: Option<String>,
+    ) -> Result<tipping::TipRecord, ContractError> {
+        tipping::send_tip(&env, &key_id, &tipper, amount, message_hash)
+    }
+
+    pub fn get_tip_history(
+        env: Env,
+        key_id: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<tipping::TipRecord> {
+        tipping::get_tip_history(&env, &key_id, offset, limit)
+    }
+
+    pub fn get_total_tips(env: Env, key_id: Address) -> i128 {
+        tipping::get_total_tips(&env, &key_id)
+    }
+
+    pub fn grant_role(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        role: acl_roles::Role,
+    ) -> Result<(), ContractError> {
+        acl_roles::grant_role(&env, &key_id, &wallet, role)
+    }
+
+    pub fn revoke_role(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        role: acl_roles::Role,
+    ) -> Result<(), ContractError> {
+        acl_roles::revoke_role(&env, &key_id, &wallet, role)
+    }
+
+    pub fn has_role(env: Env, key_id: Address, wallet: Address, role: acl_roles::Role) -> bool {
+        acl_roles::has_role(&env, &key_id, &wallet, &role)
+    }
+
+    /// Role-gated dividend declaration for distributor wallets.
+    pub fn declare_dividend(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        acl_roles::require_role(&env, &key_id, &caller, &acl_roles::Role::Distributor)?;
+        Self::distribute_dividend(env, key_id, caller, amount)
+    }
+
+    /// Role-gated royalty configuration for moderator wallets.
+    pub fn set_royalty_by_role(
+        env: Env,
+        key_id: Address,
+        caller: Address,
+        buy_fee_bps: u32,
+        sell_fee_bps: u32,
+    ) -> Result<(), ContractError> {
+        acl_roles::require_role(&env, &key_id, &caller, &acl_roles::Role::Moderator)?;
+        Self::set_royalty(env, key_id, buy_fee_bps, sell_fee_bps)
+    }
+
+    pub fn merge(
+        env: Env,
+        key_a: Address,
+        key_b: Address,
+        merge_ratio_a_bps: u32,
+    ) -> Result<key_merge::MergeStatus, ContractError> {
+        key_merge::merge(&env, &key_a, &key_b, merge_ratio_a_bps)
+    }
+
+    pub fn finalize_merge(env: Env, key_a: Address, key_b: Address) -> Result<(), ContractError> {
+        key_merge::finalize_merge(&env, &key_a, &key_b)
+    }
+
+    pub fn get_merge_status(
+        env: Env,
+        key_a: Address,
+        key_b: Address,
+    ) -> Option<key_merge::MergeStatus> {
+        key_merge::get_merge_status(&env, &key_a, &key_b)
+    }
+
     // ── Subscription access gating (Issue #953) ────────────────────────────
     //
     // `curve_subscriptions_swaps::subscribe_key_access` takes the subscriber's
@@ -10594,7 +10829,7 @@ impl CreatorKeysContract {
     ///   operator can tell "gating is off" from "you need more keys".
     /// - [`ContractError::InsufficientBalance`] if the wallet holds less than
     ///   the minimum.
-    pub fn subscribe(
+    pub fn subscribe_access(
         env: Env,
         creator: Address,
         subscriber: Address,
@@ -10641,14 +10876,14 @@ impl CreatorKeysContract {
     ///
     /// Returns `false` for an unknown subscription, an expired one, or a
     /// balance that has since fallen below the recorded minimum.
-    pub fn is_subscribed(env: Env, creator: Address, subscriber: Address) -> bool {
+    pub fn has_gated_access(env: Env, creator: Address, subscriber: Address) -> bool {
         let balance = Self::get_key_balance(env.clone(), creator.clone(), subscriber.clone());
         crate::curve_subscriptions_swaps::is_subscribed(&env, &creator, &subscriber, balance)
     }
 
     /// The stored subscription record, if any.
     ///
-    /// Exposed alongside [`Self::is_subscribed`] because the boolean alone
+    /// Exposed alongside [`Self::has_gated_access`] because the boolean alone
     /// cannot tell a caller *why* access was denied — expired, or under the
     /// threshold. A UI needs to say which.
     pub fn get_subscription(
@@ -10659,6 +10894,70 @@ impl CreatorKeysContract {
         env.storage().instance().get(
             &crate::curve_subscriptions_swaps::EmdevelopaDataKey::Subscription(creator, subscriber),
         )
+    }
+
+    // ── Subscription tier management (Issue #1179) ─────────────────────────
+
+    /// Defines a paid access tier for a key.
+    ///
+    /// Callable by the key creator. Each tier stores a per-period fee, the
+    /// period length in seconds, and a human-readable label. Tiers are written
+    /// once: re-creating an existing `(key_id, tier_id)` fails with
+    /// [`SubscriptionTierError::TierAlreadyExists`].
+    pub fn create_tier(
+        env: Env,
+        key_id: Address,
+        tier_id: u32,
+        fee_per_period: i128,
+        period_seconds: u64,
+        label: String,
+    ) -> Result<(), SubscriptionTierError> {
+        key_id.require_auth();
+        subscription_tiers::create_tier(
+            &env,
+            &key_id,
+            tier_id,
+            fee_per_period,
+            period_seconds,
+            label,
+        )
+    }
+
+    /// Read-only view: the configuration of a key's tier, if it exists.
+    pub fn get_tier(env: Env, key_id: Address, tier_id: u32) -> Option<SubscriptionTier> {
+        subscription_tiers::get_tier(&env, &key_id, tier_id)
+    }
+
+    /// Subscribes `subscriber` to `tier_id` for one period.
+    ///
+    /// The tier's `fee_per_period` is charged to the subscriber and credited to
+    /// the creator's earnings ledger. Renewing an active subscription extends it
+    /// from its current expiry (`max(now, current_expiry) + period_seconds`) so
+    /// no paid-for time is lost. Returns the new expiry timestamp.
+    pub fn subscribe(
+        env: Env,
+        key_id: Address,
+        subscriber: Address,
+        tier_id: u32,
+    ) -> Result<u64, SubscriptionTierError> {
+        subscriber.require_auth();
+        subscription_tiers::subscribe(&env, &key_id, &subscriber, tier_id)
+    }
+
+    /// On-chain access check: `true` only while `wallet` has an unexpired
+    /// subscription to `tier_id` of `key_id`.
+    pub fn is_subscribed(env: Env, key_id: Address, wallet: Address, tier_id: u32) -> bool {
+        subscription_tiers::is_subscribed(&env, &key_id, &wallet, tier_id)
+    }
+
+    /// Read-only view: the stored tier subscription record, if any.
+    pub fn get_tier_subscription(
+        env: Env,
+        key_id: Address,
+        wallet: Address,
+        tier_id: u32,
+    ) -> Option<TierSubscription> {
+        subscription_tiers::get_tier_subscription(&env, &key_id, &wallet, tier_id)
     }
 
     /// Read-only view: returns a stable view of a holder's key count for a creator.
@@ -15109,7 +15408,7 @@ impl CreatorKeysContract {
             .storage()
             .persistent()
             .get(&constants::storage::curve_preset(&creator))
-            .unwrap_or(CurvePreset::Flat);
+            .unwrap_or(CurvePreset::Linear);
         Ok(preset)
     }
 
@@ -19932,38 +20231,40 @@ impl CreatorKeysContract {
         milestones: Vec<(u32, u32)>,
     ) -> Result<(), CurveConfigError> {
         creator.require_auth();
-        read_registered_creator_profile(&env, &creator)
-            .map_err(|_| CurveConfigError::NotRegistered)?;
+        write_graduated_curve(&env, &creator, milestones)
+    }
 
-        if milestones.is_empty() || milestones.len() > 5 {
-            return Err(CurveConfigError::InvalidMilestoneCount);
+    /// Configures the graduated bonding curve for a key before its first sale.
+    ///
+    /// Each milestone is a `(supply_threshold, exponent)` pair. Supply below the
+    /// first threshold is priced with the base exponent (`1`); reaching a
+    /// threshold switches the curve to that milestone's steeper exponent.
+    ///
+    /// Milestones must have 1..=5 tiers, thresholds must be strictly ascending,
+    /// and exponents must be in `1..=5`.
+    ///
+    /// # Panics
+    ///
+    /// Panics with [`CurveConfigError::CurveAlreadyActive`] once any key has
+    /// been sold. Repricing a curve that holders already bought into would let
+    /// a creator change what those buyers paid.
+    pub fn configure_graduated_curve(
+        env: Env,
+        key_id: Address,
+        milestones: Vec<(u32, u32)>,
+    ) -> Result<(), CurveConfigError> {
+        key_id.require_auth();
+
+        // The first-sale marker is written when the first key is bought.
+        if env
+            .storage()
+            .persistent()
+            .has(&constants::storage::created_at_ledger(&key_id))
+        {
+            soroban_sdk::panic_with_error!(&env, CurveConfigError::CurveAlreadyActive);
         }
 
-        let mut prev_threshold = 0u32;
-        for (threshold, exponent) in milestones.iter() {
-            if threshold <= prev_threshold {
-                return Err(CurveConfigError::ThresholdNotAscending);
-            }
-            if !(1..=5).contains(&exponent) {
-                return Err(CurveConfigError::InvalidExponent);
-            }
-            prev_threshold = threshold;
-        }
-
-        let key = constants::storage::graduated_curve(&creator);
-        env.storage().persistent().set(&key, &milestones);
-        extend_key_ttl_to_full_window(&env, &key);
-
-        env.events().publish(
-            events::graduated_curve_configured_topics(&creator),
-            events::GraduatedCurveConfiguredEvent {
-                creator: creator.clone(),
-                milestones,
-                ledger: env.ledger().sequence(),
-            },
-        );
-
-        Ok(())
+        write_graduated_curve(&env, &key_id, milestones)
     }
 
     /// Read-only view: returns the graduated bonding curve milestones for a creator, if set.
@@ -25768,3 +26069,5 @@ mod test_issue_1056;
 mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
+#[cfg(test)]
+mod test_issues_1072_1186_1250_1251;

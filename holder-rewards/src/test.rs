@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     events::{
         AirdropClaimedEvent, AirdropCreatedEvent, AIRDROP_CLAIMED_EVENT_NAME,
