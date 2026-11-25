@@ -13,3 +13,7 @@ creator-keys/test_snapshots/
 
 issue.md
 pr.md
+
+# cargo-mutants output artifacts
+mutants.out/
+mutants.out.old/

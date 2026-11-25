@@ -1,0 +1,38 @@
+# cargo-mutants configuration for accesslayer-contracts
+# Targets security-critical modules: fee, curve, reserve, vesting, and authorization.
+# See docs/testing/mutants-baseline.md for baseline results, exclusions, and triage workflow.
+
+examine_globs = [
+    # Fee modules
+    "fee-discount-contract/src/lib.rs",
+    "creator-keys/src/dynamic_fees.rs",
+    # Curve module
+    "creator-keys/src/curve_subscriptions_swaps.rs",
+    # Reserve modules
+    "holder-insurance-pool/src/lib.rs",
+    "creator-keys/src/multi_asset_payment.rs",
+    # Vesting module
+    "creator-keys/src/vesting.rs",
+    # Authorization modules
+    "creator-keys/src/acl_roles.rs",
+    "creator-keys/src/badge_access_control.rs",
+    "common/src/guard.rs",
+    "multisig-admin/src/lib.rs",
+]
+
+# Test files are excluded so mutations only target production contract logic.
+exclude_globs = [
+    "**/test.rs",
+    "**/test_*.rs",
+    "**/tests/**",
+]
+
+# Excluded mutants (each entry must have a documented reason in docs/testing/mutants-baseline.md).
+exclude_re = [
+    # Equivalent mutant: ReentrancyGuard::exit(self) calls drop(self); replacing its body
+    # with () still drops `self` at function return with identical runtime behavior.
+    "replace ReentrancyGuard::exit with \\(\\)",
+]
+
+timeout_multiplier = 3.0
+minimum_test_timeout = 60
