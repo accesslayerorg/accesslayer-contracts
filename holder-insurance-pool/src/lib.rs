@@ -25,6 +25,7 @@ pub struct Cover {
     pub claimed: bool,
 }
 #[contracttype]
+#[allow(clippy::enum_variant_names)]
 enum Key {
     Admin,
     Pool,
@@ -207,5 +208,181 @@ impl HolderInsurancePool {
         }
         e.storage().persistent().set(&Key::Pool, &(pool - amount));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+
+    fn setup() -> (Env, Address, HolderInsurancePoolClient<'static>, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(HolderInsurancePool, ());
+        let client = HolderInsurancePoolClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        (env, contract_id, client, admin)
+    }
+
+    fn read_pool(env: &Env, contract_id: &Address) -> i128 {
+        env.as_contract(contract_id, || {
+            env.storage().persistent().get(&Key::Pool).unwrap_or(0)
+        })
+    }
+
+    fn read_cover(env: &Env, contract_id: &Address, cover_id: u64) -> Cover {
+        env.as_contract(contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&Key::Cover(cover_id))
+                .unwrap()
+        })
+    }
+
+    #[test]
+    fn initialize_and_fund_validate_state_and_positive_amounts() {
+        let (env, contract_id, client, admin) = setup();
+        let funder = Address::generate(&env);
+
+        assert_eq!(client.try_initialize(&admin), Err(Ok(Error::Unauthorized)));
+        assert_eq!(client.try_fund(&funder, &0), Err(Ok(Error::InvalidAmount)));
+        assert_eq!(
+            client.try_fund(&funder, &-10),
+            Err(Ok(Error::InvalidAmount))
+        );
+
+        client.fund(&funder, &10_000);
+        assert_eq!(read_pool(&env, &contract_id), 10_000);
+    }
+
+    #[test]
+    fn buy_cover_enforces_inputs_cap_ratio_and_computes_premium() {
+        let (env, contract_id, client, _) = setup();
+        let funder = Address::generate(&env);
+        let holder = Address::generate(&env);
+        let key_id = Address::generate(&env);
+
+        client.fund(&funder, &10_000);
+
+        // Invalid inputs
+        assert_eq!(
+            client.try_buy_cover(&holder, &key_id, &0, &10, &1_000, &5_000),
+            Err(Ok(Error::InvalidAmount))
+        );
+        assert_eq!(
+            client.try_buy_cover(&holder, &key_id, &-5, &10, &1_000, &5_000),
+            Err(Ok(Error::InvalidAmount))
+        );
+        assert_eq!(
+            client.try_buy_cover(&holder, &key_id, &100, &0, &1_000, &5_000),
+            Err(Ok(Error::InvalidAmount))
+        );
+
+        // Cover 1: 3_000 at 10% premium (1_000 bps) -> premium = 300
+        let id1 = client.buy_cover(&holder, &key_id, &3_000, &100, &1_000, &5_000);
+        assert_eq!(id1, 1);
+        let c1 = read_cover(&env, &contract_id, id1);
+        assert_eq!(c1.premium, 300);
+
+        // Cover 2: 2_000 brings total to 5_000 == 50% cap (exact boundary allowed)
+        let id2 = client.buy_cover(&holder, &key_id, &2_000, &100, &500, &5_000);
+        assert_eq!(id2, 2);
+        let c2 = read_cover(&env, &contract_id, id2);
+        assert_eq!(c2.premium, 100);
+
+        // Cover 3: 1 more exceeds the 5_000 cap
+        assert_eq!(
+            client.try_buy_cover(&holder, &key_id, &1, &100, &500, &5_000),
+            Err(Ok(Error::CapExceeded))
+        );
+    }
+
+    #[test]
+    fn declare_trigger_and_claim_enforce_auth_expiry_trigger_and_pool_deduction() {
+        let (env, contract_id, client, admin) = setup();
+        let other = Address::generate(&env);
+        let funder = Address::generate(&env);
+        let holder = Address::generate(&env);
+        let key_id = Address::generate(&env);
+        let evidence = BytesN::from_array(&env, &[7u8; 32]);
+
+        env.ledger().set_sequence_number(10);
+        client.fund(&funder, &10_000);
+        let id1 = client.buy_cover(&holder, &key_id, &3_000, &20, &1_000, &5_000);
+        let id2 = client.buy_cover(&holder, &key_id, &2_000, &5, &1_000, &5_000);
+
+        // Claim before trigger fails
+        assert_eq!(client.try_claim(&holder, &id1), Err(Ok(Error::NoTrigger)));
+
+        // Non-admin cannot declare trigger
+        assert_eq!(
+            client.try_declare_trigger(&other, &key_id, &1, &evidence),
+            Err(Ok(Error::Unauthorized))
+        );
+        client.declare_trigger(&admin, &key_id, &1, &evidence);
+
+        // Wrong holder cannot claim
+        assert_eq!(client.try_claim(&other, &id1), Err(Ok(Error::Unauthorized)));
+
+        // Expired cover (sequence == expiry = 15) cannot be claimed
+        env.ledger().set_sequence_number(15);
+        assert_eq!(client.try_claim(&holder, &id2), Err(Ok(Error::Expired)));
+
+        // Active cover pays out and decrements pool
+        let payout = client.claim(&holder, &id1);
+        assert_eq!(payout, 3_000);
+        assert_eq!(read_pool(&env, &contract_id), 7_000);
+
+        // Double claim rejected
+        assert_eq!(
+            client.try_claim(&holder, &id1),
+            Err(Ok(Error::AlreadyClaimed))
+        );
+    }
+
+    #[test]
+    fn withdraw_premium_surplus_enforces_admin_and_reserve_ratio() {
+        let (env, contract_id, client, admin) = setup();
+        let other = Address::generate(&env);
+        let funder = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        client.fund(&funder, &5_000);
+        // KeyTotal(admin) = 5_000 -> required reserve at RESERVE_BPS (2_000) is 1_000
+        client.buy_cover(&holder, &admin, &5_000, &50, &1_000, &10_000);
+
+        // Non-admin rejected
+        assert_eq!(
+            client.try_withdraw_premium_surplus(&other, &100),
+            Err(Ok(Error::Unauthorized))
+        );
+
+        // Negative amount rejected
+        assert_eq!(
+            client.try_withdraw_premium_surplus(&admin, &-1),
+            Err(Ok(Error::ReserveViolation))
+        );
+
+        // Zero amount accepted
+        client.withdraw_premium_surplus(&admin, &0);
+        assert_eq!(read_pool(&env, &contract_id), 5_000);
+
+        // Withdrawing 4_001 leaves 999 < 1_000 required reserve -> rejected
+        assert_eq!(
+            client.try_withdraw_premium_surplus(&admin, &4_001),
+            Err(Ok(Error::ReserveViolation))
+        );
+
+        // Withdrawing exact surplus 4_000 leaves 1_000 == required reserve -> accepted
+        client.withdraw_premium_surplus(&admin, &4_000);
+        assert_eq!(read_pool(&env, &contract_id), 1_000);
+
+        // Any further withdrawal violates reserve
+        assert_eq!(
+            client.try_withdraw_premium_surplus(&admin, &1),
+            Err(Ok(Error::ReserveViolation))
+        );
     }
 }

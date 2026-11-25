@@ -7,3 +7,6 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 [dependencies]
 soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

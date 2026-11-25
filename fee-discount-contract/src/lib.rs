@@ -151,3 +151,248 @@ impl FeeDiscountContract {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, Events, Ledger},
+        vec,
+    };
+
+    fn setup() -> (Env, FeeDiscountContractClient<'static>, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(FeeDiscountContract, ());
+        let client = FeeDiscountContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        (env, client, admin)
+    }
+
+    fn default_tiers(env: &Env) -> Vec<Tier> {
+        vec![
+            env,
+            Tier {
+                threshold: 100,
+                discount_bps: 100,
+            },
+            Tier {
+                threshold: 500,
+                discount_bps: 500,
+            },
+            Tier {
+                threshold: 1_000,
+                discount_bps: 10_000,
+            },
+        ]
+    }
+
+    #[test]
+    fn initialize_rejects_reinitialization_and_set_tiers_requires_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(FeeDiscountContract, ());
+        let client = FeeDiscountContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let other = Address::generate(&env);
+
+        assert_eq!(
+            client.try_set_tiers(&admin, &default_tiers(&env)),
+            Err(Ok(Error::Unauthorized))
+        );
+
+        client.initialize(&admin);
+        assert_eq!(
+            client.try_initialize(&admin),
+            Err(Ok(Error::AlreadyInitialized))
+        );
+        assert_eq!(
+            client.try_set_tiers(&other, &default_tiers(&env)),
+            Err(Ok(Error::Unauthorized))
+        );
+        client.set_tiers(&admin, &default_tiers(&env));
+    }
+
+    #[test]
+    fn set_tiers_validates_strictly_increasing_thresholds_and_bps_bounds() {
+        let (env, client, admin) = setup();
+
+        // Zero threshold is invalid
+        let zero_threshold = vec![
+            &env,
+            Tier {
+                threshold: 0,
+                discount_bps: 100,
+            },
+        ];
+        assert_eq!(
+            client.try_set_tiers(&admin, &zero_threshold),
+            Err(Ok(Error::InvalidTier))
+        );
+
+        // Non-increasing threshold is invalid
+        let non_increasing = vec![
+            &env,
+            Tier {
+                threshold: 100,
+                discount_bps: 100,
+            },
+            Tier {
+                threshold: 100,
+                discount_bps: 200,
+            },
+        ];
+        assert_eq!(
+            client.try_set_tiers(&admin, &non_increasing),
+            Err(Ok(Error::InvalidTier))
+        );
+
+        // Discount above 10_000 bps is invalid even with valid threshold
+        let over_max_bps = vec![
+            &env,
+            Tier {
+                threshold: 100,
+                discount_bps: 10_001,
+            },
+        ];
+        assert_eq!(
+            client.try_set_tiers(&admin, &over_max_bps),
+            Err(Ok(Error::InvalidTier))
+        );
+
+        // Exact 10_000 bps boundary is valid
+        client.set_tiers(&admin, &default_tiers(&env));
+    }
+
+    #[test]
+    fn record_volume_and_get_discount_cover_tiers_boundaries_and_events() {
+        let (env, client, admin) = setup();
+        client.set_tiers(&admin, &default_tiers(&env));
+        let wallet = Address::generate(&env);
+
+        // Negative amount rejected; zero amount accepted at tier 0
+        assert_eq!(
+            client.try_record_volume(&wallet, &-1),
+            Err(Ok(Error::InvalidTier))
+        );
+        assert_eq!(
+            client.record_volume(&wallet, &0),
+            Discount {
+                tier: 0,
+                discount_bps: 0,
+            }
+        );
+        assert_eq!(env.events().all().len(), 0);
+        assert_eq!(
+            client.get_discount(&wallet),
+            Discount {
+                tier: 0,
+                discount_bps: 0,
+            }
+        );
+
+        // Reaching tier 1 exactly emits 1 tier-change event
+        assert_eq!(
+            client.record_volume(&wallet, &100),
+            Discount {
+                tier: 1,
+                discount_bps: 100,
+            }
+        );
+        assert_eq!(env.events().all().len(), 1);
+        assert_eq!(
+            client.get_discount(&wallet),
+            Discount {
+                tier: 1,
+                discount_bps: 100,
+            }
+        );
+
+        // Staying in tier 1 emits no additional event
+        assert_eq!(
+            client.record_volume(&wallet, &50),
+            Discount {
+                tier: 1,
+                discount_bps: 100,
+            }
+        );
+        assert_eq!(env.events().all().len(), 0);
+
+        // Crossing into tier 2 emits a tier-change event
+        assert_eq!(
+            client.record_volume(&wallet, &350),
+            Discount {
+                tier: 2,
+                discount_bps: 500,
+            }
+        );
+        assert_eq!(env.events().all().len(), 1);
+        assert_eq!(
+            client.get_discount(&wallet),
+            Discount {
+                tier: 2,
+                discount_bps: 500,
+            }
+        );
+
+        // Raising tier 2 threshold above recorded volume drops bps to 0 while keeping stored tier
+        let raised_tiers = vec![
+            &env,
+            Tier {
+                threshold: 100,
+                discount_bps: 100,
+            },
+            Tier {
+                threshold: 600,
+                discount_bps: 500,
+            },
+        ];
+        client.set_tiers(&admin, &raised_tiers);
+        assert_eq!(
+            client.get_discount(&wallet),
+            Discount {
+                tier: 2,
+                discount_bps: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn record_volume_resets_only_after_full_30_day_window() {
+        let (env, client, admin) = setup();
+        client.set_tiers(&admin, &default_tiers(&env));
+        let wallet = Address::generate(&env);
+
+        let start = 1_000u64;
+        env.ledger().set_timestamp(start);
+        assert_eq!(
+            client.record_volume(&wallet, &400),
+            Discount {
+                tier: 1,
+                discount_bps: 100,
+            }
+        );
+
+        // 1 second before the 30-day window (2_592_000s) expires: volume still accumulates
+        const THIRTY_DAYS_SECS: u64 = 2_592_000;
+        env.ledger().set_timestamp(start + THIRTY_DAYS_SECS - 1);
+        assert_eq!(
+            client.record_volume(&wallet, &100),
+            Discount {
+                tier: 2,
+                discount_bps: 500,
+            }
+        );
+
+        // Exactly at the 30-day window boundary: volume resets before adding new amount
+        env.ledger().set_timestamp(start + THIRTY_DAYS_SECS);
+        assert_eq!(
+            client.record_volume(&wallet, &100),
+            Discount {
+                tier: 1,
+                discount_bps: 100,
+            }
+        );
+    }
+}

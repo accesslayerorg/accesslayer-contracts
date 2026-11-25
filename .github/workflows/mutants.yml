@@ -1,0 +1,171 @@
+name: Mutation Testing
+
+on:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Weekly full run every Monday at 03:00 UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutants-pr:
+    name: Mutation Testing (PR Changed Files)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@cargo-mutants
+
+      - name: Generate PR diff
+        run: |
+          git diff "origin/${{ github.base_ref }}...HEAD" > pr.diff
+          echo "Changed Rust files:"
+          git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- '*.rs' || true
+
+      - name: Run mutation tests on changed files
+        id: mutants
+        run: |
+          chmod +x scripts/mutants.sh
+          LIST_OUT=$(cargo mutants \
+            -p fee-discount-contract \
+            -p holder-insurance-pool \
+            -p common \
+            -p multisig-admin \
+            -p creator-keys \
+            --in-diff pr.diff \
+            --list 2>/dev/null || true)
+
+          if [ -z "${LIST_OUT}" ]; then
+            echo "No target mutants found in PR changed files."
+            {
+              echo "## Mutation Testing (PR Changed Files)"
+              echo ""
+              echo "No target mutants matched the files changed in this pull request."
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          set +e
+          ./scripts/mutants.sh all --in-diff pr.diff --output .
+          STATUS=$?
+          set -e
+
+          # Exit code 0 = all caught, 2 = missed mutants, 3 = timeouts.
+          # Any other exit code indicates a build or baseline test failure.
+          if [ "${STATUS}" -ne 0 ] && [ "${STATUS}" -ne 2 ] && [ "${STATUS}" -ne 3 ]; then
+            echo "::error::cargo-mutants failed with exit code ${STATUS}"
+            exit "${STATUS}"
+          fi
+
+          CAUGHT=$(grep -c '[^[:space:]]' mutants.out/caught.txt 2>/dev/null || echo 0)
+          MISSED=$(grep -c '[^[:space:]]' mutants.out/missed.txt 2>/dev/null || echo 0)
+          TIMEOUT=$(grep -c '[^[:space:]]' mutants.out/timeout.txt 2>/dev/null || echo 0)
+          UNVIABLE=$(grep -c '[^[:space:]]' mutants.out/unviable.txt 2>/dev/null || echo 0)
+
+          {
+            echo "## Mutation Testing (PR Changed Files)"
+            echo ""
+            echo "| Outcome | Count |"
+            echo "| --- | ---: |"
+            echo "| Caught | ${CAUGHT} |"
+            echo "| Missed (Surviving) | ${MISSED} |"
+            echo "| Timeout | ${TIMEOUT} |"
+            echo "| Unviable | ${UNVIABLE} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${MISSED}" -gt 0 ] && [ -f mutants.out/missed.txt ]; then
+            {
+              echo ""
+              echo "### Surviving Mutants"
+              echo ""
+              echo '```text'
+              cat mutants.out/missed.txt
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+            echo "::warning::${MISSED} surviving mutant(s) found in PR changed files. See job summary and uploaded report artifact."
+          fi
+
+      - name: Upload PR mutation report
+        if: always() && hashFiles('mutants.out/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-pr-report
+          path: mutants.out/
+          retention-days: 14
+
+  mutants-weekly:
+    name: Mutation Testing (Weekly Full Run)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@cargo-mutants
+
+      - name: Run full mutation test suite
+        run: |
+          chmod +x scripts/mutants.sh
+          set +e
+          ./scripts/mutants.sh all --output .
+          STATUS=$?
+          set -e
+
+          if [ "${STATUS}" -ne 0 ] && [ "${STATUS}" -ne 2 ] && [ "${STATUS}" -ne 3 ]; then
+            echo "::error::cargo-mutants failed with exit code ${STATUS}"
+            exit "${STATUS}"
+          fi
+
+          CAUGHT=$(grep -c '[^[:space:]]' mutants.out/caught.txt 2>/dev/null || echo 0)
+          MISSED=$(grep -c '[^[:space:]]' mutants.out/missed.txt 2>/dev/null || echo 0)
+          TIMEOUT=$(grep -c '[^[:space:]]' mutants.out/timeout.txt 2>/dev/null || echo 0)
+          UNVIABLE=$(grep -c '[^[:space:]]' mutants.out/unviable.txt 2>/dev/null || echo 0)
+
+          {
+            echo "## Weekly Mutation Testing Report"
+            echo ""
+            echo "| Outcome | Count |"
+            echo "| --- | ---: |"
+            echo "| Caught | ${CAUGHT} |"
+            echo "| Missed (Surviving) | ${MISSED} |"
+            echo "| Timeout | ${TIMEOUT} |"
+            echo "| Unviable | ${UNVIABLE} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${MISSED}" -gt 0 ] && [ -f mutants.out/missed.txt ]; then
+            {
+              echo ""
+              echo "### Surviving Mutants"
+              echo ""
+              echo '```text'
+              cat mutants.out/missed.txt
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload weekly mutation report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-weekly-report
+          path: mutants.out/
+          retention-days: 30
