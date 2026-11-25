@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check clippy test check ci wasm
+.PHONY: fmt fmt-check clippy test check ci wasm dev-up dev-reset seed
 
 ## Code formatting targets
 fmt:
@@ -40,6 +40,21 @@ wasm:
 	@echo "registry addresses and never invoke the deployed contract, so a small"
 	@echo "placeholder is sufficient there."
 
+## Local development sandbox: start the quickstart network with Soroban RPC,
+## build and deploy contracts, and write addresses to .env.local.
+dev-up:
+	docker compose up -d --wait
+	./scripts/dev-up.sh
+
+## Seed the running local environment with creators, holders, trades,
+## an escrow and a pending proposal.
+seed:
+	./scripts/seed.sh
+
+## Wipe and rebuild the local development environment from a clean state.
+dev-reset:
+	./scripts/dev-reset.sh
+
 ## Full CI workflow: runs format check, lint, tests, and compilation
 ## This is the standard check sequence to run before pushing to a branch
 ci: fmt-check clippy test check
@@ -51,4 +66,3 @@ fmt-fix:
 
 ## Run all checks in sequence (alias for ci)
 all-checks: ci
-
