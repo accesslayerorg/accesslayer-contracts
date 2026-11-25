@@ -8,11 +8,12 @@
 
 #[cfg(test)]
 mod tests {
-    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
-
-    use crate::{
-        badge_access_control, creator_allocation, english_auction, holder_enumeration, ContractError,
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        Address, Env, Vec,
     };
+
+    use crate::{badge_access_control, creator_allocation, english_auction, holder_enumeration};
 
     // ============================================================================
     // Issue #1283: Creator allocation with vesting
@@ -50,7 +51,7 @@ mod tests {
     #[test]
     fn test_creator_allocation_cliff() {
         let env = Env::default();
-        env.ledger().set_sequence_number(0);
+        env.ledger().with_mut(|l| l.sequence_number = 0);
 
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -74,13 +75,13 @@ mod tests {
         assert_eq!(status.vested_amount, 0);
 
         // After cliff but before full vesting - partial vesting
-        env.ledger().set_sequence_number(600);
+        env.ledger().with_mut(|l| l.sequence_number = 600);
         let status = creator_allocation::vesting_status(&env, key_id.clone()).unwrap();
         assert!(status.vested_amount > 0);
         assert!(status.vested_amount < amount);
 
         // After full vesting - everything vested
-        env.ledger().set_sequence_number(1000);
+        env.ledger().with_mut(|l| l.sequence_number = 1000);
         let status = creator_allocation::vesting_status(&env, key_id).unwrap();
         assert_eq!(status.vested_amount, amount);
     }
@@ -88,7 +89,7 @@ mod tests {
     #[test]
     fn test_creator_allocation_claim() {
         let env = Env::default();
-        env.ledger().set_sequence_number(0);
+        env.ledger().with_mut(|l| l.sequence_number = 0);
 
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -112,7 +113,7 @@ mod tests {
         assert!(result.is_err());
 
         // After cliff, claim partial
-        env.ledger().set_sequence_number(550);
+        env.ledger().with_mut(|l| l.sequence_number = 550);
         let claimed = creator_allocation::claim_vested(&env, creator.clone(), key_id.clone()).unwrap();
         assert!(claimed > 0);
         assert!(claimed < amount);
@@ -191,7 +192,7 @@ mod tests {
     #[test]
     fn test_english_auction_bidding() {
         let env = Env::default();
-        env.ledger().set_sequence_number(0);
+        env.ledger().with_mut(|l| l.sequence_number = 0);
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -233,7 +234,7 @@ mod tests {
     #[test]
     fn test_english_auction_extension() {
         let env = Env::default();
-        env.ledger().set_sequence_number(0);
+        env.ledger().with_mut(|l| l.sequence_number = 0);
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -252,7 +253,7 @@ mod tests {
         .unwrap();
 
         // Bid near the end (within extension window)
-        env.ledger().set_sequence_number(150);
+        env.ledger().with_mut(|l| l.sequence_number = 150);
         english_auction::place_bid(&env, bidder, auction_id, 1000).unwrap();
 
         let auction = english_auction::get_auction(&env, auction_id).unwrap();
@@ -263,7 +264,7 @@ mod tests {
     #[test]
     fn test_english_auction_finalize_success() {
         let env = Env::default();
-        env.ledger().set_sequence_number(0);
+        env.ledger().with_mut(|l| l.sequence_number = 0);
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -288,7 +289,7 @@ mod tests {
         assert!(result.is_err());
 
         // Finalize after end
-        env.ledger().set_sequence_number(100);
+        env.ledger().with_mut(|l| l.sequence_number = 100);
         let result = english_auction::finalize_auction(&env, auction_id);
         assert!(result.is_ok());
 

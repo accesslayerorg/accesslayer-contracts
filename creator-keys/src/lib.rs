@@ -14,6 +14,7 @@ pub mod events;
 pub use events::{SlippageExceeded, SlippageExceededEvent};
 pub mod multi_asset_payment;
 pub mod quote_view_errors;
+pub mod vested_airdrop;
 pub mod vesting;
 pub use multi_asset_payment::{
     AssetRateView, BoughtWithEvent, PaymentAssetAddedEvent, PaymentAssetConfig, PaymentAssetInfo,
@@ -442,13 +443,13 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 161,
+    BadgeRequired = 189,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 162,
+    StalePrice = 190,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 163,
-    QuorumNotMet = 164,
-    InvalidOracleSet = 165,
+    PriceDeviation = 191,
+    QuorumNotMet = 192,
+    InvalidOracleSet = 193,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,
@@ -461,6 +462,17 @@ pub enum ContractError {
     InvalidWeights = 176,
     NoticePeriodActive = 177,
     CyclicReferral = 178,
+    // --- Vested Merkle airdrops (#1291) ---
+    VestedAirdropNotFound = 179,
+    VestedAirdropAlreadyClaimed = 180,
+    InvalidVestedAirdropProof = 181,
+    VestedAirdropExhausted = 182,
+    VestedPositionNotFound = 183,
+    NothingToRelease = 184,
+    VestedPositionNotOwned = 185,
+    RevocationNotEnabled = 186,
+    NothingToRevoke = 187,
+    InvalidVestingSchedule = 188,
 }
 
 impl ContractError {
@@ -2472,6 +2484,14 @@ pub enum DataKey {
     OracleSet,
     /// Per-(feed, asset) latest published oracle sample.
     FeedPrice(Address, Address),
+    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
+    EventConfig(Address, u32),
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
+    EventRedeemed(Address, u32, Address),
+    /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
+    EventRedeemedCount(Address, u32),
+    /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
+    EventLockUntil(Address, Address),
 }
 
 /// Maximum callback payload size accepted by `transfer_and_call`.
@@ -2559,14 +2579,6 @@ pub struct PriceCeilingStatus {
     pub active: bool,
     /// Ledger sequence when the cool-off period expires (unused if `active` is `false`).
     pub cooloff_end_ledger: u32,
-    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
-    EventConfig(Address, u32),
-    /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
-    EventRedeemed(Address, u32, Address),
-    /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
-    EventRedeemedCount(Address, u32),
-    /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
-    EventLockUntil(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3716,6 +3728,7 @@ fn available_holder_balance(env: &Env, key_id: &Address, wallet: &Address) -> u3
     total
         .saturating_sub(staked)
         .saturating_sub(read_self_frozen_balance(env, key_id, wallet))
+        .saturating_sub(vested_airdrop::locked_balance(env, key_id, wallet))
 }
 
 /// Reads a creator's current key supply from persistent storage.
@@ -9155,7 +9168,8 @@ impl CreatorKeysContract {
             .unwrap_or(0);
         let liquid_balance = current_balance
             .saturating_sub(staked_balance)
-            .saturating_sub(read_self_frozen_balance(&env, &creator, &seller));
+            .saturating_sub(read_self_frozen_balance(&env, &creator, &seller))
+            .saturating_sub(vested_airdrop::locked_balance(&env, &creator, &seller));
 
         if liquid_balance == 0 {
             return Err(ContractError::InsufficientBalance);
@@ -16751,7 +16765,9 @@ impl CreatorKeysContract {
             .get(&staked_balance_key)
             .unwrap_or(0);
 
-        total_balance.saturating_sub(staked_balance)
+        total_balance
+            .saturating_sub(staked_balance)
+            .saturating_sub(vested_airdrop::locked_balance(&env, &creator, &holder))
     }
 
     // =========================================================================
@@ -17919,12 +17935,12 @@ impl CreatorKeysContract {
         Ok(())
     }
 
-    /// Claims currently vested keys for the beneficiary.
+    /// Claims currently vested keys for the beneficiary of a legacy schedule.
     ///
     /// Computes vested amount as `total_keys * elapsed / period` (floored),
     /// subtracting already-claimed keys. Returns `AlreadyClaimed` if no
     /// new keys have vested.
-    pub fn claim_vested(
+    pub fn claim_scheduled_vesting(
         env: Env,
         creator: Address,
         beneficiary: Address,
@@ -19352,7 +19368,8 @@ impl CreatorKeysContract {
                     .unwrap_or(0);
                 let liquid_balance = current_balance
                     .saturating_sub(staked_balance)
-                    .saturating_sub(read_self_frozen_balance(&env, &creator, &seller));
+                    .saturating_sub(read_self_frozen_balance(&env, &creator, &seller))
+                    .saturating_sub(vested_airdrop::locked_balance(&env, &creator, &seller));
                 if liquid_balance == 0 {
                     return Err(ContractError::InsufficientBalance);
                 }
@@ -22095,7 +22112,10 @@ impl CreatorKeysContract {
                 .get(&constants::storage::key_balance(&creator, &holder))
                 .unwrap_or(0);
             let staked = Self::get_staked_balance(env.clone(), creator.clone(), holder.clone());
-            if total_balance.saturating_sub(staked) < amount {
+            let liquid = total_balance
+                .saturating_sub(staked)
+                .saturating_sub(vested_airdrop::locked_balance(&env, &creator, &holder));
+            if liquid < amount {
                 return Err(ContractError::InsufficientBalance);
             }
 
@@ -23906,6 +23926,12 @@ impl CreatorKeysContract {
                 creator_id: creator,
                 quantity,
                 ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Feature: redeemable event pass keys (issue #1257)
     // -----------------------------------------------------------------------
@@ -24082,6 +24108,8 @@ impl CreatorKeysContract {
 
     pub fn get_payment_base_reserve(env: Env) -> i128 {
         multi_asset_payment::get_base_reserve(&env)
+    }
+
     /// Redeems an event pass for `holder`.
     ///
     /// Checks that the holder's available balance is at least `min_balance`,
@@ -24216,6 +24244,102 @@ impl CreatorKeysContract {
         );
 
         Ok(())
+    }
+
+    // ── Vested Merkle airdrops (#1291) ────────────────────────────────
+
+    /// Creates a non-revocable vested airdrop. Use
+    /// [`Self::create_revocable_vested_airdrop`] to enable revocation.
+    pub fn create_vested_airdrop(
+        env: Env,
+        creator: Address,
+        key_id: Address,
+        root: BytesN<32>,
+        total: u32,
+        cliff_ledgers: u32,
+        vest_ledgers: u32,
+    ) -> Result<u32, ContractError> {
+        vested_airdrop::create_vested_airdrop(
+            &env,
+            &creator,
+            &key_id,
+            root,
+            total,
+            cliff_ledgers,
+            vest_ledgers,
+        )
+    }
+
+    /// Creates a vested airdrop with an explicit revocability flag.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_revocable_vested_airdrop(
+        env: Env,
+        creator: Address,
+        key_id: Address,
+        root: BytesN<32>,
+        total: u32,
+        cliff_ledgers: u32,
+        vest_ledgers: u32,
+        revocable: bool,
+    ) -> Result<u32, ContractError> {
+        vested_airdrop::create_vested_airdrop_with_revocability(
+            &env,
+            &creator,
+            &key_id,
+            root,
+            total,
+            cliff_ledgers,
+            vest_ledgers,
+            revocable,
+        )
+    }
+
+    /// Claims a Merkle leaf into a locked vesting position.
+    ///
+    /// The legacy scheduled-vesting claim remains available as
+    /// [`Self::claim_scheduled_vesting`].
+    pub fn claim_vested(
+        env: Env,
+        claimer: Address,
+        airdrop_id: u32,
+        amount: u32,
+        proof: Vec<BytesN<32>>,
+    ) -> Result<u32, ContractError> {
+        vested_airdrop::claim_vested(&env, &claimer, airdrop_id, amount, &proof)
+    }
+
+    /// Releases the vested portion of `position_id` for sale and transfer.
+    pub fn release(env: Env, holder: Address, position_id: u32) -> Result<u32, ContractError> {
+        vested_airdrop::release(&env, &holder, position_id)
+    }
+
+    /// Read-only view of the currently vested amount of a position.
+    pub fn vested_amount(env: Env, position_id: u32) -> u32 {
+        vested_airdrop::vested_amount(&env, position_id)
+    }
+
+    /// Revokes only unvested keys, if the creator enabled revocability.
+    pub fn revoke_unvested(
+        env: Env,
+        creator: Address,
+        position_id: u32,
+    ) -> Result<u32, ContractError> {
+        vested_airdrop::revoke_unvested(&env, &creator, position_id)
+    }
+
+    pub fn get_vested_position(
+        env: Env,
+        position_id: u32,
+    ) -> Option<vested_airdrop::VestedPosition> {
+        vested_airdrop::get_position(&env, position_id)
+    }
+
+    pub fn get_vested_airdrop(env: Env, airdrop_id: u32) -> Option<vested_airdrop::VestedAirdrop> {
+        vested_airdrop::get_airdrop(&env, airdrop_id)
+    }
+
+    pub fn get_locked_key_balance(env: Env, key_id: Address, holder: Address) -> u32 {
+        vested_airdrop::locked_balance(&env, &key_id, &holder)
     }
 }
 
