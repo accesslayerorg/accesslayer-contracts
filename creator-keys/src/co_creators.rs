@@ -6,8 +6,8 @@
 //! additionally require M-of-N approvals from the configured co-creators.
 
 use crate::{
-    events, extend_key_ttl_to_full_window, read_registered_creator_profile,
-    Announcement, AnnouncementCategory, AnnouncementKey, ContractError, CreatorKeysContract,
+    events, extend_key_ttl_to_full_window, read_registered_creator_profile, Announcement,
+    AnnouncementCategory, AnnouncementKey, ContractError, CreatorKeysContract,
     CreatorKeysContractArgs, CreatorKeysContractClient, FeatureError, FeatureKey,
 };
 use soroban_sdk::{contractimpl, contracttype, Address, Env, String, Vec};
@@ -59,7 +59,11 @@ fn members_key(key_id: &Address) -> CoCreatorKey {
 }
 
 /// Removes a role grant and its membership entry, if present.
-pub(crate) fn remove_role_entry(env: &Env, key_id: &Address, wallet: &Address) -> Option<CoCreatorRole> {
+pub(crate) fn remove_role_entry(
+    env: &Env,
+    key_id: &Address,
+    wallet: &Address,
+) -> Option<CoCreatorRole> {
     let key = role_key(key_id, wallet);
     let role = env.storage().persistent().get::<_, CoCreatorRole>(&key)?;
     env.storage().persistent().remove(&key);
@@ -86,7 +90,11 @@ fn save(env: &Env, key: CoCreatorKey, value: impl soroban_sdk::IntoVal<Env, soro
 }
 
 /// Returns the role granted to `wallet` for `key_id`, if any.
-pub fn read_co_creator_role(env: &Env, key_id: &Address, wallet: &Address) -> Option<CoCreatorRole> {
+pub fn read_co_creator_role(
+    env: &Env,
+    key_id: &Address,
+    wallet: &Address,
+) -> Option<CoCreatorRole> {
     let key = role_key(key_id, wallet);
     env.storage().persistent().get::<_, CoCreatorRole>(&key)
 }
@@ -97,8 +105,8 @@ pub fn assert_primary_creator(
     key_id: &Address,
     caller: &Address,
 ) -> Result<(), FeatureError> {
-    let profile = read_registered_creator_profile(env, key_id)
-        .map_err(|_| FeatureError::NotRegistered)?;
+    let profile =
+        read_registered_creator_profile(env, key_id).map_err(|_| FeatureError::NotRegistered)?;
     if profile.creator != *caller {
         return Err(FeatureError::Unauthorized);
     }
@@ -275,7 +283,12 @@ impl CreatorKeysContract {
         let mut count = 0u32;
         for wallet in members.iter() {
             let key = CoCreatorKey::Approvals(key_id.clone(), action_id, wallet);
-            if env.storage().persistent().get::<_, bool>(&key).unwrap_or(false) {
+            if env
+                .storage()
+                .persistent()
+                .get::<_, bool>(&key)
+                .unwrap_or(false)
+            {
                 count += 1;
             }
         }

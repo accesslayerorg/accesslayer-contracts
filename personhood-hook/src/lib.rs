@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, String,
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env,
 };
 
 #[contracttype]
@@ -104,7 +104,7 @@ impl PersonhoodHookContract {
         }
 
         // Verify signature (simplified - in reality would verify against attestor)
-        if signature.len() == 0 {
+        if signature.is_empty() {
             return Err(PersonhoodError::InvalidAttestation);
         }
 
