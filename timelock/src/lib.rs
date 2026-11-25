@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, Bytes, Env, Symbol, Vec,
 };
+use common::time::is_unlocked;
 
 /// Default minimum delay: 48 hours (in seconds).
 pub const DEFAULT_MIN_DELAY: u64 = 48 * 60 * 60;
@@ -185,7 +186,7 @@ impl TimelockContract {
             .ok_or(TimelockError::ActionNotFound)?;
 
         let now = env.ledger().timestamp();
-        if now < action.eta {
+        if !is_unlocked(now, action.eta) {
             return Err(TimelockError::TimeRemaining);
         }
 
