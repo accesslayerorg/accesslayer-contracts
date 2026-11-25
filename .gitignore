@@ -13,3 +13,6 @@ creator-keys/test_snapshots/
 
 issue.md
 pr.md
+# Generated TypeScript bindings build output
+bindings/node_modules/
+bindings/dist/

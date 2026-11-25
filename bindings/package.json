@@ -1,0 +1,40 @@
+{
+  "name": "@accesslayer/contracts-bindings",
+  "version": "0.1.0",
+  "description": "Generated TypeScript bindings for the AccessLayer Soroban contracts: typed clients, error enums and event decoders.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/accesslayerorg/accesslayer-contracts.git",
+    "directory": "bindings"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "typings": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "manifest.json",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "generate": "../scripts/generate-bindings.sh"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.0.1",
+    "buffer": "6.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  }
+}
