@@ -434,6 +434,8 @@ impl ContractError {
     pub const AlreadyInitialised: Self = Self::AlreadyInitialized;
     #[allow(non_upper_case_globals)]
     pub const TWAPInvalid: Self = Self::OraclePriceNotSet;
+    #[allow(non_upper_case_globals)]
+    pub const DeprecationWindowClosed: Self = Self::DeprecationNoticePeriodActive;
 }
 
 /// Errors raised by the staking entrypoints
@@ -2531,6 +2533,69 @@ pub enum FeatureKey {
     BondReleased(Address),
     /// (creator) -> immutable supply-triggered curve-slope milestone config.
     CurveSlopeMilestones(Address),
+    /// (creator) -> pending curve parameter proposal id.
+    PendingCurveUpdate(Address),
+    /// Curve parameter proposal keyed by its global id.
+    CurveUpdateProposal(u32),
+    /// Next curve parameter proposal id.
+    NextCurveUpdateId,
+    /// (creator) -> active bonding-curve intercept and slope override.
+    CreatorCurveParameters(Address),
+    /// (key) -> migration-window expiry and guaranteed floor price.
+    DeprecationWindow(Address),
+    /// (key) -> permanent finalization marker.
+    FinalizedDeprecation(Address),
+    /// Append-only weighted rating submissions keyed by creator.
+    WeightedRatings(Address),
+    /// (creator, holder) -> last ledger epoch rated.
+    WeightedRatingEpoch(Address, Address),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct DeprecationWindow {
+    pub floor_price: i128,
+    pub window_expiry: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct WeightedRating {
+    pub score: u32,
+    pub holder_balance: u32,
+    pub total_supply: u32,
+    pub timestamp: u64,
+    pub ledger: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CreatorRatingView {
+    pub score: u32,
+    pub total_ratings: u32,
+    pub last_updated_ledger: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveParameters {
+    pub slope: i128,
+    pub intercept: i128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CurveUpdateProposal {
+    pub proposal_id: u32,
+    pub key_id: Address,
+    pub creator: Address,
+    pub new_slope: i128,
+    pub new_intercept: i128,
+    pub old_slope: i128,
+    pub old_intercept: i128,
+    pub eta: u64,
+    pub cancelled: bool,
+    pub executed: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3217,6 +3282,12 @@ pub struct DeprecationStatus {
     pub successor_key_id: Option<Address>,
     /// Ledger sequence of deprecation; `0` when not deprecated.
     pub deprecated_at_ledger: u32,
+    /// Guaranteed floor price for the migration window, or zero for legacy deprecations.
+    pub floor_price: i128,
+    /// Unix timestamp when the migration window closes, or zero when absent.
+    pub window_expiry: u64,
+    /// Whether the key's deprecation has been finalized permanently.
+    pub finalized: bool,
 }
 
 /// Record of a notice-period deprecation proposal.
@@ -5131,7 +5202,9 @@ pub fn compute_graduated_curve_price(
         let component = slope
             .checked_mul(checked_pow_i128(span, exponent)?)
             .ok_or(ContractError::Overflow)?;
-        price = price.checked_add(component).ok_or(ContractError::Overflow)?;
+        price = price
+            .checked_add(component)
+            .ok_or(ContractError::Overflow)?;
         band_start = threshold;
         exponent = tier_exponent;
     }
@@ -5149,6 +5222,11 @@ fn compute_bonding_curve_price(
     base_price: i128,
     supply: u32,
 ) -> Result<i128, ContractError> {
+    let params: Option<CurveParameters> = env
+        .storage()
+        .persistent()
+        .get(&FeatureKey::CreatorCurveParameters(creator.clone()));
+    let base_price = params.map(|p| p.intercept).unwrap_or(base_price);
     let divisor: u32 = env
         .storage()
         .persistent()
@@ -5156,10 +5234,14 @@ fn compute_bonding_curve_price(
         .unwrap_or(1);
     let curve_supply = supply / divisor;
     let raw_price = if let Some(milestones) = read_graduated_curve(env, creator) {
-        let slope = read_curve_slope(env);
+        let slope = params
+            .map(|p| p.slope)
+            .unwrap_or_else(|| read_curve_slope(env));
         compute_graduated_curve_price(&milestones, base_price, slope, curve_supply)?
     } else if let Some(exponent) = read_curve_exponent(env, creator) {
-        let slope = read_curve_slope(env);
+        let slope = params
+            .map(|p| p.slope)
+            .unwrap_or_else(|| read_curve_slope(env));
         let supply_exp = checked_pow_i128(curve_supply as i128, exponent)?;
         let supply_component = slope
             .checked_mul(supply_exp)
@@ -5173,7 +5255,9 @@ fn compute_bonding_curve_price(
             .persistent()
             .get(&constants::storage::curve_preset(creator))
             .unwrap_or(CurvePreset::Linear);
-        let slope = resolve_curve_slope(env, creator);
+        let slope = params
+            .map(|p| p.slope)
+            .unwrap_or_else(|| resolve_curve_slope(env, creator));
         compute_price(base_price, slope, curve_supply, 1, preset)?
     };
     raw_price
@@ -5225,7 +5309,9 @@ pub fn compute_price(
         let key_price = base_price
             .checked_add(component)
             .ok_or(ContractError::Overflow)?;
-        total = total.checked_add(key_price).ok_or(ContractError::Overflow)?;
+        total = total
+            .checked_add(key_price)
+            .ok_or(ContractError::Overflow)?;
     }
 
     Ok(total)
@@ -6571,6 +6657,12 @@ pub struct ReputationView {
     pub governance_violations: u32,
     /// `true` when the creator's key has been deprecated.
     pub deprecated: bool,
+    /// Current weighted, time-decayed holder rating from zero to one hundred.
+    pub rating_score: u32,
+    /// Number of submitted holder ratings.
+    pub total_ratings: u32,
+    /// Ledger of the most recent holder rating.
+    pub last_updated_ledger: u32,
 }
 
 /// Protocol-wide poll quorum-escalation configuration.
@@ -6979,6 +7071,14 @@ pub enum RatingError {
     InvalidScore = 2,
     /// The rater holds zero keys for this creator.
     NotAHolder = 3,
+    /// The wallet has already rated during the current settlement epoch.
+    AlreadyRated = 4,
+    /// No live key balance is held by the rater.
+    InsufficientBalance = 5,
+    /// The score must be between zero and one hundred.
+    InvalidScoreRange = 6,
+    /// A rating accumulator exceeded its representable range.
+    Overflow = 7,
 }
 
 /// A single entry inside a key bundle (key ID + quantity).
@@ -7385,6 +7485,92 @@ impl CreatorKeysContract {
             })
     }
 
+    /// Submits a 0–100 weighted creator rating. The current ledger is the
+    /// settlement epoch; a holder may rate again after the next ledger close.
+    pub fn submit_rating(
+        env: Env,
+        key_id: Address,
+        holder: Address,
+        score_0_to_100: u32,
+    ) -> Result<(), RatingError> {
+        holder.require_auth();
+        if score_0_to_100 > 100 {
+            return Err(RatingError::InvalidScoreRange);
+        }
+        let profile = read_registered_creator_profile(&env, &key_id)
+            .map_err(|_| RatingError::NotRegistered)?;
+        let balance: u32 = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::holder_balance_key(&key_id, &holder))
+            .unwrap_or(0);
+        if balance == 0 {
+            return Err(RatingError::InsufficientBalance);
+        }
+        let ledger = env.ledger().sequence();
+        let epoch_key = FeatureKey::WeightedRatingEpoch(key_id.clone(), holder.clone());
+        if env.storage().persistent().get::<_, u32>(&epoch_key) == Some(ledger) {
+            return Err(RatingError::AlreadyRated);
+        }
+        let ratings_key = FeatureKey::WeightedRatings(key_id.clone());
+        let mut ratings: Vec<WeightedRating> = env
+            .storage()
+            .persistent()
+            .get(&ratings_key)
+            .unwrap_or(Vec::new(&env));
+        ratings.push_back(WeightedRating {
+            score: score_0_to_100,
+            holder_balance: balance,
+            total_supply: profile.supply.max(1),
+            timestamp: env.ledger().timestamp(),
+            ledger,
+        });
+        env.storage().persistent().set(&ratings_key, &ratings);
+        env.storage().persistent().set(&epoch_key, &ledger);
+        extend_key_ttl_to_full_window(&env, &ratings_key);
+        extend_key_ttl_to_full_window(&env, &epoch_key);
+        Ok(())
+    }
+
+    /// Returns the time-decayed, submission-weighted reputation score.
+    pub fn get_weighted_reputation(env: Env, key_id: Address) -> CreatorRatingView {
+        const DECAY_PERIOD_SECONDS: u64 = 365 * 24 * 60 * 60;
+        const SCALE: i128 = 1_000_000_000_000;
+        let ratings: Vec<WeightedRating> = env
+            .storage()
+            .persistent()
+            .get(&FeatureKey::WeightedRatings(key_id))
+            .unwrap_or(Vec::new(&env));
+        let now = env.ledger().timestamp();
+        let mut weighted_score: i128 = 0;
+        let mut total_weight: i128 = 0;
+        let mut last_ledger = 0u32;
+        for rating in ratings.iter() {
+            last_ledger = last_ledger.max(rating.ledger);
+            let age = now.saturating_sub(rating.timestamp);
+            let decay = DECAY_PERIOD_SECONDS.saturating_sub(age);
+            if decay == 0 {
+                continue;
+            }
+            let weight = (i128::from(rating.holder_balance) * SCALE
+                / i128::from(rating.total_supply.max(1)))
+                * i128::from(decay)
+                / i128::from(DECAY_PERIOD_SECONDS);
+            weighted_score =
+                weighted_score.saturating_add(i128::from(rating.score).saturating_mul(weight));
+            total_weight = total_weight.saturating_add(weight);
+        }
+        CreatorRatingView {
+            score: if total_weight == 0 {
+                0
+            } else {
+                (weighted_score / total_weight).clamp(0, 100) as u32
+            },
+            total_ratings: ratings.len(),
+            last_updated_ledger: last_ledger,
+        }
+    }
+
     /// Purchases a key for `key_id`, checking the early-access whitelist gate if active.
     /// Alias to [`Self::buy_key`].
     pub fn buy(
@@ -7597,6 +7783,13 @@ impl CreatorKeysContract {
         bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        if env
+            .storage()
+            .persistent()
+            .has(&FeatureKey::DeprecationWindow(creator.clone()))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
         let supply_before = profile.supply;
         assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
@@ -8251,6 +8444,13 @@ impl CreatorKeysContract {
         bump_persistent_ttl(&env, &constants::storage::KEY_PRICE);
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        if env
+            .storage()
+            .persistent()
+            .has(&FeatureKey::DeprecationWindow(creator.clone()))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
         let supply_before = profile.supply;
         assert_whitelist_allows_buy(&env, &profile, &buyer)?;
 
@@ -8731,6 +8931,13 @@ impl CreatorKeysContract {
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
         let supply_before = profile.supply;
+        if env
+            .storage()
+            .persistent()
+            .has(&FeatureKey::DeprecationWindow(creator.clone()))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
 
         let balance_key = constants::storage::holder_balance_key(&creator, &seller);
         // Missing balance entries are interpreted as zero and rejected consistently.
@@ -9232,6 +9439,9 @@ impl CreatorKeysContract {
                 reason: String::from_str(&env, ""),
                 successor_key_id: None,
                 deprecated_at_ledger: 0,
+                floor_price: 0,
+                window_expiry: 0,
+                finalized: false,
             };
         }
 
@@ -9246,6 +9456,22 @@ impl CreatorKeysContract {
                 reason: d.reason,
                 successor_key_id: d.successor_key_id,
                 deprecated_at_ledger: d.deprecated_at_ledger,
+                floor_price: env
+                    .storage()
+                    .persistent()
+                    .get::<_, DeprecationWindow>(&FeatureKey::DeprecationWindow(creator.clone()))
+                    .map(|w| w.floor_price)
+                    .unwrap_or(0),
+                window_expiry: env
+                    .storage()
+                    .persistent()
+                    .get::<_, DeprecationWindow>(&FeatureKey::DeprecationWindow(creator.clone()))
+                    .map(|w| w.window_expiry)
+                    .unwrap_or(0),
+                finalized: env
+                    .storage()
+                    .persistent()
+                    .has(&FeatureKey::FinalizedDeprecation(creator.clone())),
             },
             // Fallback: key was deprecated via the old path without DeprecationInfo.
             None => DeprecationStatus {
@@ -9253,8 +9479,126 @@ impl CreatorKeysContract {
                 reason: String::from_str(&env, ""),
                 successor_key_id: None,
                 deprecated_at_ledger: 0,
+                floor_price: env
+                    .storage()
+                    .persistent()
+                    .get::<_, DeprecationWindow>(&FeatureKey::DeprecationWindow(creator.clone()))
+                    .map(|w| w.floor_price)
+                    .unwrap_or(0),
+                window_expiry: env
+                    .storage()
+                    .persistent()
+                    .get::<_, DeprecationWindow>(&FeatureKey::DeprecationWindow(creator.clone()))
+                    .map(|w| w.window_expiry)
+                    .unwrap_or(0),
+                finalized: env
+                    .storage()
+                    .persistent()
+                    .has(&FeatureKey::FinalizedDeprecation(creator.clone())),
             },
         }
+    }
+
+    /// Starts a creator initiated migration window at the current bonding-curve spot price.
+    pub fn deprecate(
+        env: Env,
+        key_id: Address,
+        creator: Address,
+        migration_window_seconds: u64,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        assert_not_paused(&env)?;
+        if creator != key_id {
+            return Err(ContractError::Unauthorized);
+        }
+        if migration_window_seconds == 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        let profile = read_registered_creator_profile(&env, &key_id)?;
+        let dep_key = constants::storage::deprecated_key(&key_id);
+        if env.storage().persistent().has(&dep_key) {
+            return Err(ContractError::KeyDeprecated);
+        }
+        let floor_price =
+            resolve_quote_inputs(&env, &key_id)?.ok_or(ContractError::KeyPriceNotSet)?;
+        let window_expiry = env
+            .ledger()
+            .timestamp()
+            .checked_add(migration_window_seconds)
+            .ok_or(ContractError::Overflow)?;
+        let escrow = i128::from(profile.supply)
+            .checked_mul(floor_price)
+            .ok_or(ContractError::Overflow)?;
+        env.storage().persistent().set(&dep_key, &floor_price);
+        env.storage()
+            .persistent()
+            .set(&constants::storage::deprecation_escrow(&key_id), &escrow);
+        env.storage().persistent().set(
+            &FeatureKey::DeprecationWindow(key_id.clone()),
+            &DeprecationWindow {
+                floor_price,
+                window_expiry,
+            },
+        );
+        env.storage().persistent().set(
+            &constants::storage::deprecation_info(&key_id),
+            &DeprecationInfo {
+                reason: String::from_str(&env, "migration"),
+                successor_key_id: None,
+                deprecated_at_ledger: env.ledger().sequence(),
+            },
+        );
+        env.events().publish(
+            events::key_deprecated_topics(&key_id),
+            events::KeyDeprecatedEvent {
+                creator: key_id.clone(),
+                buyback_price_per_key: floor_price,
+                circulating_supply: profile.supply,
+                total_escrow: escrow,
+                reason: String::from_str(&env, "migration"),
+                successor_key_id: None,
+                ledger: env.ledger().sequence(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Exits a position at the immutable deprecation floor price during the window.
+    pub fn exit_deprecating(
+        env: Env,
+        key_id: Address,
+        holder: Address,
+    ) -> Result<i128, ContractError> {
+        let window: DeprecationWindow = env
+            .storage()
+            .persistent()
+            .get(&FeatureKey::DeprecationWindow(key_id.clone()))
+            .ok_or(ContractError::KeyNotDeprecated)?;
+        if env.ledger().timestamp() >= window.window_expiry
+            || env
+                .storage()
+                .persistent()
+                .has(&FeatureKey::FinalizedDeprecation(key_id.clone()))
+        {
+            return Err(ContractError::DeprecationWindowClosed);
+        }
+        Self::redeem(env, key_id, holder)
+    }
+
+    /// Permanently closes a key after its migration window has elapsed.
+    pub fn finalize_migration_deprecation(env: Env, key_id: Address) -> Result<(), ContractError> {
+        let window: DeprecationWindow = env
+            .storage()
+            .persistent()
+            .get(&FeatureKey::DeprecationWindow(key_id.clone()))
+            .ok_or(ContractError::KeyNotDeprecated)?;
+        if env.ledger().timestamp() < window.window_expiry {
+            return Err(ContractError::TimelockNotElapsed);
+        }
+        env.storage()
+            .persistent()
+            .set(&FeatureKey::FinalizedDeprecation(key_id), &true);
+        Ok(())
     }
 
     /// Proposes the notice-period retirement of an inactive creator key.
@@ -9829,6 +10173,20 @@ impl CreatorKeysContract {
             .persistent()
             .get(&dep_key)
             .ok_or(ContractError::KeyNotDeprecated)?;
+        if let Some(window) = env
+            .storage()
+            .persistent()
+            .get::<_, DeprecationWindow>(&FeatureKey::DeprecationWindow(creator.clone()))
+        {
+            if env.ledger().timestamp() >= window.window_expiry
+                || env
+                    .storage()
+                    .persistent()
+                    .has(&FeatureKey::FinalizedDeprecation(creator.clone()))
+            {
+                return Err(ContractError::DeprecationWindowClosed);
+            }
+        }
 
         let balance_key = constants::storage::holder_balance_key(&creator, &holder);
         let holder_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
@@ -13309,6 +13667,19 @@ impl CreatorKeysContract {
     /// Release any remaining bond after a key has been deprecated.
     pub fn finalize_deprecation(env: Env, key_id: Address) -> Result<i128, BondError> {
         let _guard = ReentrancyGuard::enter(&env);
+        if let Some(window) = env
+            .storage()
+            .persistent()
+            .get::<_, DeprecationWindow>(&FeatureKey::DeprecationWindow(key_id.clone()))
+        {
+            if env.ledger().timestamp() < window.window_expiry {
+                return Err(BondError::Unauthorized);
+            }
+            env.storage()
+                .persistent()
+                .set(&FeatureKey::FinalizedDeprecation(key_id), &true);
+            return Ok(0);
+        }
         performance_bonds::finalize_deprecation(&env, &key_id)
     }
 
@@ -15343,6 +15714,13 @@ impl CreatorKeysContract {
         validate_non_zero_address(&env, &to)?;
 
         let mut profile: CreatorProfile = read_registered_creator_profile(&env, &creator)?;
+        if env
+            .storage()
+            .persistent()
+            .has(&FeatureKey::DeprecationWindow(creator.clone()))
+        {
+            return Err(ContractError::KeyDeprecated);
+        }
 
         // Reject transfers while the sender is inside the creator's buy cooldown window.
         let cooldown_ledgers: u32 = env
@@ -22052,9 +22430,10 @@ impl CreatorKeysContract {
             .storage()
             .persistent()
             .has(&constants::storage::deprecated_key(&creator));
+        let weighted_rating = Self::get_weighted_reputation(env, creator.clone());
 
         Ok(ReputationView {
-            creator,
+            creator: creator.clone(),
             score,
             key_launches: breakdown.key_launches,
             milestones_reached: breakdown.milestones_reached,
@@ -22062,6 +22441,9 @@ impl CreatorKeysContract {
             governance_violations: breakdown.governance_violations,
             deprecated,
             breakdown,
+            rating_score: weighted_rating.score,
+            total_ratings: weighted_rating.total_ratings,
+            last_updated_ledger: weighted_rating.last_updated_ledger,
         })
     }
 
@@ -22849,6 +23231,153 @@ impl CreatorKeysContract {
     /// there is no entry to extend and nothing is written.
     pub fn get_nonce(env: Env, wallet: Address) -> u64 {
         read_forwarder_nonce(&env, &wallet)
+    }
+
+    /// Proposes creator-owned curve parameters that become active after 48 hours.
+    pub fn propose_curve_update(
+        env: Env,
+        key_id: Address,
+        creator: Address,
+        new_slope: i128,
+        new_intercept: i128,
+    ) -> Result<u32, ContractError> {
+        creator.require_auth();
+        assert_not_paused(&env)?;
+        if creator != key_id {
+            return Err(ContractError::Unauthorized);
+        }
+        read_registered_creator_profile(&env, &key_id)?;
+        if new_slope < 0 || new_intercept <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        let pending_key = FeatureKey::PendingCurveUpdate(key_id.clone());
+        if env.storage().persistent().has(&pending_key) {
+            return Err(ContractError::AllocationLocked);
+        }
+        const DELAY_SECONDS: u64 = 48 * 60 * 60;
+        let eta = env
+            .ledger()
+            .timestamp()
+            .checked_add(DELAY_SECONDS)
+            .ok_or(ContractError::Overflow)?;
+        let proposal_id: u32 = env
+            .storage()
+            .persistent()
+            .get(&FeatureKey::NextCurveUpdateId)
+            .unwrap_or(1);
+        let (old_slope, old_intercept) = env
+            .storage()
+            .persistent()
+            .get::<_, CurveParameters>(&FeatureKey::CreatorCurveParameters(key_id.clone()))
+            .map(|p| (p.slope, p.intercept))
+            .unwrap_or((
+                resolve_curve_slope(&env, &key_id),
+                env.storage()
+                    .persistent()
+                    .get(&constants::storage::KEY_PRICE)
+                    .unwrap_or(0),
+            ));
+        let proposal = CurveUpdateProposal {
+            proposal_id,
+            key_id: key_id.clone(),
+            creator: creator.clone(),
+            new_slope,
+            new_intercept,
+            old_slope,
+            old_intercept,
+            eta,
+            cancelled: false,
+            executed: false,
+        };
+        env.storage()
+            .persistent()
+            .set(&FeatureKey::CurveUpdateProposal(proposal_id), &proposal);
+        env.storage().persistent().set(&pending_key, &proposal_id);
+        env.storage().persistent().set(
+            &FeatureKey::NextCurveUpdateId,
+            &proposal_id.checked_add(1).ok_or(ContractError::Overflow)?,
+        );
+        env.events().publish(
+            (
+                Symbol::new(&env, "CurveUpdateProposed"),
+                key_id,
+                proposal_id,
+            ),
+            (creator, new_slope, new_intercept, eta),
+        );
+        Ok(proposal_id)
+    }
+
+    /// Applies a curve update after its 48-hour notice period.
+    pub fn execute_curve_update(env: Env, proposal_id: u32) -> Result<(), ContractError> {
+        let key = FeatureKey::CurveUpdateProposal(proposal_id);
+        let mut proposal: CurveUpdateProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NotRegistered)?;
+        if proposal.cancelled || proposal.executed {
+            return Err(ContractError::ActionNotPending);
+        }
+        if env.ledger().timestamp() < proposal.eta {
+            return Err(ContractError::TimelockNotElapsed);
+        }
+        let pending_key = FeatureKey::PendingCurveUpdate(proposal.key_id.clone());
+        if env.storage().persistent().get::<_, u32>(&pending_key) != Some(proposal_id) {
+            return Err(ContractError::ActionNotPending);
+        }
+        let params = CurveParameters {
+            slope: proposal.new_slope,
+            intercept: proposal.new_intercept,
+        };
+        env.storage().persistent().set(
+            &FeatureKey::CreatorCurveParameters(proposal.key_id.clone()),
+            &params,
+        );
+        env.storage().persistent().remove(&pending_key);
+        proposal.executed = true;
+        env.storage().persistent().set(&key, &proposal);
+        env.events().publish(
+            (
+                Symbol::new(&env, "CurveUpdateExecuted"),
+                proposal.key_id,
+                proposal_id,
+            ),
+            (
+                proposal.old_slope,
+                proposal.old_intercept,
+                proposal.new_slope,
+                proposal.new_intercept,
+            ),
+        );
+        Ok(())
+    }
+
+    /// Cancels a pending curve update. Only the key creator may cancel it.
+    pub fn cancel_curve_update(
+        env: Env,
+        proposal_id: u32,
+        creator: Address,
+    ) -> Result<(), ContractError> {
+        creator.require_auth();
+        let key = FeatureKey::CurveUpdateProposal(proposal_id);
+        let mut proposal: CurveUpdateProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ContractError::NotRegistered)?;
+        if proposal.creator != creator {
+            return Err(ContractError::Unauthorized);
+        }
+        if proposal.cancelled || proposal.executed {
+            return Err(ContractError::ActionNotPending);
+        }
+        proposal.cancelled = true;
+        env.storage().persistent().set(&key, &proposal);
+        env.storage()
+            .persistent()
+            .remove(&FeatureKey::PendingCurveUpdate(proposal.key_id));
+        Ok(())
     }
 
     /// Executes a key purchase on behalf of a buyer, callable only by the
