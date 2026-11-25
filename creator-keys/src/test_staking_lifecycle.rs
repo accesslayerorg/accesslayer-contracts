@@ -24,7 +24,8 @@ mod staking_lifecycle_tests {
     use soroban_sdk::{Address, Env, String};
 
     use crate::{
-        CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams, StakingError,
+        dynamic_fees::VolumeBracket, CreatorKeysContract, CreatorKeysContractClient,
+        RegisterCreatorParams, StakingError,
     };
 
     const KEY_PRICE: i128 = 100;
@@ -77,8 +78,23 @@ mod staking_lifecycle_tests {
 
     /// Enables the 10% protocol trade fee so every buy accrues the staking
     /// rewards pool (`REWARD_SHARE_PER_BUY` per buy).
-    fn enable_fee_accrual(client: &CreatorKeysContractClient, admin: &Address, treasury: &Address) {
+    fn enable_fee_accrual(
+        env: &Env,
+        client: &CreatorKeysContractClient,
+        admin: &Address,
+        treasury: &Address,
+    ) {
         client.set_protocol_fee(admin, &Some(PROTOCOL_FEE_BPS), treasury);
+        client.set_volume_brackets(
+            admin,
+            &soroban_sdk::vec![
+                env,
+                VolumeBracket {
+                    min_volume: 0,
+                    fee_bps: PROTOCOL_FEE_BPS,
+                },
+            ],
+        );
     }
 
     /// Buys `count` keys from `creator` with `buyer`.
@@ -167,7 +183,7 @@ mod staking_lifecycle_tests {
 
         // Enable the known protocol fee rate so trade fees accrue the staking
         // rewards pool.
-        enable_fee_accrual(&client, &admin, &treasury);
+        enable_fee_accrual(&env, &client, &admin, &treasury);
         assert_eq!(
             client.get_protocol_trade_fee(),
             (PROTOCOL_FEE_BPS, Some(treasury.clone()))

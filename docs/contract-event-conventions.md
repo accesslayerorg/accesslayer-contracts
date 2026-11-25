@@ -50,6 +50,8 @@ The following table summarizes the events currently implemented in the `creator-
 | `register` | `(Symbol("register"), creator)` | `creator`, `handle`, `supply`, `holder_count`, `creator_bps`, `protocol_bps` | `struct CreatorRegisteredEvent` |
 | `buy` | `(Symbol("buy"), creator, buyer)` | `supply`, `payment` | `tuple (u32, i128)` |
 | `sell` | `(Symbol("sell"), creator, seller)` | `supply` | `tuple (u32)` |
+| `esc_rdm` | `(Symbol("esc_rdm"), holder, key_id)` | `holder`, `key_id`, `amount`, `payout` | `struct EscapeRedeemedEvent` |
+| `transfer_called` | `(Symbol("transfer_called"), creator_id, recipient)` | `creator_id`, `from`, `recipient`, `amount`, `data_hash` | `struct TransferCalledEvent` |
 
 ### Events Added Alongside Reputation, Allowances, Sell Tax and Escalation
 
@@ -114,6 +116,133 @@ Notes for indexers:
 
 `actor` is the first signer of the multisig call. `timestamp` and
 `executable_at` are ledger timestamps in seconds, not ledger sequence numbers.
+
+### Price Alert Events (#1030)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `alert_reg` | `(Symbol("alert_reg"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `direction`, `target_price`, `ledger` | `struct PriceAlertRegisteredEvent` |
+| `alert_trg` | `(Symbol("alert_trg"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `direction`, `target_price`, `new_price`, `ledger` | `struct PriceAlertTriggeredEvent` |
+| `alert_cxl` | `(Symbol("alert_cxl"), key_id, wallet)` | `wallet`, `key_id`, `alert_id`, `ledger` | `struct PriceAlertCancelledEvent` |
+
+Notes for indexers:
+
+- `alert_trg` is emitted from inside a buy or sell (`buy_key`, `buy_keys`,
+  `buy_key_with_referrer`, `forward_buy`, `sell_key`, `batch_buy`,
+  `batch_buy_v2`, `batch_sell`, `batch_sell_v2`, `reinvest_dividend`), after
+  that trade's own `buy` / `sell` event. One trade can emit several, one per
+  alert it fires, in registration order.
+- Each `alert_id` produces at most one `alert_trg` or one `alert_cxl`, never
+  both and never twice. After either event the alert is gone.
+- `new_price` is the key's bonding-curve spot price after the trade (the price
+  of the next key at the new supply), in the same raw `i128` units as the key
+  price. It is not the price paid for the trade.
+- `direction` is the `AlertDirection` enum, encoded as a `u32`: `0` = `Above`,
+  `1` = `Below`.
+
+### Referral Tier Upgrade Events (#1034)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `tier_upg` | `(Symbol("tier_upg"), referrer)` | `referrer`, `old_tier`, `new_tier`, `volume`, `reward_rate_bps` | `struct ReferralTierUpgraded` |
+
+Notes for indexers:
+
+- `tier_upg` is emitted when a referrer's cumulative referred trade volume crosses a tier threshold.
+- Tiers are ratchet-only (`Bronze` = 0, `Silver` = 1, `Gold` = 2) and never downgrade regardless of subsequent volume drops.
+- `reward_rate_bps` reports the new reward rate in basis points (10,000 bps = 100%).
+
+### LP Reward Rate Update Events (#1032)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `lp_rate` | `(Symbol("lp_rate"), key_id)` | `key_id`, `old_rate_bps`, `new_rate_bps`, `updated_at` | `struct RewardRateUpdated` |
+
+Notes for indexers:
+
+- `lp_rate` is emitted by `set_reward_rate` when a creator updates the reward rate for their LP pool.
+- Topic index 1 is `key_id` (`Address`).
+- `old_rate_bps` reports the previous rate in basis points (or `0` on first configuration); `new_rate_bps` reports the newly configured rate (`1..=5000` bps).
+- `updated_at` is the ledger timestamp in seconds.
+
+### Per-Key Dynamic Swap Fee Events (#1056)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `fee_adj` | `(Symbol("fee_adj"), key_id)` | `key_id`, `previous_fee_bps`, `new_fee_bps`, `rolling_volume`, `timestamp` | `struct FeeAdjustedEvent` |
+
+Notes for indexers:
+
+- `rolling_volume` is gross trade volume in the raw price base units at the
+  transition point. An expiry transition reports volume before the current
+  trade is added; a bracket crossing caused by that trade reports volume after
+  it is added.
+- Swaps select their fee from pre-trade volume. Fee changes caused by the
+  current swap apply to later swaps.
+- Time expiration and bracket updates do not autonomously emit events. A
+  later successful trade detects and emits the transition; reads never emit
+  or mutate.
+- No event is emitted if the fee bps is unchanged.
+
+### Supply Milestone Fee Reduction Events (#1076)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `ms_reach` | `(Symbol("ms_reach"), key_id)` | `key_id`, `tier`, `supply`, `new_fee_bps`, `ledger` | `struct MilestoneReachedEvent` |
+
+Notes for indexers:
+
+- `ms_reach` is emitted by `check_and_apply_milestone` (also invoked post-swap from buy/sell core paths) when a key's circulating supply newly reaches a milestone tier whose fee lowers the fee currently in effect.
+- Topic index 1 is `key_id` (`Address`).
+- `tier` is the 1-based index of the milestone tier reached; tiers are applied in ascending supply order and never roll back.
+- `supply` is the circulating supply after the trade that crossed the threshold.
+- `new_fee_bps` reports the new fee in basis points (`0..=10000`).
+- `ledger` is the ledger sequence number at the time of the reduction.
+
+### Key Liquidity Depth Events (#1133)
+
+| Event Name | Topics (Index 0, 1) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `depth_upd` | `(Symbol("depth_upd"), key_id)` | `key_id`, `price`, `amount`, `side`, `volume` | `struct DepthUpdated` |
+
+Notes for indexers:
+
+- `depth_upd` is emitted on each order placement (`record_order`) and cancellation (`cancel_order_depth`) when order book liquidity depth changes.
+- Topic index 1 is `key_id` (`Address`).
+- `price` is the affected price level (`i128`).
+- `amount` is the order volume added or cancelled (`i128`).
+- `side` is the order book side (`OrderSide::Buy` = 0, `OrderSide::Sell` = 1).
+- `volume` is the remaining volume at this specific price level after the update.
+
+### Creator Key Vote Delegation Events (#1116)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `vote_del` | `(Symbol("vote_del"), key_id, holder)` | `holder`, `delegate_wallet`, `key_id`, `weight` | `struct VotingDelegated` |
+| `v_del_rev` | `(Symbol("v_del_rev"), key_id, holder)` | `holder`, `previous_delegate_wallet`, `key_id`, `weight` | `struct DelegationRevoked` |
+
+Notes for indexers:
+
+- `vote_del` is emitted by `delegate_votes` when a key holder assigns their voting weight on `key_id` to a proxy delegate wallet.
+- `v_del_rev` is emitted by `revoke_delegation` when a key holder revokes their voting delegation on `key_id`.
+- Topic index 1 is `key_id` (`Address`) and topic index 2 is `holder` (`Address`).
+- `weight` reports the key balance held by the delegator at delegation/revocation time.
+- Note that because delegated weight dynamically tracks the delegator's balance while delegation is active, indexers tracking current voting weight should compute delegate weight dynamically from the active delegator set and their balances.
+
+### Key Freeze Events (#1174)
+
+| Event Name | Topics (Index 0, 1, 2) | Data Fields | Data Type |
+| :--- | :--- | :--- | :--- |
+| `key_frz` | `(Symbol("key_frz"), key_id)` | `key_id`, `admin_wallet`, `reason`, `timestamp`, `ledger` | `struct KeyFrozenEvent` |
+| `key_unfrz` | `(Symbol("key_unfrz"), key_id)` | `key_id`, `admin_wallet`, `timestamp`, `ledger` | `struct KeyUnfrozenEvent` |
+
+Notes for indexers:
+
+- `key_frz` is emitted by `freeze` when a key's multi-sig admins freeze it. The key rejects buys, sells and transfers with `ContractError::KeyFrozen` from that point on.
+- `key_unfrz` is emitted by `unfreeze` when the freeze is lifted and the key trades normally again.
+- Topic index 1 is `key_id` (`Address`); there is no topic index 2. The acting admin is carried in the payload as `admin_wallet`.
+- `reason` is the admin-supplied text stored in the freeze audit log; it is empty on the unfreeze event.
+- `timestamp` is the ledger timestamp in seconds, `ledger` the ledger sequence number.
 
 ## Data Type Inconsistency
 While the general preference is for `struct` payloads (like `register`), some high-frequency events like `buy` and `sell` use `tuples` for gas efficiency. Indexers should check the `contracttype` encoding to distinguish between map-based structs and array-based tuples.

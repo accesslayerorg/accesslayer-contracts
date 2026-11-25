@@ -107,6 +107,7 @@ pub fn resume_eta(env: &Env) -> Option<u64> {
 /// Rejects a buy or sell on `key_id` while the platform halt or the key's
 /// override is active.
 pub fn assert_trading_allowed(env: &Env, key_id: &Address) -> Result<(), ContractError> {
+    crate::timed_pause::assert_not_paused(env)?;
     if is_platform_paused(env) || is_key_paused(env, key_id) {
         return Err(ContractError::GlobalTradingHalted);
     }

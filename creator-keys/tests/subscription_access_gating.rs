@@ -63,8 +63,10 @@ fn subscribe_rejects_a_wallet_below_the_minimum() {
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
 
     // Holds nothing at all.
-    assert!(client.try_subscribe(&creator, &wallet, &DURATION).is_err());
-    assert!(!client.is_subscribed(&creator, &wallet));
+    assert!(client
+        .try_subscribe_access(&creator, &wallet, &DURATION)
+        .is_err());
+    assert!(!client.has_gated_access(&creator, &wallet));
 }
 
 #[test]
@@ -75,7 +77,9 @@ fn subscribe_rejects_a_wallet_one_key_short() {
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
     buy(&client, &creator, &wallet, MIN_HOLD - 1);
 
-    assert!(client.try_subscribe(&creator, &wallet, &DURATION).is_err());
+    assert!(client
+        .try_subscribe_access(&creator, &wallet, &DURATION)
+        .is_err());
 }
 
 #[test]
@@ -87,10 +91,10 @@ fn subscribe_accepts_a_qualifying_hold_and_returns_the_expiry() {
     buy(&client, &creator, &wallet, MIN_HOLD);
 
     let before = env.ledger().sequence();
-    let expiry = client.subscribe(&creator, &wallet, &DURATION);
+    let expiry = client.subscribe_access(&creator, &wallet, &DURATION);
 
     assert_eq!(expiry, before + DURATION);
-    assert!(client.is_subscribed(&creator, &wallet));
+    assert!(client.has_gated_access(&creator, &wallet));
     assert_eq!(
         client
             .get_subscription(&creator, &wallet)
@@ -107,14 +111,14 @@ fn access_is_denied_once_the_expiry_ledger_passes() {
 
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
     buy(&client, &creator, &wallet, MIN_HOLD);
-    client.subscribe(&creator, &wallet, &DURATION);
+    client.subscribe_access(&creator, &wallet, &DURATION);
 
     // The comparison is `<=`, so access survives *at* the expiry ledger.
     env.ledger().with_mut(|l| l.sequence_number += DURATION);
-    assert!(client.is_subscribed(&creator, &wallet));
+    assert!(client.has_gated_access(&creator, &wallet));
 
     env.ledger().with_mut(|l| l.sequence_number += 1);
-    assert!(!client.is_subscribed(&creator, &wallet));
+    assert!(!client.has_gated_access(&creator, &wallet));
 }
 
 #[test]
@@ -126,13 +130,13 @@ fn access_lapses_when_the_holding_drops_below_the_minimum() {
 
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
     buy(&client, &creator, &wallet, MIN_HOLD);
-    client.subscribe(&creator, &wallet, &DURATION);
-    assert!(client.is_subscribed(&creator, &wallet));
+    client.subscribe_access(&creator, &wallet, &DURATION);
+    assert!(client.has_gated_access(&creator, &wallet));
 
     sell(&env, &client, &creator, &wallet, 1);
 
     assert!(
-        !client.is_subscribed(&creator, &wallet),
+        !client.has_gated_access(&creator, &wallet),
         "selling below the minimum must revoke access without a transaction"
     );
 }
@@ -146,13 +150,13 @@ fn access_returns_when_the_holding_is_topped_back_up() {
 
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
     buy(&client, &creator, &wallet, MIN_HOLD);
-    client.subscribe(&creator, &wallet, &DURATION);
+    client.subscribe_access(&creator, &wallet, &DURATION);
 
     sell(&env, &client, &creator, &wallet, 1);
-    assert!(!client.is_subscribed(&creator, &wallet));
+    assert!(!client.has_gated_access(&creator, &wallet));
 
     buy(&client, &creator, &wallet, 1);
-    assert!(client.is_subscribed(&creator, &wallet));
+    assert!(client.has_gated_access(&creator, &wallet));
 }
 
 #[test]
@@ -164,7 +168,9 @@ fn subscribe_rejects_when_gating_is_not_configured() {
 
     buy(&client, &creator, &wallet, 10);
 
-    assert!(client.try_subscribe(&creator, &wallet, &DURATION).is_err());
+    assert!(client
+        .try_subscribe_access(&creator, &wallet, &DURATION)
+        .is_err());
     assert!(client.get_min_hold_for_access(&creator).is_none());
 }
 
@@ -177,7 +183,7 @@ fn subscribe_rejects_a_zero_duration() {
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
     buy(&client, &creator, &wallet, MIN_HOLD);
 
-    assert!(client.try_subscribe(&creator, &wallet, &0).is_err());
+    assert!(client.try_subscribe_access(&creator, &wallet, &0).is_err());
 }
 
 #[test]
@@ -209,11 +215,11 @@ fn raising_the_minimum_does_not_retroactively_revoke() {
 
     client.set_min_hold_for_access(&admin, &creator, &MIN_HOLD);
     buy(&client, &creator, &wallet, MIN_HOLD);
-    client.subscribe(&creator, &wallet, &DURATION);
+    client.subscribe_access(&creator, &wallet, &DURATION);
 
     client.set_min_hold_for_access(&admin, &creator, &(MIN_HOLD + 10));
 
-    assert!(client.is_subscribed(&creator, &wallet));
+    assert!(client.has_gated_access(&creator, &wallet));
 }
 
 #[test]
@@ -225,20 +231,20 @@ fn subscriptions_are_scoped_per_creator() {
     client.set_min_hold_for_access(&admin, &creator_a, &MIN_HOLD);
     client.set_min_hold_for_access(&admin, &creator_b, &MIN_HOLD);
     buy(&client, &creator_a, &wallet, MIN_HOLD);
-    client.subscribe(&creator_a, &wallet, &DURATION);
+    client.subscribe_access(&creator_a, &wallet, &DURATION);
 
-    assert!(client.is_subscribed(&creator_a, &wallet));
+    assert!(client.has_gated_access(&creator_a, &wallet));
     assert!(
-        !client.is_subscribed(&creator_b, &wallet),
+        !client.has_gated_access(&creator_b, &wallet),
         "a subscription to one creator must not grant access to another"
     );
 }
 
 #[test]
-fn is_subscribed_is_false_for_an_unknown_subscription() {
+fn has_gated_access_is_false_for_an_unknown_subscription() {
     let (env, client, _admin, creator) = setup();
     let stranger = Address::generate(&env);
 
-    assert!(!client.is_subscribed(&creator, &stranger));
+    assert!(!client.has_gated_access(&creator, &stranger));
     assert!(client.get_subscription(&creator, &stranger).is_none());
 }

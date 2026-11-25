@@ -6,7 +6,9 @@
 
 mod contract_test_env;
 
-use contract_test_env::{register_creator_keys, test_env_with_auths};
+use contract_test_env::{
+    assert_event, register_creator_keys, set_ledger_sequence, test_env_with_auths,
+};
 use creator_keys::ContractError;
 use soroban_sdk::{testutils::Address as _, Address, String};
 
@@ -83,7 +85,10 @@ fn test_set_protocol_fee_recipient_emits_event_on_update() {
     use soroban_sdk::{testutils::Events, IntoVal};
 
     let env = test_env_with_auths();
-    let (client, _) = register_creator_keys(&env);
+    let (client, contract_id) = register_creator_keys(&env);
+
+    let test_ledger = 50u32;
+    set_ledger_sequence(&env, test_ledger);
 
     let admin = Address::generate(&env);
     client.set_protocol_admin(&admin, &admin);
@@ -113,9 +118,16 @@ fn test_set_protocol_fee_recipient_emits_event_on_update() {
         "updating fee recipient via set_protocol_fee_recipient must emit exactly one event"
     );
 
-    let (_, _, data) = update_events.last().unwrap();
-    let payload: events::ProtocolFeeRecipientUpdatedEvent = data.into_val(&env);
+    let expected_event = events::ProtocolFeeRecipientUpdatedEvent {
+        old_recipient: old_recipient.clone(),
+        new_recipient: new_recipient.clone(),
+        updated_at_ledger: test_ledger,
+    };
 
-    assert_eq!(payload.old_recipient, old_recipient);
-    assert_eq!(payload.new_recipient, new_recipient);
+    assert_event(
+        &env,
+        &contract_id,
+        events::PROTOCOL_FEE_RECIPIENT_UPDATED_EVENT_NAME,
+        &expected_event,
+    );
 }

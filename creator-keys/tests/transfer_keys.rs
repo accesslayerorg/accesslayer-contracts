@@ -545,3 +545,84 @@ fn test_transfer_updates_sender_and_recipient_balances_supply_unchanged() {
         "total supply must be unchanged after transfer (still 10)"
     );
 }
+
+#[test]
+fn test_transfer_keys_holder_count_decrements_when_sender_transfers_all_to_existing_holder() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let _admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &recipient, &100, &None);
+
+    let holders_before = client.get_creator_holder_count(&creator);
+    assert_eq!(holders_before, 2);
+
+    client.transfer_keys(&creator, &sender, &recipient, &1);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 0);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+    assert_eq!(
+        client.get_creator_holder_count(&creator),
+        holders_before - 1,
+        "holder count must decrease when sender transfers all keys to an existing holder"
+    );
+}
+
+#[test]
+fn test_transfer_keys_holder_count_unchanged_after_partial_transfer() {
+    let env = test_env_with_auths();
+    let (client, _) = register_creator_keys(&env);
+
+    let _admin = set_pricing_and_fees(&env, &client, 100, 9000, 1000);
+    let creator = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    client.register_creator(
+        &creator_keys::RegisterCreatorParams {
+            creator: creator.clone(),
+            handle: String::from_str(&env, "alice"),
+        },
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    );
+
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &sender, &100, &None);
+    client.buy_key(&creator, &recipient, &100, &None);
+
+    let holders_before = client.get_creator_holder_count(&creator);
+    assert_eq!(holders_before, 2);
+
+    client.transfer_keys(&creator, &sender, &recipient, &1);
+
+    assert_eq!(client.get_key_balance(&creator, &sender), 1);
+    assert_eq!(client.get_key_balance(&creator, &recipient), 2);
+    assert_eq!(
+        client.get_creator_holder_count(&creator),
+        holders_before,
+        "holder count must remain unchanged when sender retains keys"
+    );
+}

@@ -1,5 +1,37 @@
 [workspace]
-members = ["creator-keys", "creator-keys-factory", "referral-contract", "lp-reward-contract"]
+members = [
+    "common",
+    "test-utils",
+    "creator-keys",
+    "creator-keys-factory",
+    "referral-contract",
+    "lp-reward-contract",
+    "key-staking-contract",
+    "multisig-admin",
+    "nonce-registry",
+    "session-nonce",
+    "launch-auction",
+    "key-liquidity-depth",
+    "seasonal-rewards",
+    "auto-invest-registry",
+    "key-analytics",
+    "dividend-contract",
+    "subscription-contract",
+    "fee-discount-contract",
+    "batch-trade-contract",
+    "social-metadata-contract",
+    "key-liquidity-depth",
+    "treasury-diversification",
+    "storage-cleanup",
+    "key-health-score",
+    "personhood-hook",
+    "creator-penalty",
+    "sponsored-transactions",
+    "vote-escrow-contract",
+    "safe-mode-contract",
+    "holder-insurance-pool",
+    "sealed-launch-auction",
+]
 resolver = "2"
 
 [workspace.package]
@@ -22,9 +54,10 @@ lto = true
 
 # Suppress PDB generation on Windows to prevent linker exhaustion (LNK1318)
 # under disk-constrained environments. Setting debug = 0 disables the Program
-# Database file that the MSVC linker writes alongside the test binary.
-# [profile.test] inherits from [profile.dev], so setting debug = 0 here
-# covers both `cargo build` and `cargo test` invocations.
+# Database file that the MSVC linker writes alongside the test binary. It also
+# keeps local test builds small on constrained environments.
 [profile.dev]
 debug = 0
 
+[profile.test]
+debug = 0

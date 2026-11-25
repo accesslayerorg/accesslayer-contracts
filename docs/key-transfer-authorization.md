@@ -18,6 +18,34 @@ pub fn transfer_keys(
 ) -> Result<(), ContractError>
 ```
 
+## Emergency reserve escape
+
+The protocol records `paused_since` when it enters a pause and clears it on
+unpause. `escape_enabled()` becomes true after `ESCAPE_DELAY_LEDGERS` ledgers
+of continuous pause. `escape_redeem(holder, key_id, amount)` burns the holder's
+keys and credits a pro-rata share of the key reserve to the holder's existing
+pending-payable balance. Redemptions do not apply trading fees or royalties.
+The holder balance, creator supply, and reserve decrease atomically. The final
+holder receives any reserve remainder to prevent rounding dust. While the
+protocol remains paused, normal buy and sell entrypoints remain rejected.
+
+## Contract receiver callbacks
+
+`transfer_and_call` moves keys using the same authorization and accounting
+rules, then calls `on_key_received(from, key_id, amount, data)` when the
+recipient is a contract. The receiver must return `KEY_RECEIVED_ACK`; returning
+any other symbol or trapping in the callback reverts the entire transfer.
+Account recipients receive the keys without a callback.
+
+The callback payload is limited to 256 bytes. Soroban applies CPU and memory
+budgets to the complete transaction, including receiver execution; there is no
+per-callback budget override. Receivers should keep callback work bounded, and
+callers must provision sufficient transaction resources. Reentrant key
+transfers during the callback are rejected.
+
+Successful calls emit `transfer_called` with the recipient in the topics and
+the SHA-256 hash of callback data in the event payload.
+
 ---
 
 ## Authorization Rule

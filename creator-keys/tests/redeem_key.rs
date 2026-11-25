@@ -60,9 +60,16 @@ fn buy(client: &CreatorKeysContractClient, creator: &Address, buyer: &Address, n
     }
 }
 
-fn deprecate(client: &CreatorKeysContractClient, creator: &Address) {
+fn deprecate(env: &Env, client: &CreatorKeysContractClient, creator: &Address) {
     let supply = client.get_creator_supply(creator) as i128;
-    client.deprecate_key(creator, creator, &BUYBACK_PRICE, &(supply * BUYBACK_PRICE));
+    client.deprecate_key(
+        creator,
+        creator,
+        &BUYBACK_PRICE,
+        &(supply * BUYBACK_PRICE),
+        &soroban_sdk::String::from_str(env, "deprecated"),
+        &None,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +88,7 @@ fn redeem_pays_balance_times_buyback_price_and_burns_only_callers_keys() {
     assert_eq!(client.get_creator_supply(&creator), 5);
     assert_eq!(client.get_creator_holder_count(&creator), 2);
 
-    deprecate(&client, &creator);
+    deprecate(&env, &client, &creator);
 
     let payout = client.redeem(&creator, &holder);
 
@@ -101,7 +108,7 @@ fn second_redeem_by_same_holder_fails_and_cannot_drain_escrow() {
 
     buy(&client, &creator, &holder, 1);
     buy(&client, &creator, &other, 1);
-    deprecate(&client, &creator);
+    deprecate(&env, &client, &creator);
 
     client.redeem(&creator, &holder);
     let again = client.try_redeem(&creator, &holder);
@@ -168,7 +175,7 @@ fn redeem_emits_keys_redeemed_event_with_wallet_key_quantity_and_payout() {
     let holder = Address::generate(&env);
 
     buy(&client, &creator, &holder, 4);
-    deprecate(&client, &creator);
+    deprecate(&env, &client, &creator);
     client.redeem(&creator, &holder);
 
     let (_, topics, data) = env

@@ -16,6 +16,7 @@ That matters because persistent entries can still expire if their TTL is not ext
 | --- | --- | --- | --- | --- |
 | Creator profile | `DataKey::Creator(Address)` | Persistent | Yes | Stores registration metadata, supply, holder count, and fee recipient for a creator. |
 | Holder balance | `DataKey::KeyBalance(Address, Address)` | Persistent | Yes | Stores the number of keys a specific holder owns for a specific creator. |
+| Holder registry | `DataKey::HolderRegistry(Address)` | Persistent | Yes | Append-only list of every holder recorded for a creator; reads and writes extend its TTL. |
 
 ## Non-Creator Entries
 
@@ -33,7 +34,7 @@ These entries are important for contract operation, but they are not the creator
 
 Creator state entries are currently classified as follows:
 
-- Persistent: `DataKey::Creator(Address)`, `DataKey::KeyBalance(Address, Address)`
+- Persistent: `DataKey::Creator(Address)`, `DataKey::KeyBalance(Address, Address)`, `DataKey::HolderRegistry(Address)`
 - Temporary: none
 - Instance: none
 
@@ -47,8 +48,9 @@ Recommended approach:
 
 1. Periodically bump every active creator profile entry (`DataKey::Creator(Address)`).
 2. Periodically bump holder balance entries (`DataKey::KeyBalance(Address, Address)`) for holders that should retain their positions.
-3. Bump the contract instance and wasm code on their own maintenance cadence as part of the same operational runbook.
-4. Do not rely on read-only contract calls to refresh TTL automatically; the current contract implementation does not call `extend_ttl` for creator entries.
+3. The holder registry (`DataKey::HolderRegistry(Address)`) extends to the full creator TTL window on each registry read or write.
+4. Bump the contract instance and wasm code on their own maintenance cadence as part of the same operational runbook.
+5. Other creator state entries may still require explicit maintenance; only the registry's read/write TTL behavior is guaranteed by the holder-registry implementation.
 
 In practice, the simplest safe policy is to run a scheduled maintenance job that enumerates known creators and live holder positions, then extends TTL well before the network threshold is reached.
 
@@ -58,6 +60,7 @@ The highest-risk creator-state entries are the ones that may become dormant for 
 
 - Creator profiles for inactive creators that are no longer trading
 - Holder balance entries for long-term holders who stop interacting with the contract
+- Holder registries for creators whose holder set is no longer being read or updated
 
 These entries still represent valid on-chain state, so they should not be allowed to drift toward expiry just because the creator or holder is inactive.
 
@@ -65,6 +68,7 @@ These entries still represent valid on-chain state, so they should not be allowe
 
 - Treat creator profiles as canonical state that should be preserved for the lifetime of the product.
 - Treat non-zero holder balances as equally important long-lived state.
+- Treat holder registries as append-only historical records; they start recording successful credits after deployment and are not backfilled from pre-existing balance entries.
 - If a future contract version introduces `temporary()` storage for derived or cache-like data, document it separately and keep it clearly distinct from canonical creator state.
 - If a future contract version starts bumping TTL in-contract, update this document to describe which write paths extend which entries.
 
