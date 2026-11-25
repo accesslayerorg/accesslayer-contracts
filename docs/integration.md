@@ -322,10 +322,14 @@ The snippets use the Stellar CLI and the JavaScript SDK
 
 ```sh
 export NETWORK=local
-export KEYS=<creator-keys contract id>
-export CONSUMER=<consumer contract id>
-export CREATOR=<creator address>
+export KEYS="<creator-keys contract id>"
+export CONSUMER="<consumer contract id>"
+export CREATOR="<creator address>"
+export ALICE_SECRET="$(stellar keys show alice)"
 ```
+
+Replace the three placeholders with your own values; the
+[from-scratch walkthrough](#local-network) below produces all of them.
 
 ### 1. Simulate a read
 
@@ -445,7 +449,8 @@ try {
 CLI:
 
 ```sh
-stellar events --network "$NETWORK" --start-ledger <ledger> --id "$KEYS" --output json
+START_LEDGER="<ledger sequence at or before the transaction>"
+stellar events --network "$NETWORK" --start-ledger "$START_LEDGER" --id "$KEYS" --output json
 ```
 
 JavaScript:
@@ -486,23 +491,25 @@ forged direct callback.
 
 ### Local network
 
-Prerequisites: Rust and the Stellar CLI (see
-[local-soroban-prerequisites.md](local-soroban-prerequisites.md)) and Docker for
-the local network.
+Prerequisites: Rust with the `wasm32v1-none` target and the Stellar CLI v22
+(see [local-soroban-prerequisites.md](local-soroban-prerequisites.md)), Docker
+for the local network, and `jq`.
 
 ```sh
-# 1. Start a local network (RPC on http://localhost:8000/rpc) and fund identities.
+# 1. Start a local network (RPC on http://localhost:8000/rpc). Wait until it is
+#    up (`stellar container logs local`), then fund two identities.
 stellar container start local
-stellar network use local
 stellar keys generate admin --network local --fund
 stellar keys generate alice --network local --fund
 
-# 2. Build every contract in the workspace; the CLI prints each .wasm path.
-stellar contract build
+# 2. Build the two contracts this walkthrough deploys.
+stellar contract build --package creator-keys
+stellar contract build --package consumer-contract
+WASM=target/wasm32v1-none/release
 
 # 3. Deploy and configure creator-keys (the first set_protocol_admin call
 #    bootstraps the admin).
-KEYS=$(stellar contract deploy --wasm <path>/creator_keys.wasm --source admin --network local)
+KEYS=$(stellar contract deploy --wasm "$WASM/creator_keys.wasm" --source admin --network local)
 ADMIN=$(stellar keys address admin)
 stellar contract invoke --id "$KEYS" --source admin --network local \
   -- set_protocol_admin --admin "$ADMIN" --new_admin "$ADMIN"
@@ -511,17 +518,17 @@ stellar contract invoke --id "$KEYS" --source admin --network local \
 stellar contract invoke --id "$KEYS" --source admin --network local \
   -- set_fee_config --admin "$ADMIN" --creator_bps 9000 --protocol_bps 1000
 
-# 4. Register alice as a creator and buy one of her keys.
+# 4. Register alice as a creator and buy one of her keys at the quoted total.
 CREATOR=$(stellar keys address alice)
 stellar contract invoke --id "$KEYS" --source alice --network local \
   -- register_creator --params "{\"creator\":\"$CREATOR\",\"handle\":\"alice\"}"
+TOTAL=$(stellar contract invoke --id "$KEYS" --source alice --network local \
+  -- get_buy_quote --creator "$CREATOR" | jq -r .total_amount)
 stellar contract invoke --id "$KEYS" --source alice --network local \
-  -- get_buy_quote --creator "$CREATOR"
-stellar contract invoke --id "$KEYS" --source alice --network local \
-  -- buy_key --creator "$CREATOR" --buyer "$CREATOR" --payment <total_amount from the quote>
+  -- buy_key --creator "$CREATOR" --buyer "$CREATOR" --payment "$TOTAL"
 
 # 5. Deploy the consumer for alice's key (constructor args after `--`).
-CONSUMER=$(stellar contract deploy --wasm <path>/consumer_contract.wasm --source admin --network local \
+CONSUMER=$(stellar contract deploy --wasm "$WASM/consumer_contract.wasm" --source admin --network local \
   -- --keys_contract "$KEYS" --key_id "$CREATOR" --min_balance 1)
 
 # 6. Use it.
