@@ -31,6 +31,7 @@ members = [
     "safe-mode-contract",
     "holder-insurance-pool",
     "sealed-launch-auction",
+    "examples/consumer-contract",
 ]
 resolver = "2"
 
