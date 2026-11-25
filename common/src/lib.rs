@@ -3,6 +3,7 @@
 use soroban_sdk::{contractclient, symbol_short, Address, Bytes, Env, Symbol};
 
 pub mod guard;
+pub mod time;
 
 /// Acknowledgement required for a key transfer callback to succeed.
 pub const KEY_RECEIVED_ACK: Symbol = symbol_short!("key_ack");

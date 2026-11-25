@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
 };
+use common::time::{elapsed_since, is_expired, is_unlocked};
 
 #[cfg(test)]
 mod test;
@@ -118,7 +119,7 @@ fn calculate_unlocked_amount(
         .checked_add(schedule.cliff_seconds)
         .ok_or(ContractError::ArithmeticOverflow)?;
 
-    if current_timestamp < cliff_time {
+    if !is_unlocked(current_timestamp, cliff_time) {
         return Ok(0);
     }
 
@@ -127,11 +128,11 @@ fn calculate_unlocked_amount(
         .checked_add(schedule.duration_seconds)
         .ok_or(ContractError::ArithmeticOverflow)?;
 
-    if current_timestamp >= end_time {
+    if is_unlocked(current_timestamp, end_time) {
         return Ok(schedule.amount);
     }
 
-    let elapsed = current_timestamp.saturating_sub(schedule.start_timestamp);
+    let elapsed = elapsed_since(current_timestamp, schedule.start_timestamp);
     let unlocked = (schedule
         .amount
         .checked_mul(elapsed as i128)
@@ -224,7 +225,7 @@ impl VestingContract {
             return Err(ContractError::Unauthorized);
         }
         new_admin.require_auth();
-        if env.ledger().sequence() > pending.expiry_ledger {
+        if is_expired(env.ledger().sequence() as u64, pending.expiry_ledger as u64) {
             return Err(ContractError::AdminTransferExpired);
         }
 
@@ -391,7 +392,7 @@ impl VestingContract {
             .checked_add(schedule.cliff_seconds)
             .ok_or(ContractError::ArithmeticOverflow)?;
 
-        if now < cliff_time {
+        if !is_unlocked(now, cliff_time) {
             return Err(ContractError::CliffNotReached);
         }
 
