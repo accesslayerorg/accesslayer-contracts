@@ -243,6 +243,8 @@ pub fn accrue_trading_fee(
     key_id: Address,
     fee_amount: i128,
 ) -> Result<(), LpRewardError> {
+    key_id.require_auth();
+
     if fee_amount <= 0 {
         return Err(LpRewardError::NotPositiveAmount);
     }

@@ -24,6 +24,7 @@ pub struct Cover {
     pub expiry: u32,
     pub claimed: bool,
 }
+#[allow(clippy::enum_variant_names)]
 #[contracttype]
 enum Key {
     Admin,
