@@ -57,3 +57,6 @@ lto = true
 # keeps local test builds small on constrained environments.
 [profile.dev]
 debug = 0
+
+[profile.test]
+debug = 0
