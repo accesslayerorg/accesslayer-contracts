@@ -33,3 +33,31 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  nightly-simulation:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Economic attack simulation (nightly)
+        env:
+          SIM_ITERATIONS: "50000"
+          SIM_SEED: "${{ github.run_id }}"
+        run: cargo test --workspace simulation -- --nocapture
+
+      - name: Upload simulation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: economic-simulation-report
+          path: contracts/tests/simulation/report.md
+          if-no-files-found: warn

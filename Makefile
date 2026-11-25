@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check clippy test check ci wasm
+.PHONY: fmt fmt-check clippy test check ci wasm simulate simulate-nightly
 
 ## Code formatting targets
 fmt:
@@ -18,6 +18,27 @@ test:
 ## Basic compilation check
 check:
 	cargo check --workspace
+
+## Economic attack simulation harness (sandwich, wash trading, reward farming,
+## governance buy-and-vote, drain-the-reserve). Runs randomized multi-agent
+## sequences with a fixed, printed seed and fails if any adversary profits
+## beyond the documented tolerance or reserve solvency is violated.
+##
+## Override SIM_SEED to reproduce a specific run, and SIM_ITERATIONS to scale
+## the number of randomized sequences (the nightly job uses a larger count).
+SIM_SEED ?= 42
+SIM_ITERATIONS ?= 200
+SIM_REPORT ?= target/simulation/report.md
+
+simulate:
+	mkdir -p $(dir $(SIM_REPORT))
+	SIM_SEED=$(SIM_SEED) SIM_ITERATIONS=$(SIM_ITERATIONS) SIM_REPORT=$(SIM_REPORT) \
+	cargo test --workspace simulation -- --nocapture
+	@echo "Simulation report written to $(SIM_REPORT)"
+
+## Larger iteration count for the nightly CI job.
+simulate-nightly:
+	$(MAKE) simulate SIM_ITERATIONS=10000 SIM_SEED=$${SIM_SEED:-$$(date +%Y%m%d)}
 
 ## Refresh the committed WASM test fixture used by the upgrade tests.
 ##
@@ -51,4 +72,3 @@ fmt-fix:
 
 ## Run all checks in sequence (alias for ci)
 all-checks: ci
-
