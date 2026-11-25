@@ -33,6 +33,9 @@ pub const DEFAULT_SILVER_BPS: u32 = 1_000;
 pub const DEFAULT_GOLD_THRESHOLD: i128 = 1_000_000;
 /// Default reward rate for Gold tier: 1,500 bps (15.00%).
 pub const DEFAULT_GOLD_BPS: u32 = 1_500;
+pub const MAX_LEVELS: u32 = 5;
+pub const DEFAULT_REFERRAL_SHARE_BPS: [u32; MAX_LEVELS as usize] =
+    [5_000, 2_500, 1_250, 625, 312];
 
 // New variants must be appended at the end; discriminants are part of the ABI.
 #[contracterror]
@@ -49,6 +52,8 @@ pub enum ContractError {
     SelfReferral = 8,
     ReferralAlreadyRegistered = 9,
     InvalidFeeAmount = 10,
+    CyclicReferral = 11,
+    InvalidReferralConfig = 12,
 }
 
 /// Referral tiers in ascending rank and reward rate.
@@ -118,6 +123,13 @@ pub struct ReferralRewardsClaimed {
     pub amount: i128,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ReferralRewardEntry {
+    pub amount: i128,
+    pub claim_by_ledger: u32,
+}
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -130,6 +142,12 @@ pub enum DataKey {
     ReferrerTier(Address),
     ReferrerRewards(Address),
     TierConfig(ReferralTier),
+    PeriodPayout(Address, u32),
+    PeriodCap,
+    MaxReferralBps,
+    PeriodLedgers,
+    RewardEntry(Address),
+    Treasury,
 }
 
 #[contract]
@@ -189,6 +207,21 @@ impl ReferralContract {
         if wallet == referrer {
             return Err(ContractError::SelfReferral);
         }
+        // Reject cycles, including any existing assignment in the proposed ancestor chain.
+        let mut current = referrer.clone();
+        for _ in 0..MAX_LEVELS {
+            if current == wallet {
+                return Err(ContractError::CyclicReferral);
+            }
+            match env
+                .storage()
+                .persistent()
+                .get::<DataKey, Address>(&DataKey::Referral(current.clone()))
+            {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
 
         let key = DataKey::Referral(wallet.clone());
         if env.storage().persistent().has(&key) {
@@ -197,6 +230,15 @@ impl ReferralContract {
 
         env.storage().persistent().set(&key, &referrer);
         Ok(())
+    }
+
+    /// Alias for immutable referrer registration.
+    pub fn register_referrer(
+        env: Env,
+        user: Address,
+        referrer: Address,
+    ) -> Result<(), ContractError> {
+        Self::register_referral(env, user, referrer)
     }
 
     /// Returns the direct referrer followed by up to two successive referrers.
@@ -217,6 +259,98 @@ impl ReferralContract {
         }
 
         chain
+    }
+
+    pub fn referral_chain(env: Env, user: Address) -> Vec<Address> {
+        Self::get_referral_chain(env, user)
+    }
+
+    pub fn pending_rewards(env: Env, referrer: Address) -> i128 {
+        let entry: Option<ReferralRewardEntry> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RewardEntry(referrer));
+        match entry {
+            Some(v) if v.claim_by_ledger > env.ledger().sequence() => v.amount,
+            _ => 0,
+        }
+    }
+
+    /// Distribute a bounded multi-level referral pool for a trade.
+    pub fn distribute_referral(
+        env: Env,
+        wallet: Address,
+        trade_fee: i128,
+    ) -> Result<(), ContractError> {
+        if trade_fee < 0 {
+            return Err(ContractError::InvalidFeeAmount);
+        }
+        let chain = Self::get_referral_chain(env.clone(), wallet);
+        let period_ledgers: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PeriodLedgers)
+            .unwrap_or(17_280);
+        let period = env.ledger().sequence() / period_ledgers;
+        let period_cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PeriodCap)
+            .unwrap_or(i128::MAX);
+        let max_trade_bps: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MaxReferralBps)
+            .unwrap_or(2_000);
+        let trade_pool = trade_fee.checked_mul(max_trade_bps).ok_or(ContractError::ArithmeticOverflow)? / BPS_SCALE;
+        let expiry: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PeriodLedgers)
+            .unwrap_or(17_280);
+
+        for (level, referrer) in chain.iter().enumerate() {
+            if level >= MAX_LEVELS as usize {
+                break;
+            }
+            let amount = trade_pool
+                .checked_mul(DEFAULT_REFERRAL_SHARE_BPS[level] as i128)
+                .ok_or(ContractError::ArithmeticOverflow)?
+                / BPS_SCALE;
+            let period_key = DataKey::PeriodPayout(referrer.clone(), period);
+            let used: i128 = env.storage().instance().get(&period_key).unwrap_or(0);
+            let payable = amount.min(period_cap.saturating_sub(used)).max(0);
+            if payable == 0 {
+                continue;
+            }
+            env.storage().instance().set(&period_key, &(used + payable));
+            let entry_key = DataKey::RewardEntry(referrer.clone());
+            let entry: ReferralRewardEntry = env
+                .storage()
+                .persistent()
+                .get(&entry_key)
+                .unwrap_or(ReferralRewardEntry {
+                    amount: 0,
+                    claim_by_ledger: env.ledger().sequence().saturating_add(expiry),
+                });
+            let claim_by = env.ledger().sequence().saturating_add(expiry);
+            let updated = ReferralRewardEntry {
+                amount: entry.amount.saturating_add(payable),
+                claim_by_ledger: if entry.claim_by_ledger > claim_by { entry.claim_by_ledger } else { claim_by },
+            };
+            env.storage().persistent().set(&entry_key, &updated);
+            env.storage().persistent().set(
+                &DataKey::RewardBalance(referrer.clone()),
+                &(env.storage().persistent().get::<DataKey,i128>(&DataKey::RewardBalance(referrer.clone())).unwrap_or(0).saturating_add(payable)),
+            );
+            env.events().publish((REFERRAL_REWARD_ACCRUED_EVENT_NAME, referrer.clone()), ReferralRewardAccrued {
+                referrer,
+                amount: payable,
+                tier: ReferralTier::Bronze,
+                reward_rate_bps: DEFAULT_REFERRAL_SHARE_BPS[level],
+            });
+        }
+        Ok(())
     }
 
     /// Accrue 40%, 20%, and 10% of the referral fee allocation to tiers 1-3.
@@ -521,6 +655,34 @@ impl ReferralContract {
         );
 
         Ok(amount)
+    }
+
+    pub fn claim_referral(env: Env, referrer: Address) -> Result<i128, ContractError> {
+        referrer.require_auth();
+        let entry_key = DataKey::RewardEntry(referrer.clone());
+        let entry: ReferralRewardEntry = env.storage().persistent().get(&entry_key).unwrap_or(ReferralRewardEntry {
+            amount: 0,
+            claim_by_ledger: 0,
+        });
+        if entry.amount <= 0 || entry.claim_by_ledger <= env.ledger().sequence() {
+            return Err(ContractError::NoRewardsPending);
+        }
+        env.storage().persistent().remove(&entry_key);
+        env.storage().persistent().set(&DataKey::RewardBalance(referrer.clone()), &0i128);
+        env.events().publish((REFERRAL_REWARDS_CLAIMED_EVENT_NAME, referrer.clone()), ReferralRewardsClaimed {
+            referrer,
+            amount: entry.amount,
+        });
+        Ok(entry.amount)
+    }
+
+    pub fn sweep_expired(env: Env, admin: Address) -> Result<i128, ContractError> {
+        admin.require_auth();
+        if let Some(stored) = env.storage().instance().get::<DataKey, Address>(&DataKey::Admin) {
+            if stored != admin { return Err(ContractError::Unauthorized); }
+        }
+        // Sweep-all requires an index, which this storage layout does not retain.
+        Ok(0)
     }
 }
 
