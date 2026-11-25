@@ -25,6 +25,9 @@ jobs:
           rustc --version
           cargo fmt --version
 
+      - name: Check reference vectors are current
+        run: python3 tools/reference/generate_vectors.py --check
+
       - name: Format check
         run: cargo fmt --all -- --check
 
