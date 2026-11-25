@@ -296,8 +296,7 @@ fn ragequit_cap_is_enforced() {
     let cap_hit = [&h0, &h1, &h2, &h3, &h4, &h5, &h6, &h7, &h8, &h9]
         .iter()
         .any(|h| {
-            ctx.client.try_ragequit(h, &pid, &1u32)
-                == Err(Ok(ContractError::RageQuitCapReached))
+            ctx.client.try_ragequit(h, &pid, &1u32) == Err(Ok(ContractError::RageQuitCapReached))
         });
     assert!(cap_hit, "expected RageQuitCapReached after cap exhausted");
 }
@@ -356,13 +355,11 @@ fn non_snapshot_holder_cannot_ragequit() {
 fn set_ragequit_window_rejects_zero_and_overflow() {
     let ctx = setup();
     assert_eq!(
-        ctx.client
-            .try_set_ragequit_window(&ctx.admin, &0u32),
+        ctx.client.try_set_ragequit_window(&ctx.admin, &0u32),
         Err(Ok(ContractError::InvalidRageQuitWindow))
     );
     assert_eq!(
-        ctx.client
-            .try_set_ragequit_window(&ctx.admin, &200_000u32),
+        ctx.client.try_set_ragequit_window(&ctx.admin, &200_000u32),
         Err(Ok(ContractError::InvalidRageQuitWindow))
     );
     // Valid value
