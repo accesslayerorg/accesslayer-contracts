@@ -249,7 +249,7 @@ fn dividend_claim_uses_wide_intermediate_for_maximum_amount() {
         &vec![&env, larger_holder.clone(), smaller_holder],
         &expiry,
     );
-    let expected = (i128::MAX / 3) * 2 + (i128::MAX % 3) * 2 / 3;
+    let expected = (i128::MAX / 3) * 2;
 
     assert_eq!(
         div.get_dividend_claimable(&key_id, &id, &larger_holder),

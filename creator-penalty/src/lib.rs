@@ -65,8 +65,10 @@ impl CreatorPenaltyContract {
         e.storage()
             .persistent()
             .set(&Key::Violation(creator.clone()), &v);
-        e.events()
-            .publish((soroban_sdk::symbol_short!("slash"), creator), &v);
+        e.events().publish(
+            (soroban_sdk::symbol_short!("slash"), creator),
+            (v.amount, v.reason, v.resolved),
+        );
         Ok(())
     }
     pub fn resolve(e: Env, creator: Address) -> Result<(), Error> {
