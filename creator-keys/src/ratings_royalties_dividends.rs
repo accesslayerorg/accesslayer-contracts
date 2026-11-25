@@ -1,4 +1,10 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
+
 use crate::ContractError;
+use common::math::{checked_mul_div, RoundingDirection};
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,14 +82,29 @@ pub fn record_key_rating(
     let previous_rating: Option<u32> = env.storage().instance().get(&rater_key);
 
     if let Some(prev) = previous_rating {
-        summary.total_score = summary.total_score.saturating_sub(prev as u64) + (score as u64);
+        summary.total_score = summary
+            .total_score
+            .checked_sub(u64::from(prev))
+            .and_then(|total| total.checked_add(u64::from(score)))
+            .ok_or(ContractError::Overflow)?;
     } else {
-        summary.total_score += score as u64;
-        summary.count += 1;
+        summary.total_score = summary
+            .total_score
+            .checked_add(u64::from(score))
+            .ok_or(ContractError::Overflow)?;
+        summary.count = summary
+            .count
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
     }
 
     summary.average_score_scaled = if summary.count > 0 {
-        ((summary.total_score * 100) / (summary.count as u64)) as u32
+        let average = summary
+            .total_score
+            .checked_mul(100)
+            .and_then(|total| total.checked_div(u64::from(summary.count)))
+            .ok_or(ContractError::Overflow)?;
+        u32::try_from(average).map_err(|_| ContractError::Overflow)?
     } else {
         0
     };
@@ -143,20 +164,29 @@ pub fn process_transfer_royalty(
     creator: &Address,
     from: &Address,
     transfer_value: i128,
-) -> (i128, i128) {
+) -> Result<(i128, i128), ContractError> {
     let bps = get_creator_royalty(env, creator);
     if bps == 0 || transfer_value <= 0 {
-        return (transfer_value, 0);
+        return Ok((transfer_value, 0));
     }
-    let royalty_amount = (transfer_value * (bps as i128)) / 10_000;
-    let net_value = transfer_value.saturating_sub(royalty_amount);
+    let royalty_amount = checked_mul_div(
+        env,
+        transfer_value,
+        i128::from(bps),
+        10_000,
+        RoundingDirection::Down,
+    )
+    .map_err(|_| ContractError::Overflow)?;
+    let net_value = transfer_value
+        .checked_sub(royalty_amount)
+        .ok_or(ContractError::Overflow)?;
 
     env.events().publish(
         (ROYALTY_PAID_EVENT, creator.clone(), from.clone()),
         royalty_amount,
     );
 
-    (net_value, royalty_amount)
+    Ok((net_value, royalty_amount))
 }
 
 /// #944: Distribute trading revenue dividends to key holders.
@@ -181,8 +211,14 @@ pub fn distribute_holder_dividends(
                 last_snapshot_ledger: env.ledger().sequence(),
             });
 
-    pool.total_distributed += amount;
-    pool.current_cycle += 1;
+    pool.total_distributed = pool
+        .total_distributed
+        .checked_add(amount)
+        .ok_or(ContractError::Overflow)?;
+    pool.current_cycle = pool
+        .current_cycle
+        .checked_add(1)
+        .ok_or(ContractError::Overflow)?;
     pool.last_snapshot_ledger = env.ledger().sequence();
 
     env.storage().instance().set(&pool_key, &pool);
@@ -218,7 +254,14 @@ pub fn claim_holder_dividend(
         return Err(ContractError::AlreadyClaimed);
     }
 
-    let claim_amount = (pool.total_distributed * (holder_supply_share_bps as i128)) / 10_000;
+    let claim_amount = checked_mul_div(
+        env,
+        pool.total_distributed,
+        i128::from(holder_supply_share_bps),
+        10_000,
+        RoundingDirection::Down,
+    )
+    .map_err(|_| ContractError::Overflow)?;
     if claim_amount <= 0 {
         return Err(ContractError::NoDividendClaimable);
     }

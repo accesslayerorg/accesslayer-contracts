@@ -293,6 +293,24 @@ fn test_get_unclaimed_dividend_reports_claimable_amount() {
 }
 
 #[test]
+fn test_claim_dividend_with_maximum_funded_amount() {
+    let f = setup();
+    let creator = Address::generate(&f.env);
+    let holder = Address::generate(&f.env);
+    register_creator(&f, &creator, "maxdividend");
+    buy_keys(&f, &creator, &holder, 1);
+
+    let snapshot_id = f.dividend.snapshot_holders(&creator, &creator);
+    f.dividend.fund_dividend(&creator, &creator, &i128::MAX);
+
+    assert_eq!(f.dividend.claim_dividend(&holder, &snapshot_id), i128::MAX);
+    assert_eq!(
+        f.dividend.try_fund_dividend(&creator, &creator, &1),
+        Err(Ok(DividendError::Overflow))
+    );
+}
+
+#[test]
 fn test_fund_dividend_accumulates_and_reports_totals() {
     let f = setup();
     let creator = Address::generate(&f.env);

@@ -1,4 +1,10 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
+
 use crate::ContractError;
+use common::math::{checked_mul_div, RoundingDirection};
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -61,6 +67,10 @@ pub fn propose_curve_migration(
         timelock_ledgers,
         is_executed: false,
     };
+    let executes_at = proposal
+        .proposed_at_ledger
+        .checked_add(timelock_ledgers)
+        .ok_or(ContractError::Overflow)?;
 
     env.storage().instance().set(
         &EmdevelopaDataKey::CurveMigration(creator.clone()),
@@ -69,7 +79,7 @@ pub fn propose_curve_migration(
 
     env.events().publish(
         (CURVE_MIGRATION_PROPOSED_EVENT, creator.clone()),
-        (new_slope, proposal.proposed_at_ledger + timelock_ledgers),
+        (new_slope, executes_at),
     );
 
     Ok(())
@@ -95,7 +105,11 @@ pub fn execute_curve_migration(
     }
 
     let current_ledger = env.ledger().sequence();
-    if current_ledger < proposal.proposed_at_ledger + proposal.timelock_ledgers {
+    let executes_at = proposal
+        .proposed_at_ledger
+        .checked_add(proposal.timelock_ledgers)
+        .ok_or(ContractError::Overflow)?;
+    if current_ledger < executes_at {
         return Err(ContractError::AllocationLocked);
     }
 
@@ -125,7 +139,11 @@ pub fn subscribe_key_access(
     }
 
     let sub_key = EmdevelopaDataKey::Subscription(creator.clone(), subscriber.clone());
-    let expires_at = env.ledger().sequence() + duration_ledgers;
+    let expires_at = env
+        .ledger()
+        .sequence()
+        .checked_add(duration_ledgers)
+        .ok_or(ContractError::Overflow)?;
 
     let sub = KeySubscription {
         min_keys_required: min_keys,
@@ -191,12 +209,31 @@ pub fn execute_atomic_swap(
     if key_a == key_b {
         return Err(ContractError::SelfTransfer);
     }
+    if fee_bps > 10_000 {
+        return Err(ContractError::InvalidFeeConfig);
+    }
 
-    let fee_a = ((amount_a as u64 * fee_bps as u64) / 10_000) as u32;
-    let fee_b = ((amount_b as u64 * fee_bps as u64) / 10_000) as u32;
+    let fee_a = checked_mul_div(
+        env,
+        i128::from(amount_a),
+        i128::from(fee_bps),
+        10_000,
+        RoundingDirection::Down,
+    )
+    .map_err(|_| ContractError::Overflow)?;
+    let fee_b = checked_mul_div(
+        env,
+        i128::from(amount_b),
+        i128::from(fee_bps),
+        10_000,
+        RoundingDirection::Down,
+    )
+    .map_err(|_| ContractError::Overflow)?;
+    let fee_a = u32::try_from(fee_a).map_err(|_| ContractError::Overflow)?;
+    let fee_b = u32::try_from(fee_b).map_err(|_| ContractError::Overflow)?;
 
-    let net_a = amount_a.saturating_sub(fee_a);
-    let net_b = amount_b.saturating_sub(fee_b);
+    let net_a = amount_a.checked_sub(fee_a).ok_or(ContractError::Overflow)?;
+    let net_b = amount_b.checked_sub(fee_b).ok_or(ContractError::Overflow)?;
 
     env.events().publish(
         (ATOMIC_SWAP_EXECUTED_EVENT, party_a.clone(), party_b.clone()),
@@ -255,6 +292,13 @@ pub fn convert_payment_asset_to_xlm(
         return Err(ContractError::Unauthorized);
     }
 
-    let xlm_equivalent = (asset_amount * config.oracle_rate_xlm_scaled) / 10_000_000;
+    let xlm_equivalent = checked_mul_div(
+        env,
+        asset_amount,
+        config.oracle_rate_xlm_scaled,
+        10_000_000,
+        RoundingDirection::Down,
+    )
+    .map_err(|_| ContractError::Overflow)?;
     Ok(xlm_equivalent)
 }

@@ -2147,7 +2147,7 @@ fn test_checked_accumulate_dividend_distribution_scenario() {
 fn test_fee_split_conservation_90_10_split() {
     // Verify that a 90% creator / 10% protocol split conserves all value
     let total = 1000i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000).unwrap();
 
     // Assertion 1: Both fees are non-negative
     assert!(creator_fee >= 0, "creator_fee must be non-negative");
@@ -2178,7 +2178,7 @@ fn test_fee_split_conservation_90_10_split() {
 fn test_fee_split_conservation_50_50_split() {
     // Verify that a 50% / 50% split conserves all value
     let total = 10000i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 5000, 5000);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 5000, 5000).unwrap();
 
     assert_eq!(
         creator_fee + protocol_fee,
@@ -2201,7 +2201,7 @@ fn test_fee_split_conservation_50_50_split() {
 fn test_fee_split_conservation_100_creator_zero_protocol() {
     // Edge case: all fees go to creator, none to protocol
     let total = 500i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 10000, 0);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 10000, 0).unwrap();
 
     assert_eq!(creator_fee, total, "creator must receive all value");
     assert_eq!(protocol_fee, 0, "protocol must receive zero");
@@ -2212,7 +2212,7 @@ fn test_fee_split_conservation_100_creator_zero_protocol() {
 fn test_fee_split_conservation_boundary_price_one() {
     // Edge case: very low trade value (price = 1)
     let total = 1i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000).unwrap();
 
     assert!(creator_fee >= 0, "creator_fee must be non-negative");
     assert!(protocol_fee >= 0, "protocol_fee must be non-negative");
@@ -2230,7 +2230,7 @@ fn test_fee_split_conservation_boundary_price_one() {
 fn test_fee_split_conservation_boundary_price_two() {
     // Edge case: low trade value (price = 2)
     let total = 2i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000).unwrap();
 
     assert_eq!(
         creator_fee + protocol_fee,
@@ -2243,7 +2243,7 @@ fn test_fee_split_conservation_boundary_price_two() {
 fn test_fee_split_conservation_boundary_odd_price_999() {
     // Edge case: odd total that creates rounding scenario
     let total = 999i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 9000, 1000).unwrap();
 
     assert_eq!(
         creator_fee + protocol_fee,
@@ -2262,7 +2262,7 @@ fn test_fee_split_conservation_boundary_odd_price_999() {
 fn test_fee_split_conservation_large_amount() {
     // Test with large amounts to ensure no overflow issues affect conservation
     let total = 100_000_000_000i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 8000, 2000);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(total, 8000, 2000).unwrap();
 
     assert_eq!(
         creator_fee + protocol_fee,
@@ -2292,7 +2292,8 @@ fn test_fee_split_conservation_deterministic_assertions() {
     ];
 
     for (total, creator_bps, protocol_bps) in test_cases {
-        let (creator_fee, protocol_fee) = fee::compute_fee_split(total, creator_bps, protocol_bps);
+        let (creator_fee, protocol_fee) =
+            fee::compute_fee_split(total, creator_bps, protocol_bps).unwrap();
         assert_eq!(
             creator_fee + protocol_fee,
             total,
@@ -2342,7 +2343,8 @@ fn test_fee_split_conservation_across_multiple_fee_configs() {
     ];
 
     for (creator_bps, protocol_bps) in fee_configs {
-        let (creator_fee, protocol_fee) = fee::compute_fee_split(total, creator_bps, protocol_bps);
+        let (creator_fee, protocol_fee) =
+            fee::compute_fee_split(total, creator_bps, protocol_bps).unwrap();
         assert_eq!(
             creator_fee + protocol_fee,
             total,
@@ -2359,7 +2361,7 @@ fn test_fee_split_conservation_across_price_range() {
     let prices = [1, 2, 10, 99, 100, 101, 500, 999, 1000, 10_000];
 
     for price in prices {
-        let (creator_fee, protocol_fee) = fee::compute_fee_split(price, 9000, 1000);
+        let (creator_fee, protocol_fee) = fee::compute_fee_split(price, 9000, 1000).unwrap();
         assert_eq!(
             creator_fee + protocol_fee,
             price,
@@ -2374,7 +2376,7 @@ fn test_zero_net_boundary_seller_gets_zero_proceeds() {
     // Edge case: when fees equal or exceed price, seller should get zero (not negative)
     // This is a boundary condition that must be handled without allowing negative proceeds
     let price = 10i128;
-    let (creator_fee, protocol_fee) = fee::compute_fee_split(price, 1000, 9000);
+    let (creator_fee, protocol_fee) = fee::compute_fee_split(price, 1000, 9000).unwrap();
 
     // Total fees
     let total_fees = creator_fee + protocol_fee;

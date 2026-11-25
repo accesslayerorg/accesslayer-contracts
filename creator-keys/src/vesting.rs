@@ -1,9 +1,15 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
+
 //! Linear vesting release calculation with cliff enforcement (issue #916).
 //!
 //! Pure module — no `Env`, no storage — so the release math is unit-testable
 //! in isolation, mirroring the `fee` module's `compute_fee_split` approach.
 
-use soroban_sdk::contracttype;
+use common::math::{checked_mul_div, MathError, RoundingDirection};
+use soroban_sdk::{contracttype, Env};
 
 /// Persisted vesting configuration for a single beneficiary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,37 +42,65 @@ pub struct VestingInfo {
 /// - Linear from `start_timestamp` once past the cliff.
 /// - Full allocation once `elapsed >= duration_secs`.
 /// - `duration_secs == 0` fully vests exactly at the cliff.
-pub fn vested_amount(config: &VestingConfig, current_timestamp: u64) -> i128 {
+pub fn vested_amount(
+    env: &Env,
+    config: &VestingConfig,
+    current_timestamp: u64,
+) -> Result<i128, MathError> {
     if config.total_allocation <= 0 {
-        return 0;
+        return Ok(0);
     }
     if current_timestamp < config.cliff_timestamp {
-        return 0;
+        return Ok(0);
     }
     if config.duration_secs == 0 {
-        return config.total_allocation;
+        return Ok(config.total_allocation);
     }
 
-    let elapsed = current_timestamp.saturating_sub(config.start_timestamp);
+    let elapsed = if current_timestamp <= config.start_timestamp {
+        0
+    } else {
+        current_timestamp
+            .checked_sub(config.start_timestamp)
+            .ok_or(MathError::Overflow)?
+    };
     if elapsed >= config.duration_secs {
-        return config.total_allocation;
+        return Ok(config.total_allocation);
     }
 
-    (config.total_allocation.saturating_mul(i128::from(elapsed))) / i128::from(config.duration_secs)
+    checked_mul_div(
+        env,
+        config.total_allocation,
+        i128::from(elapsed),
+        i128::from(config.duration_secs),
+        RoundingDirection::Down,
+    )
 }
 
 /// Vested minus already claimed, floored at zero.
-pub fn claimable_amount(config: &VestingConfig, current_timestamp: u64) -> i128 {
-    vested_amount(config, current_timestamp)
-        .saturating_sub(config.claimed_amount)
-        .max(0)
+pub fn claimable_amount(
+    env: &Env,
+    config: &VestingConfig,
+    current_timestamp: u64,
+) -> Result<i128, MathError> {
+    vested_amount(env, config, current_timestamp)?
+        .checked_sub(config.claimed_amount)
+        .ok_or(MathError::Overflow)
+        .map(|amount| amount.max(0))
 }
 
 /// Returns all vesting state in one call (issue #916 requirement).
-pub fn get_vesting_info(config: &VestingConfig, current_timestamp: u64) -> VestingInfo {
-    let vested = vested_amount(config, current_timestamp);
-    let claimable = vested.saturating_sub(config.claimed_amount).max(0);
-    VestingInfo {
+pub fn get_vesting_info(
+    env: &Env,
+    config: &VestingConfig,
+    current_timestamp: u64,
+) -> Result<VestingInfo, MathError> {
+    let vested = vested_amount(env, config, current_timestamp)?;
+    let claimable = vested
+        .checked_sub(config.claimed_amount)
+        .ok_or(MathError::Overflow)?
+        .max(0);
+    Ok(VestingInfo {
         total_allocation: config.total_allocation,
         vested_amount: vested,
         claimed_amount: config.claimed_amount,
@@ -75,7 +109,7 @@ pub fn get_vesting_info(config: &VestingConfig, current_timestamp: u64) -> Vesti
         start_timestamp: config.start_timestamp,
         duration_secs: config.duration_secs,
         is_fully_vested: vested >= config.total_allocation,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -95,28 +129,28 @@ mod tests {
     #[test]
     fn test_vested_amount_returns_zero_before_cliff() {
         let config = base_config();
-        assert_eq!(vested_amount(&config, 0), 0);
-        assert_eq!(vested_amount(&config, 999), 0);
+        assert_eq!(vested_amount(&Env::default(), &config, 0), Ok(0));
+        assert_eq!(vested_amount(&Env::default(), &config, 999), Ok(0));
     }
 
     #[test]
     fn test_vested_amount_at_cliff_uses_linear_formula() {
         let config = base_config();
-        assert_eq!(vested_amount(&config, 1_000), 1_000);
+        assert_eq!(vested_amount(&Env::default(), &config, 1_000), Ok(1_000));
     }
 
     #[test]
     fn test_vested_amount_mid_vesting_is_linear() {
         let config = base_config();
-        assert_eq!(vested_amount(&config, 5_000), 5_000);
-        assert_eq!(vested_amount(&config, 7_500), 7_500);
+        assert_eq!(vested_amount(&Env::default(), &config, 5_000), Ok(5_000));
+        assert_eq!(vested_amount(&Env::default(), &config, 7_500), Ok(7_500));
     }
 
     #[test]
     fn test_vested_amount_fully_vested_after_duration() {
         let config = base_config();
-        assert_eq!(vested_amount(&config, 10_000), 10_000);
-        assert_eq!(vested_amount(&config, 999_999), 10_000);
+        assert_eq!(vested_amount(&Env::default(), &config, 10_000), Ok(10_000));
+        assert_eq!(vested_amount(&Env::default(), &config, 999_999), Ok(10_000));
     }
 
     #[test]
@@ -125,8 +159,8 @@ mod tests {
             duration_secs: 0,
             ..base_config()
         };
-        assert_eq!(vested_amount(&config, 0), 0);
-        assert_eq!(vested_amount(&config, 1_000), 10_000);
+        assert_eq!(vested_amount(&Env::default(), &config, 0), Ok(0));
+        assert_eq!(vested_amount(&Env::default(), &config, 1_000), Ok(10_000));
     }
 
     #[test]
@@ -135,7 +169,7 @@ mod tests {
             total_allocation: 0,
             ..base_config()
         };
-        assert_eq!(vested_amount(&config, 10_000), 0);
+        assert_eq!(vested_amount(&Env::default(), &config, 10_000), Ok(0));
     }
 
     #[test]
@@ -144,7 +178,7 @@ mod tests {
             claimed_amount: 3_000,
             ..base_config()
         };
-        assert_eq!(claimable_amount(&config, 5_000), 2_000);
+        assert_eq!(claimable_amount(&Env::default(), &config, 5_000), Ok(2_000));
     }
 
     #[test]
@@ -153,13 +187,13 @@ mod tests {
             claimed_amount: 9_999,
             ..base_config()
         };
-        assert_eq!(claimable_amount(&config, 0), 0);
+        assert_eq!(claimable_amount(&Env::default(), &config, 0), Ok(0));
     }
 
     #[test]
     fn test_get_vesting_info_pre_cliff() {
         let config = base_config();
-        let info = get_vesting_info(&config, 500);
+        let info = get_vesting_info(&Env::default(), &config, 500).unwrap();
         assert_eq!(info.vested_amount, 0);
         assert_eq!(info.claimable_amount, 0);
         assert!(!info.is_fully_vested);
@@ -171,7 +205,7 @@ mod tests {
             claimed_amount: 1_000,
             ..base_config()
         };
-        let info = get_vesting_info(&config, 5_000);
+        let info = get_vesting_info(&Env::default(), &config, 5_000).unwrap();
         assert_eq!(info.vested_amount, 5_000);
         assert_eq!(info.claimable_amount, 4_000);
         assert!(!info.is_fully_vested);
@@ -183,7 +217,7 @@ mod tests {
             claimed_amount: 10_000,
             ..base_config()
         };
-        let info = get_vesting_info(&config, 20_000);
+        let info = get_vesting_info(&Env::default(), &config, 20_000).unwrap();
         assert_eq!(info.claimable_amount, 0);
         assert!(info.is_fully_vested);
     }
@@ -197,8 +231,23 @@ mod tests {
             duration_secs: 3,
             claimed_amount: 0,
         };
-        assert_eq!(vested_amount(&config, 1), 3_333);
-        assert_eq!(vested_amount(&config, 2), 6_666);
-        assert_eq!(vested_amount(&config, 3), 9_999);
+        assert_eq!(vested_amount(&Env::default(), &config, 1), Ok(3_333));
+        assert_eq!(vested_amount(&Env::default(), &config, 2), Ok(6_666));
+        assert_eq!(vested_amount(&Env::default(), &config, 3), Ok(9_999));
+    }
+
+    #[test]
+    fn test_vested_amount_handles_maximum_allocation_without_overflow() {
+        let config = VestingConfig {
+            total_allocation: i128::MAX,
+            cliff_timestamp: 0,
+            start_timestamp: 0,
+            duration_secs: 2,
+            claimed_amount: 0,
+        };
+        assert_eq!(
+            vested_amount(&Env::default(), &config, 1),
+            Ok(i128::MAX / 2)
+        );
     }
 }

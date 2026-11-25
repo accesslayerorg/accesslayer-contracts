@@ -1,8 +1,12 @@
 #![no_std]
-use soroban_sdk::{
-    contracttype, symbol_short, Address, Env, Symbol,
-};
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
+
 use crate::ContractError;
+use common::math::{checked_mul_div, RoundingDirection};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -53,14 +57,13 @@ pub fn set_max_price_impact_limit(
         is_enabled: true,
     };
 
-    env.storage()
-        .instance()
-        .set(&MeloballDataKey::PriceImpactConfig(creator.clone()), &config);
-
-    env.events().publish(
-        (PRICE_IMPACT_CONFIG_EVENT, creator.clone()),
-        max_impact_bps,
+    env.storage().instance().set(
+        &MeloballDataKey::PriceImpactConfig(creator.clone()),
+        &config,
     );
+
+    env.events()
+        .publish((PRICE_IMPACT_CONFIG_EVENT, creator.clone()), max_impact_bps);
 
     Ok(())
 }
@@ -72,14 +75,21 @@ pub fn assert_price_impact(
     current_price: i128,
     execution_price: i128,
 ) -> Result<(), ContractError> {
-    if let Some(config) = env.storage().instance().get::<_, PriceImpactConfig>(&MeloballDataKey::PriceImpactConfig(creator.clone())) {
+    if let Some(config) = env
+        .storage()
+        .instance()
+        .get::<_, PriceImpactConfig>(&MeloballDataKey::PriceImpactConfig(creator.clone()))
+    {
         if config.is_enabled && current_price > 0 {
             let diff = if execution_price > current_price {
-                execution_price - current_price
+                execution_price.checked_sub(current_price)
             } else {
-                current_price - execution_price
-            };
-            let impact_bps = ((diff * 10_000) / current_price) as u32;
+                current_price.checked_sub(execution_price)
+            }
+            .ok_or(ContractError::Overflow)?;
+            let impact = checked_mul_div(env, diff, 10_000, current_price, RoundingDirection::Down)
+                .map_err(|_| ContractError::Overflow)?;
+            let impact_bps = u32::try_from(impact).map_err(|_| ContractError::Overflow)?;
             if impact_bps > config.max_price_impact_bps {
                 env.events().publish(
                     (PRICE_IMPACT_EXCEEDED_EVENT, creator.clone()),
@@ -93,24 +103,30 @@ pub fn assert_price_impact(
 }
 
 /// #954: Fund on-chain pro-rata dividend pool with fee revenue.
-pub fn fund_pro_rata_pool(
-    env: &Env,
-    creator: &Address,
-    amount: i128,
-) -> Result<(), ContractError> {
+pub fn fund_pro_rata_pool(env: &Env, creator: &Address, amount: i128) -> Result<(), ContractError> {
     if amount <= 0 {
         return Err(ContractError::ZeroDistributionAmount);
     }
 
     let key = MeloballDataKey::ProRataDividendPool(creator.clone());
-    let mut pool: ProRataDividendPool = env.storage().instance().get(&key).unwrap_or(ProRataDividendPool {
-        accumulated_funds: 0,
-        current_cycle: 1,
-        total_distributed: 0,
-    });
+    let mut pool: ProRataDividendPool =
+        env.storage()
+            .instance()
+            .get(&key)
+            .unwrap_or(ProRataDividendPool {
+                accumulated_funds: 0,
+                current_cycle: 1,
+                total_distributed: 0,
+            });
 
-    pool.accumulated_funds += amount;
-    pool.total_distributed += amount;
+    pool.accumulated_funds = pool
+        .accumulated_funds
+        .checked_add(amount)
+        .ok_or(ContractError::Overflow)?;
+    pool.total_distributed = pool
+        .total_distributed
+        .checked_add(amount)
+        .ok_or(ContractError::Overflow)?;
 
     env.storage().instance().set(&key, &pool);
 
@@ -145,12 +161,21 @@ pub fn claim_pro_rata_cycle_dividend(
         return Err(ContractError::AlreadyClaimed);
     }
 
-    let share_amount = (pool.accumulated_funds * (holder_share_bps as i128)) / 10_000;
+    let share_amount = checked_mul_div(
+        env,
+        pool.accumulated_funds,
+        i128::from(holder_share_bps),
+        10_000,
+        RoundingDirection::Down,
+    )
+    .map_err(|_| ContractError::Overflow)?;
     if share_amount <= 0 {
         return Err(ContractError::NoDividendClaimable);
     }
 
-    env.storage().instance().set(&claim_key, &pool.current_cycle);
+    env.storage()
+        .instance()
+        .set(&claim_key, &pool.current_cycle);
 
     env.events().publish(
         (PRO_RATA_CLAIMED_EVENT, creator.clone(), holder.clone()),
@@ -161,11 +186,7 @@ pub fn claim_pro_rata_cycle_dividend(
 }
 
 /// #955: Set per-transaction buy cap for creator key.
-pub fn set_tx_buy_cap(
-    env: &Env,
-    creator: &Address,
-    cap: u32,
-) -> Result<(), ContractError> {
+pub fn set_tx_buy_cap(env: &Env, creator: &Address, cap: u32) -> Result<(), ContractError> {
     creator.require_auth();
     if cap == 0 {
         return Err(ContractError::NotPositiveAmount);
@@ -175,10 +196,8 @@ pub fn set_tx_buy_cap(
         .instance()
         .set(&MeloballDataKey::TxBuyCap(creator.clone()), &cap);
 
-    env.events().publish(
-        (BUY_CAP_SET_EVENT, creator.clone()),
-        cap,
-    );
+    env.events()
+        .publish((BUY_CAP_SET_EVENT, creator.clone()), cap);
 
     Ok(())
 }
@@ -213,9 +232,10 @@ pub fn set_secondary_transfer_royalty(
         return Err(ContractError::InvalidFeeConfig);
     }
 
-    env.storage()
-        .instance()
-        .set(&MeloballDataKey::SecondaryRoyaltyBps(creator.clone()), &royalty_bps);
+    env.storage().instance().set(
+        &MeloballDataKey::SecondaryRoyaltyBps(creator.clone()),
+        &royalty_bps,
+    );
 
     Ok(())
 }
@@ -226,7 +246,7 @@ pub fn route_secondary_royalty(
     creator: &Address,
     sender: &Address,
     transfer_amount: i128,
-) -> (i128, i128) {
+) -> Result<(i128, i128), ContractError> {
     let bps: u32 = env
         .storage()
         .instance()
@@ -234,16 +254,71 @@ pub fn route_secondary_royalty(
         .unwrap_or(0);
 
     if bps == 0 || transfer_amount <= 0 {
-        return (transfer_amount, 0);
+        return Ok((transfer_amount, 0));
     }
 
-    let royalty = (transfer_amount * (bps as i128)) / 10_000;
-    let net = transfer_amount.saturating_sub(royalty);
+    let royalty = checked_mul_div(
+        env,
+        transfer_amount,
+        i128::from(bps),
+        10_000,
+        RoundingDirection::Down,
+    )
+    .map_err(|_| ContractError::Overflow)?;
+    let net = transfer_amount
+        .checked_sub(royalty)
+        .ok_or(ContractError::Overflow)?;
 
     env.events().publish(
-        (SECONDARY_ROYALTY_PAID_EVENT, creator.clone(), sender.clone()),
+        (
+            SECONDARY_ROYALTY_PAID_EVENT,
+            creator.clone(),
+            sender.clone(),
+        ),
         royalty,
     );
 
-    (net, royalty)
+    Ok((net, royalty))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn maximum_dividend_claim_uses_wide_intermediate_and_checked_accumulation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let creator = Address::generate(&env);
+        let holder = Address::generate(&env);
+
+        fund_pro_rata_pool(&env, &creator, i128::MAX).unwrap();
+        assert_eq!(
+            claim_pro_rata_cycle_dividend(&env, &creator, &holder, 10_000),
+            Ok(i128::MAX)
+        );
+        assert_eq!(
+            fund_pro_rata_pool(&env, &creator, 1),
+            Err(ContractError::Overflow)
+        );
+    }
+
+    #[test]
+    fn price_impact_result_overflow_returns_contract_error() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        env.storage().instance().set(
+            &MeloballDataKey::PriceImpactConfig(creator.clone()),
+            &PriceImpactConfig {
+                max_price_impact_bps: 10_000,
+                is_enabled: true,
+            },
+        );
+
+        assert_eq!(
+            assert_price_impact(&env, &creator, 1, i128::MAX),
+            Err(ContractError::Overflow)
+        );
+    }
 }

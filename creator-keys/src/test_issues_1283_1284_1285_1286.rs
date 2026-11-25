@@ -8,11 +8,12 @@
 
 #[cfg(test)]
 mod tests {
-    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
-
-    use crate::{
-        badge_access_control, creator_allocation, english_auction, holder_enumeration, ContractError,
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        Address, Env, Vec,
     };
+
+    use crate::{badge_access_control, creator_allocation, english_auction, holder_enumeration};
 
     // ============================================================================
     // Issue #1283: Creator allocation with vesting
@@ -113,7 +114,8 @@ mod tests {
 
         // After cliff, claim partial
         env.ledger().set_sequence_number(550);
-        let claimed = creator_allocation::claim_vested(&env, creator.clone(), key_id.clone()).unwrap();
+        let claimed =
+            creator_allocation::claim_vested(&env, creator.clone(), key_id.clone()).unwrap();
         assert!(claimed > 0);
         assert!(claimed < amount);
 
@@ -145,7 +147,8 @@ mod tests {
 
         // Extend vesting
         let additional_ledgers = 500;
-        let result = creator_allocation::extend_vesting(&env, admin, key_id.clone(), additional_ledgers);
+        let result =
+            creator_allocation::extend_vesting(&env, admin, key_id.clone(), additional_ledgers);
         assert!(result.is_ok());
 
         // Verify extension
@@ -217,7 +220,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Second bid below minimum increment - should fail
-        let result = english_auction::place_bid(&env, bidder2.clone(), auction_id, reserve_price + 10);
+        let result =
+            english_auction::place_bid(&env, bidder2.clone(), auction_id, reserve_price + 10);
         assert!(result.is_err());
 
         // Second bid at proper increment
@@ -240,16 +244,9 @@ mod tests {
         let bidder = Address::generate(&env);
 
         let duration = 200;
-        let auction_id = english_auction::start_english_auction(
-            &env,
-            seller,
-            key_id,
-            100,
-            1000,
-            duration,
-            500,
-        )
-        .unwrap();
+        let auction_id =
+            english_auction::start_english_auction(&env, seller, key_id, 100, 1000, duration, 500)
+                .unwrap();
 
         // Bid near the end (within extension window)
         env.ledger().set_sequence_number(150);
@@ -269,16 +266,9 @@ mod tests {
         let key_id = Address::generate(&env);
         let bidder = Address::generate(&env);
 
-        let auction_id = english_auction::start_english_auction(
-            &env,
-            seller,
-            key_id,
-            100,
-            1000,
-            100,
-            500,
-        )
-        .unwrap();
+        let auction_id =
+            english_auction::start_english_auction(&env, seller, key_id, 100, 1000, 100, 500)
+                .unwrap();
 
         // Place bid
         english_auction::place_bid(&env, bidder, auction_id, 1000).unwrap();
@@ -385,10 +375,12 @@ mod tests {
 
         // Add holders and update their balances
         holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone()).unwrap();
-        holder_enumeration::update_top_holders(&env, key_id.clone(), holder1.clone(), 1000).unwrap();
+        holder_enumeration::update_top_holders(&env, key_id.clone(), holder1.clone(), 1000)
+            .unwrap();
 
         holder_enumeration::add_holder(&env, key_id.clone(), holder2.clone()).unwrap();
-        holder_enumeration::update_top_holders(&env, key_id.clone(), holder2.clone(), 2000).unwrap();
+        holder_enumeration::update_top_holders(&env, key_id.clone(), holder2.clone(), 2000)
+            .unwrap();
 
         holder_enumeration::add_holder(&env, key_id.clone(), holder3.clone()).unwrap();
         holder_enumeration::update_top_holders(&env, key_id.clone(), holder3.clone(), 500).unwrap();

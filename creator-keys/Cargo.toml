@@ -15,3 +15,4 @@ common = { path = "../common" }
 soroban-sdk = { workspace = true, features = ["testutils"] }
 ed25519-dalek = "2"
 circuit-breaker = { path = "../circuit-breaker" }
+key-dividend-contract = { path = "../key-dividend-contract" }

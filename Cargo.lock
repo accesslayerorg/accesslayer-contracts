@@ -302,6 +302,7 @@ dependencies = [
  "circuit-breaker",
  "common",
  "ed25519-dalek",
+ "key-dividend-contract",
  "soroban-sdk",
 ]
 
@@ -512,6 +513,7 @@ dependencies = [
 name = "dividend-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "creator-keys",
  "soroban-sdk",
 ]
@@ -839,6 +841,14 @@ dependencies = [
 name = "key-analytics"
 version = "0.1.0"
 dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "key-dividend-contract"
+version = "0.1.0"
+dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1705,6 +1715,14 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vesting-contract"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "soroban-sdk",
+]
 
 [[package]]
 name = "vote-escrow-contract"

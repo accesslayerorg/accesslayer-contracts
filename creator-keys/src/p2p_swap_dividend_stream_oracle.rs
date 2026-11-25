@@ -1,3 +1,8 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
+
 //! P2P atomic swaps (#1072), snapshot dividends (#1186), streaming payouts
 //! (#1250) and a staleness-guarded oracle reader (#1251).
 //!
@@ -5,10 +10,11 @@
 //! contracts, so every transfer goes through the standard token interface.
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
+    contract, contractclient, contractimpl, contracttype, token, Address, Env, Symbol,
 };
 
 use crate::ContractError;
+use common::math::{checked_add, checked_mul_div, RoundingDirection};
 
 fn emit<T, D>(env: &Env, name: &str, topic: T, data: D)
 where
@@ -77,7 +83,13 @@ pub mod swap_contract {
                 &offered_amount,
             );
 
-            let id: u32 = env.storage().instance().get(&SwapKey::NextId).unwrap_or(0) + 1;
+            let id: u32 = env
+                .storage()
+                .instance()
+                .get(&SwapKey::NextId)
+                .unwrap_or(0u32)
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
             env.storage().instance().set(&SwapKey::NextId, &id);
             let proposal = SwapProposal {
                 proposer: proposer.clone(),
@@ -86,7 +98,11 @@ pub mod swap_contract {
                 offered_amount,
                 requested_key: requested_key.clone(),
                 requested_amount,
-                expires_at: env.ledger().timestamp() + SWAP_EXPIRY_SECS,
+                expires_at: env
+                    .ledger()
+                    .timestamp()
+                    .checked_add(SWAP_EXPIRY_SECS)
+                    .ok_or(ContractError::Overflow)?,
             };
             env.storage()
                 .persistent()
@@ -195,235 +211,7 @@ pub mod swap_contract {
 pub use swap_contract::{KeySwapContract, KeySwapContractClient};
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 2. KEY DIVIDEND DECLARATION WITH SNAPSHOT PRO-RATA CLAIMS (#1186)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub struct KeyDividend {
-    pub creator: Address,
-    pub token: Address,
-    pub total_amount: i128,
-    pub total_supply: i128,
-    pub claimed: i128,
-    pub snapshot_ledger: u32,
-    pub expiry_ledger: u32,
-    pub reclaimed: bool,
-}
-
-#[derive(Clone)]
-#[contracttype]
-pub enum KeyDividendKey {
-    NextId(Address),
-    Dividend(Address, u32),
-    Balance(Address, u32, Address),
-    Claimed(Address, u32, Address),
-}
-
-pub mod key_dividend_contract {
-    use super::*;
-
-    #[contract]
-    pub struct KeyDividendContract;
-
-    #[contractimpl]
-    impl KeyDividendContract {
-        /// Snapshot `holders`' balances of the `key_id` token at the current
-        /// ledger and escrow `total_amount` of `token` for pro-rata claims.
-        ///
-        /// Token holders cannot be enumerated on-chain, so the caller supplies
-        /// the holder list; balances themselves are read from the key token.
-        pub fn declare_dividend(
-            env: Env,
-            creator: Address,
-            key_id: Address,
-            token: Address,
-            total_amount: i128,
-            holders: Vec<Address>,
-            expiry_ledger: u32,
-        ) -> Result<u32, ContractError> {
-            creator.require_auth();
-            if total_amount <= 0 {
-                return Err(ContractError::ZeroDistributionAmount);
-            }
-            if expiry_ledger <= env.ledger().sequence() {
-                return Err(ContractError::DeadlinePassed);
-            }
-
-            let store = env.storage().persistent();
-            let id: u32 = store
-                .get(&KeyDividendKey::NextId(key_id.clone()))
-                .unwrap_or(0)
-                + 1;
-
-            let key = token::Client::new(&env, &key_id);
-            let mut total_supply: i128 = 0;
-            for holder in holders.iter() {
-                let slot = KeyDividendKey::Balance(key_id.clone(), id, holder.clone());
-                if store.has(&slot) {
-                    continue;
-                }
-                let balance = key.balance(&holder);
-                if balance > 0 {
-                    store.set(&slot, &balance);
-                    total_supply += balance;
-                }
-            }
-            if total_supply == 0 {
-                return Err(ContractError::NoKeyHolders);
-            }
-
-            token::Client::new(&env, &token).transfer(
-                &creator,
-                &env.current_contract_address(),
-                &total_amount,
-            );
-
-            store.set(&KeyDividendKey::NextId(key_id.clone()), &id);
-            store.set(
-                &KeyDividendKey::Dividend(key_id.clone(), id),
-                &KeyDividend {
-                    creator,
-                    token,
-                    total_amount,
-                    total_supply,
-                    claimed: 0,
-                    snapshot_ledger: env.ledger().sequence(),
-                    expiry_ledger,
-                    reclaimed: false,
-                },
-            );
-            emit(
-                &env,
-                "dividend_declared",
-                (key_id, id),
-                (total_amount, total_supply),
-            );
-            Ok(id)
-        }
-
-        /// Unclaimed pro-rata share; zero if the wallet had no snapshot
-        /// balance, already claimed, or the dividend has expired.
-        pub fn get_dividend_claimable(
-            env: Env,
-            key_id: Address,
-            dividend_id: u32,
-            wallet: Address,
-        ) -> i128 {
-            let Ok(d) = Self::get_dividend(env.clone(), key_id.clone(), dividend_id) else {
-                return 0;
-            };
-            let store = env.storage().persistent();
-            if env.ledger().sequence() > d.expiry_ledger
-                || store.has(&KeyDividendKey::Claimed(
-                    key_id.clone(),
-                    dividend_id,
-                    wallet.clone(),
-                ))
-            {
-                return 0;
-            }
-            let balance: i128 = store
-                .get(&KeyDividendKey::Balance(key_id, dividend_id, wallet))
-                .unwrap_or(0);
-            balance * d.total_amount / d.total_supply
-        }
-
-        pub fn claim_dividend(
-            env: Env,
-            wallet: Address,
-            key_id: Address,
-            dividend_id: u32,
-        ) -> Result<i128, ContractError> {
-            wallet.require_auth();
-            let mut d = Self::get_dividend(env.clone(), key_id.clone(), dividend_id)?;
-            let claimed_slot = KeyDividendKey::Claimed(key_id.clone(), dividend_id, wallet.clone());
-            if env.storage().persistent().has(&claimed_slot) {
-                return Err(ContractError::AlreadyClaimed);
-            }
-            if env.ledger().sequence() > d.expiry_ledger {
-                return Err(ContractError::DeadlinePassed);
-            }
-            let share = Self::get_dividend_claimable(
-                env.clone(),
-                key_id.clone(),
-                dividend_id,
-                wallet.clone(),
-            );
-            if share == 0 {
-                return Err(ContractError::NoDividendClaimable);
-            }
-
-            d.claimed += share;
-            let store = env.storage().persistent();
-            store.set(&claimed_slot, &true);
-            store.set(&KeyDividendKey::Dividend(key_id.clone(), dividend_id), &d);
-            token::Client::new(&env, &d.token).transfer(
-                &env.current_contract_address(),
-                &wallet,
-                &share,
-            );
-            emit(
-                &env,
-                "dividend_claimed",
-                (key_id, dividend_id),
-                (wallet, share),
-            );
-            Ok(share)
-        }
-
-        /// After `expiry_ledger`, return everything unclaimed (including
-        /// rounding dust) to the creator. Callable by anyone, once.
-        pub fn reclaim_expired_dividend(
-            env: Env,
-            key_id: Address,
-            dividend_id: u32,
-        ) -> Result<i128, ContractError> {
-            let mut d = Self::get_dividend(env.clone(), key_id.clone(), dividend_id)?;
-            if env.ledger().sequence() <= d.expiry_ledger {
-                return Err(ContractError::TimelockNotElapsed);
-            }
-            if d.reclaimed {
-                return Err(ContractError::AlreadyClaimed);
-            }
-            let amount = d.total_amount - d.claimed;
-            d.reclaimed = true;
-            env.storage()
-                .persistent()
-                .set(&KeyDividendKey::Dividend(key_id.clone(), dividend_id), &d);
-            if amount > 0 {
-                token::Client::new(&env, &d.token).transfer(
-                    &env.current_contract_address(),
-                    &d.creator,
-                    &amount,
-                );
-            }
-            emit(
-                &env,
-                "dividend_reclaimed",
-                (key_id, dividend_id),
-                (d.creator, amount),
-            );
-            Ok(amount)
-        }
-
-        pub fn get_dividend(
-            env: Env,
-            key_id: Address,
-            dividend_id: u32,
-        ) -> Result<KeyDividend, ContractError> {
-            env.storage()
-                .persistent()
-                .get(&KeyDividendKey::Dividend(key_id, dividend_id))
-                .ok_or(ContractError::SnapshotNotFound)
-        }
-    }
-}
-
-pub use key_dividend_contract::{KeyDividendContract, KeyDividendContractClient};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 3. STREAMING CREATOR PAYOUTS (#1250)
+// 2. STREAMING CREATOR PAYOUTS (#1250)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -456,13 +244,16 @@ pub mod stream_contract {
     #[contract]
     pub struct PayoutStreamContract;
 
-    fn accrued_now(env: &Env, s: &PayoutStream) -> i128 {
+    fn accrued_now(env: &Env, s: &PayoutStream) -> Result<i128, ContractError> {
         if s.paused {
-            return s.accrued;
+            return Ok(s.accrued);
         }
-        let elapsed = env.ledger().sequence().saturating_sub(s.last_ledger) as i128;
-        s.accrued
-            .saturating_add(s.rate_per_ledger.saturating_mul(elapsed))
+        let elapsed = i128::from(env.ledger().sequence().saturating_sub(s.last_ledger));
+        let newly_accrued = s
+            .rate_per_ledger
+            .checked_mul(elapsed)
+            .ok_or(ContractError::Overflow)?;
+        checked_add(s.accrued, newly_accrued).map_err(|_| ContractError::Overflow)
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), ContractError> {
@@ -506,8 +297,9 @@ pub mod stream_contract {
                 .storage()
                 .instance()
                 .get(&StreamKey::NextId)
-                .unwrap_or(0)
-                + 1;
+                .unwrap_or(0u32)
+                .checked_add(1)
+                .ok_or(ContractError::Overflow)?;
             env.storage().instance().set(&StreamKey::NextId, &id);
             env.storage().persistent().set(
                 &StreamKey::Stream(id),
@@ -551,7 +343,7 @@ pub mod stream_contract {
                 &env.current_contract_address(),
                 &amount,
             );
-            s.funded += amount;
+            s.funded = checked_add(s.funded, amount).map_err(|_| ContractError::Overflow)?;
             s.cap = s.cap.max(s.funded);
             env.storage()
                 .persistent()
@@ -563,8 +355,11 @@ pub mod stream_contract {
         /// `min(accrued, cap, funded) - withdrawn`.
         pub fn claimable(env: Env, stream_id: u32) -> Result<i128, ContractError> {
             let s = Self::stream_info(env.clone(), stream_id)?;
-            let vested = accrued_now(&env, &s).min(s.cap).min(s.funded);
-            Ok((vested - s.withdrawn).max(0))
+            let vested = accrued_now(&env, &s)?.min(s.cap).min(s.funded);
+            Ok(vested
+                .checked_sub(s.withdrawn)
+                .ok_or(ContractError::Overflow)?
+                .max(0))
         }
 
         pub fn withdraw(
@@ -584,7 +379,7 @@ pub mod stream_contract {
             if amount > Self::claimable(env.clone(), stream_id)? {
                 return Err(ContractError::InsufficientBalance);
             }
-            s.withdrawn += amount;
+            s.withdrawn = checked_add(s.withdrawn, amount).map_err(|_| ContractError::Overflow)?;
             env.storage()
                 .persistent()
                 .set(&StreamKey::Stream(stream_id), &s);
@@ -603,7 +398,7 @@ pub mod stream_contract {
             require_admin(&env, &admin)?;
             let mut s = Self::stream_info(env.clone(), stream_id)?;
             if !s.paused {
-                s.accrued = accrued_now(&env, &s);
+                s.accrued = accrued_now(&env, &s)?;
                 s.paused = true;
                 env.storage()
                     .persistent()
@@ -642,7 +437,7 @@ pub mod stream_contract {
 pub use stream_contract::{PayoutStreamContract, PayoutStreamContractClient};
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 4. ORACLE STALENESS GUARD WITH FALLBACK AND DEVIATION CHECK (#1251)
+// 3. ORACLE STALENESS GUARD WITH FALLBACK AND DEVIATION CHECK (#1251)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -757,7 +552,25 @@ pub mod oracle_guard_contract {
 
             match (fresh(p_age), fb) {
                 (true, Some((f, f_age))) if fresh(f_age) => {
-                    if (p - f).abs() * 10_000 > cfg.max_deviation_bps as i128 * f.abs() {
+                    let deviation_exceeded = if f == 0 {
+                        p != 0
+                    } else {
+                        let difference = p
+                            .checked_sub(f)
+                            .and_then(i128::checked_abs)
+                            .ok_or(ContractError::Overflow)?;
+                        let fallback_magnitude = f.checked_abs().ok_or(ContractError::Overflow)?;
+                        let deviation_bps = checked_mul_div(
+                            &env,
+                            difference,
+                            10_000,
+                            fallback_magnitude,
+                            RoundingDirection::Down,
+                        )
+                        .map_err(|_| ContractError::Overflow)?;
+                        deviation_bps > i128::from(cfg.max_deviation_bps)
+                    };
+                    if deviation_exceeded {
                         return Err(ContractError::PriceDeviation);
                     }
                     Ok(p)
