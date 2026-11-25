@@ -1,0 +1,108 @@
+name: Contract bindings
+
+# Regenerates the TypeScript bindings on every change and fails when the
+# committed output differs from the contracts, so a contract interface change
+# cannot land without its regenerated bindings. Tagging `bindings-v<version>`
+# publishes the package to npm.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - bindings-v*
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Pinned: the generated output is part of the diff check, so a CLI upgrade
+  # must be an explicit commit that regenerates every binding.
+  STELLAR_CLI_VERSION: "30.0.1"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: bindings-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Stellar CLI
+        run: |
+          curl -sSfL -o /tmp/stellar.tar.gz \
+            "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          tar xzf /tmp/stellar.tar.gz -C /tmp stellar
+          sudo install -m 0755 /tmp/stellar /usr/local/bin/stellar
+          stellar --version
+
+      - name: Generate bindings
+        run: ./scripts/generate-bindings.sh
+
+      - name: Fail if committed bindings are stale
+        run: |
+          if [ -n "$(git status --porcelain -- bindings)" ]; then
+            git status --porcelain -- bindings
+            echo "::error::Generated bindings are out of date. Run ./scripts/generate-bindings.sh and commit the result."
+            exit 1
+          fi
+
+      - name: Build bindings package
+        working-directory: bindings
+        run: |
+          npm ci
+          npm run build
+
+  publish:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/bindings-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify tag matches package version
+        run: |
+          version="$(node -p "require('./bindings/package.json').version")"
+          if [ "bindings-v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match bindings/package.json version ${version}"
+            exit 1
+          fi
+
+      - name: Build bindings package
+        working-directory: bindings
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish
+        working-directory: bindings
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

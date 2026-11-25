@@ -1,0 +1,18 @@
+{
+  "name": "accesslayer-bindings-example",
+  "private": true,
+  "type": "module",
+  "description": "Places a buy-side order through the generated bindings and decodes the emitted event on a local network.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && node dist/index.js"
+  },
+  "dependencies": {
+    "@accesslayer/contracts-bindings": "file:../../bindings",
+    "@stellar/stellar-sdk": "^16.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.2"
+  }
+}

@@ -26,7 +26,7 @@ Requirements: `stellar` CLI (v22+), Rust with the `wasm32v1-none` target, and
 Node.js 18+.
 
 ```bash
-./scripts/generate-bindings.sh
+./scripts/generate-bindings.sh   # or: make bindings
 ```
 
 Useful flags:
@@ -73,6 +73,13 @@ Events whose payload type cannot be resolved statically are typed `unknown`;
 their name and topics still decode. See
 [contract-event-conventions.md](./contract-event-conventions.md) for the naming
 and topic conventions themselves.
+
+## Example
+
+[`examples/typescript-buy-and-decode`](../examples/typescript-buy-and-decode)
+places a buy-side order through the bindings and decodes the emitted event
+against a local network. It doubles as a smoke test for the generated client and
+event decoder.
 
 ## CI
 

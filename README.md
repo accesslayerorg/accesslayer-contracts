@@ -27,6 +27,7 @@ The contracts layer is responsible for:
 * [Cargo.toml](./Cargo.toml): Rust workspace configuration
 * [creator-keys](./creator-keys): Soroban creator-key contract crate
 * [referral-contract](./referral-contract): referral registration and tiered reward accounting
+* [bindings](./bindings): generated TypeScript clients, error enums and event decoders for every contract ([docs](./docs/typescript-bindings.md))
 
 ## Current state
 
