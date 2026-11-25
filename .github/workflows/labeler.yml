@@ -1,0 +1,22 @@
+name: Label pull requests
+
+# Labels pull requests by the area they touch, using .github/labeler.yml.
+# pull_request_target runs the workflow from the base branch with a token that
+# can label fork PRs; it never checks out or runs code from the pull request.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yml
+          sync-labels: true

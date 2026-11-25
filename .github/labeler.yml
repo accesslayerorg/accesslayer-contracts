@@ -1,0 +1,100 @@
+# Area labels applied by .github/workflows/labeler.yml (actions/labeler v5).
+#
+# The `area: <sensitive>` globs mirror .github/sensitive-paths.yml; the
+# security-review workflow fails if they drift.
+
+"area: auth":
+  - changed-files:
+      - any-glob-to-any-file:
+          - access-control/**
+          - multisig-admin/**
+          - nonce-registry/**
+          - session-nonce/**
+          - sponsored-transactions/**
+          - personhood-hook/**
+          - timelock/**
+          - common/src/guard.rs
+          - creator-keys/src/acl_*.rs
+          - creator-keys/src/badge_access_control.rs
+          - creator-keys/src/key_ownership_transfer.rs
+          - creator-keys/src/social_recovery.rs
+          - creator-keys/src/protocol_governance.rs
+
+"area: fees":
+  - changed-files:
+      - any-glob-to-any-file:
+          - protocol-fee-contract/**
+          - fee-discount-contract/**
+          - creator-keys/src/dynamic_fees.rs
+
+"area: reserve":
+  - changed-files:
+      - any-glob-to-any-file:
+          - reserve-contract/**
+          - treasury-contract/**
+          - treasury-diversification/**
+          - holder-insurance-pool/**
+          - creator-keys/src/token_rescue.rs
+          - creator-keys/src/multi_asset_payment.rs
+
+"area: upgrade":
+  - changed-files:
+      - any-glob-to-any-file:
+          - creator-keys/src/lib.rs
+          - creator-keys/src/proxy.rs
+          - creator-keys/src/emergency_pause.rs
+          - creator-keys/src/timed_pause.rs
+          - creator-keys/test_wasm/**
+          - creator-keys-factory/**
+          - safe-mode-contract/**
+          - circuit-breaker/**
+
+"area: storage":
+  - changed-files:
+      - any-glob-to-any-file:
+          - creator-keys/src/lib.rs
+          - storage-cleanup/**
+
+"area: review-process":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/CODEOWNERS
+          - .github/sensitive-paths.yml
+          - .github/labeler.yml
+          - .github/PULL_REQUEST_TEMPLATE.md
+          - .github/workflows/**
+          - scripts/security_checklist/**
+
+# Any contract source
+"area: contracts":
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/src/**/*.rs'
+
+# Tests and snapshots
+"area: tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/tests/**'
+          - '**/src/**/test*.rs'
+          - '**/test_snapshots/**'
+          - 'test-utils/**'
+
+# Documentation
+"area: docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - '**/*.md'
+
+# Build and CI configuration
+"area: ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'Makefile'
+          - 'Cargo.toml'
+          - '**/Cargo.toml'
+          - 'Cargo.lock'
+          - 'rust-toolchain.toml'
+          - '.cargo/**'

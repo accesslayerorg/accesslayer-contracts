@@ -78,6 +78,7 @@ For guidance on writing deterministic quote tests, see [docs/deterministic-quote
 - **[Quote Math Refactor Guidelines](./docs/quote-math-refactor-guidelines.md)**: Checklist for preserving quote invariants and required regression coverage during quote-path refactors
 - **[Fee Assumptions](./docs/fee-assumptions.md)**: Fee split logic, rounding behavior, and integration points
 - **[Read-only Methods](./docs/read-only-methods.md)**: Return value semantics, units, and edge-case behaviour for every `get_*` / `is_*` entrypoint including all bps fields
+- **[Review Process](./docs/review.md)**: Code owners, the security review checklist, approvals required per path, and branch protection
 - **[Error Codes](./docs/error-codes.md)**: Contract error reference with causes and expected caller behavior
 - **[Safely Extending Contract Error Codes](./docs/error-extension-guide.md)**: Rules for naming new error variants, preserving discriminants, and updating error tables
 
@@ -87,6 +88,7 @@ For testnet deployment steps, required CLI setup, and the release checklist used
 
 - Document storage and event changes clearly.
 - Treat buy, sell, fee, and supply logic as high-sensitivity areas.
+- Complete the **Security review** checklist in the pull request template when you touch a sensitive path (see [docs/review.md](./docs/review.md)); CI fails until every item is ticked.
 - Prefer incremental contract changes over sweeping redesigns.
 - Add or update tests for every behavior change.
 - Keep names and comments specific to Access Layer and Stellar, not generic template wording.

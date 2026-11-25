@@ -1,0 +1,73 @@
+# Sensitive contract paths, grouped by risk area.
+#
+# This file is the single source of truth for:
+#   - the security checklist gate (.github/workflows/security-review.yml),
+#   - the review process in docs/review.md.
+# .github/CODEOWNERS and .github/labeler.yml mirror these globs; the
+# `check_mapping` step in the security-review workflow fails if they drift.
+#
+# Pattern syntax: a pattern ending in `/` matches everything below that
+# directory; any other pattern is a glob where `*` stays inside one path
+# segment and `**` crosses segments.
+
+auth:
+  description: Authorization, roles, nonces, signatures and account recovery
+  paths:
+    - access-control/
+    - multisig-admin/
+    - nonce-registry/
+    - session-nonce/
+    - sponsored-transactions/
+    - personhood-hook/
+    - timelock/
+    - common/src/guard.rs
+    - creator-keys/src/acl_*.rs
+    - creator-keys/src/badge_access_control.rs
+    - creator-keys/src/key_ownership_transfer.rs
+    - creator-keys/src/social_recovery.rs
+    - creator-keys/src/protocol_governance.rs
+
+fees:
+  description: Fee computation, fee recipients and discounts
+  paths:
+    - protocol-fee-contract/
+    - fee-discount-contract/
+    - creator-keys/src/dynamic_fees.rs
+
+reserve:
+  description: Reserves, treasuries and other fund movement
+  paths:
+    - reserve-contract/
+    - treasury-contract/
+    - treasury-diversification/
+    - holder-insurance-pool/
+    - creator-keys/src/token_rescue.rs
+    - creator-keys/src/multi_asset_payment.rs
+
+upgrade:
+  description: Contract upgrades, proxies, factories and emergency stops
+  paths:
+    - creator-keys/src/lib.rs
+    - creator-keys/src/proxy.rs
+    - creator-keys/src/emergency_pause.rs
+    - creator-keys/src/timed_pause.rs
+    - creator-keys/test_wasm/
+    - creator-keys-factory/
+    - safe-mode-contract/
+    - circuit-breaker/
+
+storage:
+  description: Persistent storage layout, keys and TTL handling
+  paths:
+    - creator-keys/src/lib.rs
+    - storage-cleanup/
+
+review-process:
+  description: The review gate itself, so it cannot be weakened unreviewed
+  paths:
+    - .github/CODEOWNERS
+    - .github/sensitive-paths.yml
+    - .github/labeler.yml
+    - .github/PULL_REQUEST_TEMPLATE.md
+    - .github/workflows/
+    - scripts/security_checklist/

@@ -1,0 +1,45 @@
+name: Security review
+
+# Enforces the "Security review" checklist from .github/PULL_REQUEST_TEMPLATE.md
+# on pull requests that change a path listed in .github/sensitive-paths.yml.
+# Pull requests that touch no sensitive path pass without the checklist.
+# See docs/review.md.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checklist:
+    name: Security checklist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Self-test the checker
+        run: python3 -m unittest discover -s scripts/security_checklist/tests -v
+
+      - name: Ownership mapping is in sync
+        run: python3 scripts/security_checklist/check.py mapping
+
+      - name: List changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --name-only "$BASE_SHA"..."$HEAD_SHA" | tee "$RUNNER_TEMP/changed-files.txt"
+
+      - name: Require the checklist for sensitive changes
+        run: >-
+          python3 scripts/security_checklist/check.py gate
+          --changed-files "$RUNNER_TEMP/changed-files.txt"
+          --event "$GITHUB_EVENT_PATH"
