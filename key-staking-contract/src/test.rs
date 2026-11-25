@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     EpochRewardDistributed, KeyStakingContract, KeyStakingContractClient, KeyStakingError,
     StakeRewards, EPOCH_DISTRIBUTED_EVENT_NAME, MAX_LOCK_EPOCHS,

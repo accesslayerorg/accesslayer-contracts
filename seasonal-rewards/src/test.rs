@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     CampaignCreated, Criteria, Criterion, RewardClaimed, SeasonalError, SeasonalRewardsContract,
     SeasonalRewardsContractClient, WalletQualified, WalletStats, CAMPAIGN_CREATED_EVENT,

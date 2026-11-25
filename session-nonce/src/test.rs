@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     ActionExecuted, DataKey, SessionNonceContract, SessionNonceContractClient, SessionNonceError,
     ACTION_EXECUTED_EVENT_NAME,

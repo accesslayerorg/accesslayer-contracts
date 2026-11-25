@@ -5146,3 +5146,113 @@ pub struct CeilingRaisedEvent {
 pub fn ceiling_raised_topics(creator: &Address) -> (Symbol, Address) {
     (CEILING_RAISED_EVENT_NAME, creator.clone())
 }
+
+/// Event name emitted once after every leg of a multi-buy succeeds.
+pub const MULTI_BUY_COMPLETED_EVENT_NAME: Symbol = symbol_short!("m_buy_cmp");
+
+/// Stable multi-buy completion event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(MULTI_BUY_COMPLETED_EVENT_NAME, buyer)`
+/// - data: `MultiBuyCompletedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MultiBuyCompletedEvent {
+    pub buyer: Address,
+    pub leg_count: u32,
+    pub total_cost: i128,
+    pub ledger: u32,
+}
+
+/// Shared multi-buy completion event topics tuple.
+pub fn multi_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
+    (MULTI_BUY_COMPLETED_EVENT_NAME, buyer.clone())
+}
+
+/// Event name emitted when a sell is blocked by a configured price floor.
+pub const PRICE_FLOOR_TRIGGERED_EVENT_NAME: Symbol = symbol_short!("pf_trg");
+
+/// Alias reflecting the error name used for a blocked sell.
+pub const PRICE_FLOOR_BREACHED_EVENT_NAME: Symbol = PRICE_FLOOR_TRIGGERED_EVENT_NAME;
+
+/// Stable price-floor-triggered payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(PRICE_FLOOR_TRIGGERED_EVENT_NAME, key_id)`
+/// - data: `PriceFloorTriggeredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceFloorTriggeredEvent {
+    pub key_id: Address,
+    pub attempted_price: i128,
+    pub floor_price: i128,
+    pub ledger: u32,
+}
+
+/// Alias for indexers that key off the error name.
+pub type PriceFloorBreachedEvent = PriceFloorTriggeredEvent;
+
+/// Shared price floor event topics tuple.
+pub fn price_floor_triggered_topics(key_id: &Address) -> (Symbol, Address) {
+    (PRICE_FLOOR_TRIGGERED_EVENT_NAME, key_id.clone())
+}
+
+/// Event name emitted when an admin sets or updates a price floor.
+pub const PRICE_FLOOR_SET_EVENT_NAME: Symbol = symbol_short!("pf_set");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceFloorSetEvent {
+    pub key_id: Address,
+    pub floor_price: i128,
+    pub ledger: u32,
+}
+
+/// Shared price floor setter event topics tuple.
+pub fn price_floor_set_topics(key_id: &Address) -> (Symbol, Address) {
+    (PRICE_FLOOR_SET_EVENT_NAME, key_id.clone())
+}
+
+/// Event name emitted when a primary creator grants a co-creator role.
+pub const CO_CREATOR_ADDED_EVENT_NAME: Symbol = symbol_short!("cc_add");
+
+/// Stable co-creator role grant payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(CO_CREATOR_ADDED_EVENT_NAME, key_id, wallet)`
+/// - data: `CoCreatorAddedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorAddedEvent {
+    pub key_id: Address,
+    pub wallet: Address,
+    pub role: crate::co_creators::CoCreatorRole,
+    pub ledger: u32,
+}
+
+pub fn co_creator_added_topics(key_id: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (CO_CREATOR_ADDED_EVENT_NAME, key_id.clone(), wallet.clone())
+}
+
+/// Event name emitted when a role-based co-creator is revoked.
+pub const CO_CREATOR_ROLE_REMOVED_EVENT_NAME: Symbol = symbol_short!("cc_rrm");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorRoleRemovedEvent {
+    pub key_id: Address,
+    pub wallet: Address,
+    pub role: crate::co_creators::CoCreatorRole,
+    pub ledger: u32,
+}
+
+pub fn co_creator_role_removed_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_ROLE_REMOVED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
