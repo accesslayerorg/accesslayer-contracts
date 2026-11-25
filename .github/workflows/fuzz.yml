@@ -1,0 +1,39 @@
+name: Nightly contract fuzzing
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz trading sequences
+        run: cargo fuzz run trading fuzz/corpus/trading -- -max_total_time=300 -timeout=10
+
+      - name: Fuzz escrow sequences
+        if: always()
+        run: cargo fuzz run escrow fuzz/corpus/escrow -- -max_total_time=300 -timeout=10
+
+      - name: Upload corpora and crash inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-fuzz-corpus-and-crashes
+          path: |
+            fuzz/corpus/
+            fuzz/artifacts/
+          if-no-files-found: warn

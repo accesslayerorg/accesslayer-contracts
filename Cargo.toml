@@ -32,6 +32,7 @@ members = [
     "holder-insurance-pool",
     "sealed-launch-auction",
 ]
+exclude = ["fuzz"]
 resolver = "2"
 
 [workspace.package]
