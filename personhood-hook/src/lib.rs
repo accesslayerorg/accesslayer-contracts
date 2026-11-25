@@ -12,20 +12,7 @@ pub struct PersonAttestationData {
     pub valid_until: u64,
 }
 
-#[contracttype]
-enum DataKey {
-    Admin,
-    PersonhoodProvider,
-    WalletToPerson(Address),
-    PersonToWallet(BytesN<32>),
-    PersonWalletCount(BytesN<32>),
-    MaxWalletsPerPerson,
-    UnlinkCooldown,
-    LastUnlink(Address),
-    KeyRequiresPersonhood(Address),
-    PersonPurchases(BytesN<32>, Address),
-    UnverifiedCap(Address),
-}
+use common::keys::personhood_hook::DataKey;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

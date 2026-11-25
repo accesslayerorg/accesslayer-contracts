@@ -23,13 +23,7 @@ pub struct Tier {
     pub threshold: i128,
     pub discount_bps: u32,
 }
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum Key {
-    Admin,
-    Tiers,
-    Volume(Address),
-}
+use common::keys::fee_discount_contract::Key;
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Volume {

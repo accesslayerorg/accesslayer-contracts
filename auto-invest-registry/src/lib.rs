@@ -114,17 +114,7 @@ pub struct RuleUpdated {
     pub criteria: Criteria,
 }
 
-/// Persistent storage keys used by the auto-invest registry contract.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[contracttype]
-pub enum DataKey {
-    /// Global auto-incrementing rule ID counter.
-    NextRuleId,
-    /// Rule record by ID: `Rule(rule_id)` -> `Rule`.
-    Rule(u64),
-    /// List of rule IDs registered for a wallet: `WalletRules(wallet)` -> `Vec<u64>`.
-    WalletRules(Address),
-}
+pub use common::keys::auto_invest_registry::DataKey;
 
 #[contract]
 pub struct AutoInvestRegistryContract;

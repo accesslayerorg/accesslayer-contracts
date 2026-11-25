@@ -154,6 +154,7 @@ dependencies = [
 name = "auto-invest-registry"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -191,6 +192,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 name = "batch-trade-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -612,6 +614,7 @@ checksum = "40404c3f5f511ec4da6fe866ddf6a717c309fdbb69fbbad7b0f3edab8f2e835f"
 name = "fee-discount-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -727,6 +730,7 @@ dependencies = [
 name = "holder-insurance-pool"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -839,6 +843,7 @@ dependencies = [
 name = "key-analytics"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -860,6 +865,7 @@ dependencies = [
 name = "key-staking-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -867,6 +873,7 @@ dependencies = [
 name = "launch-auction"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -892,6 +899,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 name = "lp-reward-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -905,6 +913,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 name = "multisig-admin"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -912,6 +921,7 @@ dependencies = [
 name = "nonce-registry"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -988,6 +998,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 name = "personhood-hook"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1139,6 +1150,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 name = "safe-mode-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1170,6 +1182,7 @@ dependencies = [
 name = "sealed-launch-auction"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1177,6 +1190,7 @@ dependencies = [
 name = "seasonal-rewards"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1277,6 +1291,7 @@ dependencies = [
 name = "session-nonce"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1327,6 +1342,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 name = "social-metadata-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1539,6 +1555,7 @@ dependencies = [
 name = "sponsored-transactions"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1592,6 +1609,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "subscription-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1685,6 +1703,7 @@ dependencies = [
 name = "treasury-diversification"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 
@@ -1710,6 +1729,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vote-escrow-contract"
 version = "0.1.0"
 dependencies = [
+ "common",
  "soroban-sdk",
 ]
 

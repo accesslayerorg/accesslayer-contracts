@@ -36,19 +36,7 @@ pub struct AssetBalance {
     pub drift_bps: i32,
 }
 
-#[contracttype]
-enum DataKey {
-    Governor,
-    Keeper,
-    Targets,
-    Routes,
-    Caps,
-    SwapsPaused,
-    PeriodVolume(u64),
-    TimelockDelay,
-    PendingTargets,
-    PendingTargetsTime,
-}
+use common::keys::treasury_diversification::DataKey;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

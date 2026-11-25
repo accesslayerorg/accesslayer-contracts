@@ -8,6 +8,8 @@ For Soroban TTL and rent-bump expectations specific to creator profiles and hold
 
 For key staking storage keys and the data model, see [key-staking-storage.md](./key-staking-storage.md).
 
+For the shared storage key registry (`common/src/keys.rs`), its collision, golden-file and raw-key lint tests, and the rules for adding keys, see [storage-key-registry.md](./storage-key-registry.md).
+
 ## Overview
 
 Access Layer contracts use Soroban's persistent storage to maintain creator profiles, key balances, and protocol configuration. Understanding these storage invariants is critical for contributors working on contract logic.

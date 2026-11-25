@@ -42,12 +42,7 @@ pub enum SessionNonceError {
     NonceOverflow = 2,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    /// Next unused nonce for a wallet. Absent means `0`.
-    Nonce(Address),
-}
+pub use common::keys::session_nonce::DataKey;
 
 /// Payload of the `ActionExecuted` event.
 ///

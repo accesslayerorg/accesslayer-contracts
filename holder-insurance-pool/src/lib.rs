@@ -24,15 +24,7 @@ pub struct Cover {
     pub expiry: u32,
     pub claimed: bool,
 }
-#[contracttype]
-enum Key {
-    Admin,
-    Pool,
-    NextId,
-    Cover(u64),
-    KeyTotal(Address),
-    Trigger(Address),
-}
+use common::keys::holder_insurance_pool::Key;
 const RESERVE_BPS: u32 = 2_000;
 #[contract]
 pub struct HolderInsurancePool;

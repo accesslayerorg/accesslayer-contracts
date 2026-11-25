@@ -29,12 +29,7 @@ pub enum Error {
     Timelock = 5,
 }
 
-#[contracttype]
-enum Key {
-    Admin,
-    Mode,
-    PendingNormal(u32),
-}
+use common::keys::safe_mode_contract::Key;
 
 const NORMAL_DELAY: u32 = 100;
 

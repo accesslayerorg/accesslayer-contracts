@@ -41,10 +41,7 @@ pub struct KeyMarket {
     pub liquidity: i128,
     pub fee_bps: u32,
 }
-#[contracttype]
-enum Key {
-    Market(Address),
-}
+use common::keys::batch_trade_contract::Key;
 #[contract]
 pub struct BatchTradeContract;
 fn quote(m: &KeyMarket, i: &SwapItem) -> Result<SwapResult, Error> {
