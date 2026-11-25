@@ -77,3 +77,25 @@ fn test_restoring_serves_reads_gates_buys_and_restores_state() {
     client.buy_key(&creator, &holder, &KEY_PRICE, &None);
     assert_eq!(client.get_balance(&creator, &holder), balance_before + 1);
 }
+
+#[test]
+fn test_archived_balance_is_never_silently_zero() {
+    let env = test_env_with_auths();
+    let (client, _oracle, creator, holder) = setup(&env);
+
+    let balance_before = client.get_balance(&creator, &holder);
+    assert_eq!(balance_before, 2);
+
+    // Archive the creator; the balance must not be reported as zero.
+    client.archive_creator(&creator);
+    let archived_read = client.try_get_balance(&creator, &holder);
+    assert!(
+        !matches!(archived_read, Ok(Ok(0))),
+        "archived balance must not silently read as zero"
+    );
+
+    // After restoration the original balance is intact.
+    client.begin_restore(&creator);
+    client.complete_restore(&creator);
+    assert_eq!(client.get_balance(&creator, &holder), balance_before);
+}

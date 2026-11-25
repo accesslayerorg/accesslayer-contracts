@@ -14,6 +14,11 @@ pub const MAX_PAGE_LIMIT: u32 = 100;
 /// Maximum size for top holders list.
 pub const MAX_TOP_HOLDERS_SIZE: u32 = 50;
 
+/// TTL threshold and extension target (in ledgers) for enumeration entries.
+/// Any entry below `TTL_THRESHOLD` is extended to `TTL_EXTEND_TO`.
+pub const TTL_THRESHOLD: u32 = 100000;
+pub const TTL_EXTEND_TO: u32 = 200000;
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub enum HolderEnumerationKey {
@@ -70,8 +75,9 @@ pub fn add_holder(env: &Env, key_id: Address, holder: Address) -> Result<(), Con
     // Increment count
     env.storage().persistent().set(&count_key, &(count + 1));
 
-    // Extend TTL for the entries
+    // Extend TTL for every entry written above, not just the index
     extend_holder_ttl(env, &key_id, &holder);
+    extend_count_and_slot_ttl(env, &key_id, count);
 
     Ok(())
 }
@@ -283,7 +289,19 @@ fn extend_holder_ttl(env: &Env, key_id: &Address, holder: &Address) {
     let holder_index_key = HolderEnumerationKey::HolderIndex(key_id.clone(), holder.clone());
     env.storage()
         .persistent()
-        .extend_ttl(&holder_index_key, 100000, 200000);
+        .extend_ttl(&holder_index_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+}
+
+/// Extend TTL for the count and by-index slot entries written by `add_holder`.
+fn extend_count_and_slot_ttl(env: &Env, key_id: &Address, slot: u32) {
+    let count_key = HolderEnumerationKey::HolderCount(key_id.clone());
+    let by_index_key = HolderEnumerationKey::HolderByIndex(key_id.clone(), slot);
+    env.storage()
+        .persistent()
+        .extend_ttl(&count_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+    env.storage()
+        .persistent()
+        .extend_ttl(&by_index_key, TTL_THRESHOLD, TTL_EXTEND_TO);
 }
 
 /// Bump holder index TTL (maintenance function).
