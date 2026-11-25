@@ -421,6 +421,31 @@ fn snapshot_pruned_after_retention_window() {
 }
 
 #[test]
+fn sparse_snapshot_cleanup_resumes_from_the_stored_cursor() {
+    let (env, client, admin) = setup();
+    let creator = Address::generate(&env);
+    let governance = Address::generate(&env);
+    register(&env, &client, &creator);
+    client.set_governance_address(&admin, &governance);
+    client.set_snapshot_retention(&admin, &5);
+    let holders = soroban_sdk::Vec::new(&env);
+
+    client.take_snapshot_governance(&governance, &creator, &1, &holders);
+    client.take_snapshot_governance(&governance, &creator, &75, &holders);
+    env.ledger().with_mut(|ledger| ledger.sequence_number += 10);
+    client.take_snapshot_governance(&governance, &creator, &80, &holders);
+
+    assert!(client.get_snapshot_meta(&creator, &1).is_none());
+    assert_eq!(client.prune_snapshot_page(&creator, &80), Some(34));
+    assert_eq!(client.prune_snapshot_page(&creator, &80), Some(66));
+    assert!(client.get_snapshot_meta(&creator, &75).is_some());
+    assert_eq!(client.prune_snapshot_page(&creator, &80), Some(76));
+    assert!(client.get_snapshot_meta(&creator, &75).is_none());
+    assert_eq!(client.prune_snapshot_page(&creator, &80), None);
+    assert!(client.get_snapshot_meta(&creator, &80).is_some());
+}
+
+#[test]
 fn snapshot_not_pruned_within_retention_window() {
     let (env, client, admin) = setup();
     let creator = Address::generate(&env);

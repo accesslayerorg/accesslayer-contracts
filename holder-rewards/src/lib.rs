@@ -13,12 +13,9 @@ mod test;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/// Maximum number of non-zero holder balances snapshotted per airdrop.
+/// Maximum number of holder registry entries examined per airdrop.
 ///
-/// The holder registry is append-only and can grow without bound, so a single
-/// `create_airdrop` call is capped the same way creator-keys bounds
-/// `take_snapshot` and `airdrop_keys`. A key with more holders than this
-/// needs its rewards split across separate airdrops.
+/// Zero balances also count toward this limit because each requires a read.
 pub const MAX_AIRDROP_HOLDERS: u32 = 100;
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -44,7 +41,7 @@ pub enum ContractError {
     AlreadyClaimed = 6,
     /// The wallet held no keys at the snapshot block and can claim nothing.
     NoAllocation = 7,
-    /// The key has more non-zero holders than [`MAX_AIRDROP_HOLDERS`].
+    /// The registry has more entries than [`MAX_AIRDROP_HOLDERS`].
     HolderLimitExceeded = 8,
     /// Arithmetic overflow.
     Overflow = 9,
@@ -245,8 +242,8 @@ impl HolderRewardsContract {
     /// - [`ContractError::Unauthorized`] if `caller` is neither the creator
     ///   nor the admin.
     /// - [`ContractError::NotPositiveAmount`] if `total_amount <= 0`.
-    /// - [`ContractError::HolderLimitExceeded`] if the key has more than
-    ///   [`MAX_AIRDROP_HOLDERS`] non-zero holder balances.
+    /// - [`ContractError::HolderLimitExceeded`] if the key's registry contains more
+    ///   than [`MAX_AIRDROP_HOLDERS`] entries.
     /// - [`ContractError::NoHolders`] if no holder has a non-zero balance.
     pub fn create_airdrop(
         env: Env,
@@ -269,6 +266,9 @@ impl HolderRewardsContract {
         let creator_keys_addr = read_creator_keys(&env).ok_or(ContractError::NotInitialized)?;
         let reader = CreatorKeysReader::new(&env, &creator_keys_addr);
         let holders = reader.get_holder_registry(&key_id);
+        if holders.len() > MAX_AIRDROP_HOLDERS {
+            return Err(ContractError::HolderLimitExceeded);
+        }
 
         let airdrop_id: u64 = env
             .storage()
@@ -280,17 +280,10 @@ impl HolderRewardsContract {
         // written, and the total supply they sum to is frozen in the airdrop
         // record so later balance changes cannot shift any allocation.
         let mut total_snapshot_supply: u32 = 0;
-        let mut holders_snapshotted: u32 = 0;
         for wallet in holders.iter() {
             let balance = reader.get_key_balance(&key_id, &wallet);
             if balance == 0 {
                 continue;
-            }
-            holders_snapshotted = holders_snapshotted
-                .checked_add(1)
-                .ok_or(ContractError::Overflow)?;
-            if holders_snapshotted > MAX_AIRDROP_HOLDERS {
-                return Err(ContractError::HolderLimitExceeded);
             }
             total_snapshot_supply = total_snapshot_supply
                 .checked_add(balance)
