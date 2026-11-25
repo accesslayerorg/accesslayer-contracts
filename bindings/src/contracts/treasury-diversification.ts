@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: treasury-diversification
-// WASM SHA-256: d158c100861598c30633b1851a133e36c776a88b5decd8249ecf7f8ceac424a5
+// Interface SHA-256: c13f603b5848b0122d85da3080b8ea14cd8ee3730fa351c6bda418a70099c392
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

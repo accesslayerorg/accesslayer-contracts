@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: key-health-score
-// WASM SHA-256: 1c08c8af332effad7a84767f53fa57110df210edba85abc0bbb8a865efebf62a
+// Interface SHA-256: d897b994c57521fb6f3b629aca5db36064492d90e5057a31aa61f8583f432f70
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

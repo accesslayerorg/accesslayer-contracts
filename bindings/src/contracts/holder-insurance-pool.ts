@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: holder-insurance-pool
-// WASM SHA-256: d89ea9f85559d948fdf13ebdd9a9d2464c3ec7cea6bc6d5e1f0c6a56c93ca37e
+// Interface SHA-256: 6b54bd48a955072dc6fa37a97b1c1e14fb8a2aa1e6c9833f92ae789cc66169ff
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

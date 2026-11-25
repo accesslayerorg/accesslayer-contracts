@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: key-analytics
-// WASM SHA-256: 97c17f25160600076e7a06ad14c2f155dc72ea97eda9ac87bdc9c5d3dd533c2f
+// Interface SHA-256: af5b013e74c6f932034fe2182a4343f42c02e03a51aed6c5559cbb1f7c2b90b2
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

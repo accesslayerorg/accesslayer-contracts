@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: key-liquidity-depth
-// WASM SHA-256: ea0a4d2125f12902cd009c7ed53a7fa21a7124260d90db1a76aec24a379fd657
+// Interface SHA-256: 11d8c5d109ac438906a459fe8587475cdd4789ea1703bfc79837ddde949712b2
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

@@ -8,7 +8,6 @@
       "name": "batch-trade-contract",
       "crate": "batch-trade-contract",
       "crateDir": "batch-trade-contract",
-      "wasmSha256": "3c13c0d284e5a3824eaa1d1256859d7b878a72316dbccd7512f93426ae41adfc",
       "interfaceSha256": "ad4c537f4567493fcbd6986fa6935569dce20a0b5242beb1deb944bfe5bbdc78",
       "entrypoints": 3,
       "errorEnums": [
@@ -22,7 +21,6 @@
       "name": "fee-discount-contract",
       "crate": "fee-discount-contract",
       "crateDir": "fee-discount-contract",
-      "wasmSha256": "88b066b9232ddd0287d8672e8f1e92519b23cf2c7ae5f4fa13a3194a0d1f5b29",
       "interfaceSha256": "13878dc0a50b51d04d0f460abd2b90f1b5de173c7b2a9696d3ab93c0cea0cd6a",
       "entrypoints": 4,
       "errorEnums": [
@@ -36,7 +34,6 @@
       "name": "holder-insurance-pool",
       "crate": "holder-insurance-pool",
       "crateDir": "holder-insurance-pool",
-      "wasmSha256": "d89ea9f85559d948fdf13ebdd9a9d2464c3ec7cea6bc6d5e1f0c6a56c93ca37e",
       "interfaceSha256": "6b54bd48a955072dc6fa37a97b1c1e14fb8a2aa1e6c9833f92ae789cc66169ff",
       "entrypoints": 6,
       "errorEnums": [
@@ -51,7 +48,6 @@
       "name": "key-analytics",
       "crate": "key-analytics",
       "crateDir": "key-analytics",
-      "wasmSha256": "97c17f25160600076e7a06ad14c2f155dc72ea97eda9ac87bdc9c5d3dd533c2f",
       "interfaceSha256": "af5b013e74c6f932034fe2182a4343f42c02e03a51aed6c5559cbb1f7c2b90b2",
       "entrypoints": 5,
       "errorEnums": [
@@ -65,7 +61,6 @@
       "name": "key-health-score",
       "crate": "key-health-score",
       "crateDir": "key-health-score",
-      "wasmSha256": "1c08c8af332effad7a84767f53fa57110df210edba85abc0bbb8a865efebf62a",
       "interfaceSha256": "d897b994c57521fb6f3b629aca5db36064492d90e5057a31aa61f8583f432f70",
       "entrypoints": 8,
       "errorEnums": [
@@ -77,7 +72,6 @@
       "name": "key-liquidity-depth",
       "crate": "key-liquidity-depth",
       "crateDir": "key-liquidity-depth",
-      "wasmSha256": "ea0a4d2125f12902cd009c7ed53a7fa21a7124260d90db1a76aec24a379fd657",
       "interfaceSha256": "11d8c5d109ac438906a459fe8587475cdd4789ea1703bfc79837ddde949712b2",
       "entrypoints": 6,
       "errorEnums": [
@@ -91,7 +85,6 @@
       "name": "key-staking-contract",
       "crate": "key-staking-contract",
       "crateDir": "key-staking-contract",
-      "wasmSha256": "30246d58d26d041b826d37fb1a9db6a494cfc0973a95fea2368d638cc41db5cd",
       "interfaceSha256": "841c02c950804cf0e201e00633d65acffcf477907dd88b43ff5cf926ae6fa217",
       "entrypoints": 11,
       "errorEnums": [
@@ -108,7 +101,6 @@
       "name": "launch-auction",
       "crate": "launch-auction",
       "crateDir": "launch-auction",
-      "wasmSha256": "6bec8b4177375034954be77c87b1a020b616861036bcaf3503238a6bc07734c6",
       "interfaceSha256": "4fe2a3798b2db0261f3ecea46bde7a75ade3db43a0f20ad1989111012699e547",
       "entrypoints": 9,
       "errorEnums": [
@@ -124,7 +116,6 @@
       "name": "lp-reward-contract",
       "crate": "lp-reward-contract",
       "crateDir": "lp-reward-contract",
-      "wasmSha256": "802136518857659d3e01c4d12c9d4c99ffd56c807b27d7d63e0d45cf1be2d834",
       "interfaceSha256": "d149b0cbce369b08dd0734228ed855baad38607781bddf57f1e9357eca051197",
       "entrypoints": 9,
       "errorEnums": [
@@ -140,7 +131,6 @@
       "name": "multisig-admin",
       "crate": "multisig-admin",
       "crateDir": "multisig-admin",
-      "wasmSha256": "9f4870f6ced321de4481e5df83bcbb56105144aa7bb0b4d932df096c3e00dd46",
       "interfaceSha256": "31eee1d6b354f440ff35a214db31e2bc1b5ae6bc963f6ace88700f245469232f",
       "entrypoints": 12,
       "errorEnums": [
@@ -156,7 +146,6 @@
       "name": "nonce-registry",
       "crate": "nonce-registry",
       "crateDir": "nonce-registry",
-      "wasmSha256": "5d2919ce993fbbc9994c3d02c7c09d62e4f117b2226240b67432c3689a1ea999",
       "interfaceSha256": "a8fe9c417902fa5c95689fa5ec30a7474a214d37ef9a9beb0e3a3980483c6e3c",
       "entrypoints": 3,
       "errorEnums": [
@@ -168,7 +157,6 @@
       "name": "personhood-hook",
       "crate": "personhood-hook",
       "crateDir": "personhood-hook",
-      "wasmSha256": "57c35be4e0f5057e36953f407879d19a999141b0d0bc799707efe0548728a261",
       "interfaceSha256": "160ed8c66ab9f58fe45661a4a4e8a9abcb8b04b383d78d9a0f8b1bbd3678b25a",
       "entrypoints": 9,
       "errorEnums": [
@@ -180,7 +168,6 @@
       "name": "referral-contract",
       "crate": "referral-contract",
       "crateDir": "referral-contract",
-      "wasmSha256": "123157b92231b453b86b72f1a381a7be46404c7147acffe867e974a2eff4378c",
       "interfaceSha256": "8678498646ccd7bbe18e414da18c61d798c6fd4971c75190b6e91ba62417a11c",
       "entrypoints": 30,
       "errorEnums": [
@@ -198,7 +185,6 @@
       "name": "safe-mode-contract",
       "crate": "safe-mode-contract",
       "crateDir": "safe-mode-contract",
-      "wasmSha256": "1d77242f23bb3fa25309fb387f85a6581836a92363ad1a62a7b379c38480d278",
       "interfaceSha256": "71ccd52f75e1ed8679aaea629d39a92d398b06fd957d0b3f125d71111c0ef6a5",
       "entrypoints": 5,
       "errorEnums": [
@@ -212,7 +198,6 @@
       "name": "sealed-launch-auction",
       "crate": "sealed-launch-auction",
       "crateDir": "sealed-launch-auction",
-      "wasmSha256": "e96534e373742d2fc8c75f1199c42255f469fb6e479056f43e7ed0a4a32723ad",
       "interfaceSha256": "fa3afa9a7595fbcadf28cb5c907199ee46dd707c5fa8a6978b6de1fb88ef6956",
       "entrypoints": 4,
       "errorEnums": [
@@ -226,7 +211,6 @@
       "name": "session-nonce",
       "crate": "session-nonce",
       "crateDir": "session-nonce",
-      "wasmSha256": "19e1675edd36821bc0df0a6c34943583d354487be4b1e2abae2ead1f4df60864",
       "interfaceSha256": "e5d32cc1e810752e612eefb364617d203723aaf100315692293a6befa151dd88",
       "entrypoints": 2,
       "errorEnums": [
@@ -238,7 +222,6 @@
       "name": "social-metadata-contract",
       "crate": "social-metadata-contract",
       "crateDir": "social-metadata-contract",
-      "wasmSha256": "71ab5631c6bf25eff05141f1a9c5bde4129bbaf01b542dc688732b176912c61e",
       "interfaceSha256": "f41dac852c8bb0991399f1b4a48053970f6964d939cedce79a8162844c82e48d",
       "entrypoints": 4,
       "errorEnums": [
@@ -252,7 +235,6 @@
       "name": "sponsored-transactions",
       "crate": "sponsored-transactions",
       "crateDir": "sponsored-transactions",
-      "wasmSha256": "f73795de4529971c52c2359a43786f66d7032846e5ed2353862e93282fe5c4dc",
       "interfaceSha256": "07b6615815c237a463b5c5dab866c33f9d2ca0f23415a5b472455a705c83ef92",
       "entrypoints": 3,
       "errorEnums": [
@@ -266,7 +248,6 @@
       "name": "subscription-contract",
       "crate": "subscription-contract",
       "crateDir": "subscription-contract",
-      "wasmSha256": "49863f273c7734b4a2539b4ee840383286a9dfcc52c205d9f74745dcdb1302be",
       "interfaceSha256": "0796ab6bf7cb47da54f94cdf6326953abf82bbc144fde8b8cfa5afa7a64c0524",
       "entrypoints": 4,
       "errorEnums": [
@@ -281,7 +262,6 @@
       "name": "treasury-diversification",
       "crate": "treasury-diversification",
       "crateDir": "treasury-diversification",
-      "wasmSha256": "d158c100861598c30633b1851a133e36c776a88b5decd8249ecf7f8ceac424a5",
       "interfaceSha256": "c13f603b5848b0122d85da3080b8ea14cd8ee3730fa351c6bda418a70099c392",
       "entrypoints": 9,
       "errorEnums": [
@@ -293,7 +273,6 @@
       "name": "vote-escrow-contract",
       "crate": "vote-escrow-contract",
       "crateDir": "vote-escrow-contract",
-      "wasmSha256": "2a67dd138662e538fc7419f9ba4f857038797edcec23819f9a9157f4f85739ba",
       "interfaceSha256": "77e29735292345c995abc2645b3540f77f2da1e36756fc9f942e2d3dac1bc36a",
       "entrypoints": 6,
       "errorEnums": [
@@ -309,23 +288,23 @@
   "skipped": [
     {
       "crate": "creator-keys",
-      "reason": "wasm not found (run without --no-build, or pass --wasm-dir)"
+      "reason": "wasm build failed"
     },
     {
       "crate": "creator-keys-factory",
-      "reason": "wasm not found (run without --no-build, or pass --wasm-dir)"
+      "reason": "wasm build failed"
     },
     {
       "crate": "creator-penalty",
-      "reason": "wasm not found (run without --no-build, or pass --wasm-dir)"
+      "reason": "wasm build failed"
     },
     {
       "crate": "dividend-contract",
-      "reason": "wasm not found (run without --no-build, or pass --wasm-dir)"
+      "reason": "wasm build failed"
     },
     {
       "crate": "storage-cleanup",
-      "reason": "wasm not found (run without --no-build, or pass --wasm-dir)"
+      "reason": "wasm build failed"
     }
   ]
 }

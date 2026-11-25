@@ -15,7 +15,7 @@ Package: [`bindings/`](../bindings) (`@accesslayer/contracts-bindings`).
 | `bindings/src/errors.ts` | contract spec (`udt_error_enum_v0`) | Error-code → variant registry |
 | `bindings/src/events.ts` | Rust event definitions + spec payload types | Typed event decoders |
 | `bindings/src/index.ts` | the contract list | Package barrel (one namespace per contract) |
-| `bindings/manifest.json` | generation run | Package version, per-contract `wasmSha256`, interface hash, entrypoint/event counts, skipped contracts |
+| `bindings/manifest.json` | generation run | Package version, per-contract `interfaceSha256`, entrypoint/event counts, skipped contracts |
 
 `bindings/src/decode.ts` is the only hand-written runtime file: it converts
 RPC/XDR event shapes into plain values.
@@ -45,7 +45,11 @@ then runs [`scripts/postprocess-bindings.mjs`](../scripts/postprocess-bindings.m
 to write the committed files.
 
 The output is deterministic (sorted, no timestamps, fixed headers), so an
-unchanged interface produces a byte-identical tree.
+unchanged interface produces a byte-identical tree. It keys on the **interface
+hash**, not the WASM hash: a WASM build embeds absolute toolchain paths, so its
+bytes differ between machines and Rust releases even when the interface is
+unchanged. An interface change always changes `interfaceSha256`, which is what
+the drift check compares.
 
 ### A contract that does not compile
 
@@ -93,8 +97,8 @@ a regenerated commit therefore cannot merge.
 Tag the release `bindings-v<version>` (the tag must match
 `bindings/package.json`). The workflow re-runs generation, verifies the tree is
 clean, and publishes to npm with provenance. The published `manifest.json`
-records the matching `wasmSha256` for every contract, so consumers can confirm
-the bindings match the deployed WASM.
+records the matching `interfaceSha256` for every contract, so consumers can
+confirm the bindings match the deployed interface.
 
 Required configuration:
 
@@ -106,9 +110,20 @@ Required configuration:
 
 1. Depend on a fixed version (`"@accesslayer/contracts-bindings": "0.1.0"`, not a
    range) so a contract interface change never arrives unreviewed.
-2. Verify `manifest.json`'s `wasmSha256` for each contract you call against the
-   deployed contract hash (`stellar contract info hash --wasm`,
-   or your deployment record — see [deploy-artifacts.md](./deploy-artifacts.md)).
+2. Verify `manifest.json`'s `interfaceSha256` for each contract you call against
+   the deployed contract's interface, which is toolchain-independent:
+
+   ```bash
+   stellar contract info interface --wasm <deployed.wasm> --output json | sha256sum
+   # or read the interface straight from the network:
+   stellar contract info interface --contract-id <CONTRACT_ID> --output json | sha256sum
+   ```
+
+   Compare it with `interfaceSha256` in `manifest.json` (equivalently, compare
+   the interface embedded in the generated module's header comment). For the
+   deployed contract's WASM hash, use `stellar contract info hash --wasm`
+   (see [deploy-artifacts.md](./deploy-artifacts.md)); that hash identifies the
+   deployed build, not the bindings.
 3. Commit the lockfile change together with the review of the generated diff.
 4. Bump deliberately, reading the diff for the namespaces you use. A contract
    missing from `manifest.json` is either skipped (see `skipped`) or not part of

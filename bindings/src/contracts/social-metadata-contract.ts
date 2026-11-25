@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: social-metadata-contract
-// WASM SHA-256: 71ab5631c6bf25eff05141f1a9c5bde4129bbaf01b542dc688732b176912c61e
+// Interface SHA-256: f41dac852c8bb0991399f1b4a48053970f6964d939cedce79a8162844c82e48d
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

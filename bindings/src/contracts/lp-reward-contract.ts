@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: lp-reward-contract
-// WASM SHA-256: 802136518857659d3e01c4d12c9d4c99ffd56c807b27d7d63e0d45cf1be2d834
+// Interface SHA-256: d149b0cbce369b08dd0734228ed855baad38607781bddf57f1e9357eca051197
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

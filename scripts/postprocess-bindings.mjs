@@ -3,7 +3,7 @@
 // published `bindings/` package.
 //
 // Input layout (produced by scripts/generate-bindings.sh):
-//   <work>/contracts.json          [{ name, crate, crateDir, wasmSha256, specSha256 }]
+//   <work>/contracts.json          [{ name, crate, crateDir, interfaceSha256 }]
 //   <work>/<name>/client/src/index.ts
 //   <work>/<name>/spec.json
 //   <work>/skipped.json            (optional) [{ crate, reason }]
@@ -13,7 +13,7 @@
 //   bindings/src/errors.ts             typed error-enum registry
 //   bindings/src/events.ts             typed event decoders + payload interfaces
 //   bindings/src/index.ts              package barrel
-//   bindings/manifest.json             contract -> wasm hash / interface summary
+//   bindings/manifest.json             contract -> interface hash / summary
 //
 // The output is intentionally deterministic: sorted keys, no timestamps, and a
 // fixed header, so a regeneration on an unchanged interface produces a byte
@@ -37,11 +37,16 @@ function parseArgs(argv) {
   return args;
 }
 
-const GENERATED_HEADER = (source, wasmSha256) =>
+// The interface hash identifies the contract spec the file was generated from.
+// The WASM hash is deliberately not recorded: a WASM build embeds absolute
+// toolchain paths, so its bytes (and hash) differ between machines and Rust
+// releases even when the interface is unchanged. That would make the committed
+// output look stale after every regeneration on a different runner.
+const GENERATED_HEADER = (source, interfaceSha256) =>
   [
     "// AUTO-GENERATED FILE - DO NOT EDIT.",
     `// Source contract: ${source}`,
-    `// WASM SHA-256: ${wasmSha256}`,
+    `// Interface SHA-256: ${interfaceSha256}`,
     "// Regenerate with: ./scripts/generate-bindings.sh",
     "",
   ].join("\n");
@@ -424,7 +429,7 @@ function main() {
 
     writeFileSync(
       join(contractsOut, `${descriptor.name}.ts`),
-      `${GENERATED_HEADER(descriptor.crateDir, descriptor.wasmSha256)}${client}`,
+      `${GENERATED_HEADER(descriptor.crateDir, descriptor.interfaceSha256)}${client}`,
     );
     indexLines.push(`export * as ${alias} from "./contracts/${descriptor.name}.js";`);
 
@@ -492,7 +497,6 @@ function main() {
       name: descriptor.name,
       crate: descriptor.crate,
       crateDir: descriptor.crateDir,
-      wasmSha256: descriptor.wasmSha256,
       interfaceSha256: descriptor.interfaceSha256,
       entrypoints: spec.filter((entry) => entry.function_v0).length,
       errorEnums: errorEnums.map((entry) => entry.name),

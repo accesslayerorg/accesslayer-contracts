@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: sponsored-transactions
-// WASM SHA-256: f73795de4529971c52c2359a43786f66d7032846e5ed2353862e93282fe5c4dc
+// Interface SHA-256: 07b6615815c237a463b5c5dab866c33f9d2ca0f23415a5b472455a705c83ef92
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

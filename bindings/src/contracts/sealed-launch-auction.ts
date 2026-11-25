@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: sealed-launch-auction
-// WASM SHA-256: e96534e373742d2fc8c75f1199c42255f469fb6e479056f43e7ed0a4a32723ad
+// Interface SHA-256: fa3afa9a7595fbcadf28cb5c907199ee46dd707c5fa8a6978b6de1fb88ef6956
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

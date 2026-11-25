@@ -143,7 +143,11 @@ for crate in $CRATES; do
   echo "==> $crate"
   if ! wasm="$(resolve_wasm "$crate")"; then
     if [ -f "$WORK_DIR/$crate.build.log" ]; then
-      reason="$(grep -m1 '^error' "$WORK_DIR/$crate.build.log" | cut -c1-160 || echo 'wasm build failed')"
+      # The reason is committed, so it must not contain compiler wording:
+      # diagnostics change between Rust releases and would show up as binding
+      # drift. Print the real error here and keep the manifest entry stable.
+      reason="wasm build failed"
+      grep -m1 '^error' "$WORK_DIR/$crate.build.log" >&2 || true
     else
       reason="wasm not found (run without --no-build, or pass --wasm-dir)"
     fi
@@ -167,12 +171,13 @@ for crate in $CRATES; do
     continue
   fi
 
-  wasm_sha="$(sha256sum "$wasm" | cut -d' ' -f1)"
+  # Only the interface hash is recorded. WASM bytes embed absolute toolchain
+  # paths, so a WASM hash is not reproducible across machines or Rust releases.
   interface_sha="$(sha256sum "$WORK_DIR/$crate/spec.json" | cut -d' ' -f1)"
   if [ "$FIRST_ENTRY" -eq 0 ]; then printf ',' >> "$CONTRACTS_JSON"; fi
   FIRST_ENTRY=0
-  printf '{"name":"%s","crate":"%s","crateDir":"%s","wasmSha256":"%s","interfaceSha256":"%s"}' \
-    "$crate" "$crate" "$crate_dir" "$wasm_sha" "$interface_sha" >> "$CONTRACTS_JSON"
+  printf '{"name":"%s","crate":"%s","crateDir":"%s","interfaceSha256":"%s"}' \
+    "$crate" "$crate" "$crate_dir" "$interface_sha" >> "$CONTRACTS_JSON"
   printf '\n'
 done
 printf ']' >> "$CONTRACTS_JSON"

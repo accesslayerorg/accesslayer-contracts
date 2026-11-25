@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: vote-escrow-contract
-// WASM SHA-256: 2a67dd138662e538fc7419f9ba4f857038797edcec23819f9a9157f4f85739ba
+// Interface SHA-256: 77e29735292345c995abc2645b3540f77f2da1e36756fc9f942e2d3dac1bc36a
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

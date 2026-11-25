@@ -1,6 +1,6 @@
 // AUTO-GENERATED FILE - DO NOT EDIT.
 // Source contract: personhood-hook
-// WASM SHA-256: 57c35be4e0f5057e36953f407879d19a999141b0d0bc799707efe0548728a261
+// Interface SHA-256: 160ed8c66ab9f58fe45661a4a4e8a9abcb8b04b383d78d9a0f8b1bbd3678b25a
 // Regenerate with: ./scripts/generate-bindings.sh
 import { Buffer } from "buffer";
 import { Address } from "@stellar/stellar-sdk";

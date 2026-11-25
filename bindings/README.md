@@ -20,7 +20,8 @@ npm install @accesslayer/contracts-bindings
 ## Use a typed client
 
 ```ts
-import { holderInsurancePool, Networks } from "@accesslayer/contracts-bindings";
+import { Networks } from "@stellar/stellar-sdk";
+import { holderInsurancePool } from "@accesslayer/contracts-bindings";
 
 const client = new holderInsurancePool.Client({
   contractId: process.env.POOL_CONTRACT_ID!,
@@ -68,9 +69,11 @@ if (error) console.log(error.message);
 The package version describes a snapshot of **all** contract interfaces. To pin:
 
 1. Pin the package version in `package.json` (`"@accesslayer/contracts-bindings": "0.1.0"`).
-2. Check `manifest.json` for the `wasmSha256` of the contracts you call and
-   verify it matches the hash of the deployed contract (`stellar contract
-   info hash` or the deployment record).
+2. Check `manifest.json` for the `interfaceSha256` of the contracts you call and
+   verify it matches the deployed contract's interface:
+   `stellar contract info interface --wasm <deployed.wasm> --output json | sha256sum`.
+   The interface hash is toolchain-independent; a WASM hash is not, so it is not
+   what the bindings are pinned to.
 3. Re-pin only after reviewing the generated diff for the contracts you use.
 
 `manifest.json` also lists contracts that were skipped during generation (with a
