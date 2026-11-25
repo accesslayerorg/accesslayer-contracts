@@ -73,6 +73,7 @@ pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
 pub mod acl_roles;
 pub mod balance_attestation;
+pub mod balance_checkpoints;
 pub mod bundle;
 pub mod co_creators;
 pub mod community_polls;
@@ -3670,6 +3671,7 @@ pub fn write_creator_supply(env: &Env, creator_id: &Address, supply: u32) {
         .expect("write_creator_supply: creator profile not found");
     profile.supply = supply;
     env.storage().persistent().set(&key, &profile);
+    balance_checkpoints::record_supply_checkpoint(env, creator_id, supply);
 }
 
 /// Reads an empty string for use as a default in read-only view methods.
@@ -8204,10 +8206,8 @@ impl CreatorKeysContract {
                 .checked_add(1)
                 .ok_or(ContractError::Overflow)?;
             // Balance key is scoped by (creator, holder) so creator positions cannot collide.
-            env.storage().persistent().set(&balance_key, &new_balance);
-            // Grant the balance entry the full TTL window so long-held positions
-            // survive the same horizon as creator state between trades.
-            extend_key_ttl_to_full_window(&env, &balance_key);
+            // The helper also records a ledger checkpoint for historical lookups.
+            balance_checkpoints::write_holder_balance(&env, &creator, &buyer, new_balance);
             append_holder_to_registry(&env, &creator, &buyer);
 
             // Record purchase for launch window cap tracking
@@ -8802,10 +8802,8 @@ impl CreatorKeysContract {
             .checked_add(1)
             .ok_or(ContractError::Overflow)?;
         // Balance key is scoped by (creator, holder) so creator positions cannot collide.
-        env.storage().persistent().set(&balance_key, &new_balance);
-        // Grant the balance entry the full TTL window so long-held positions
-        // survive the same horizon as creator state between trades.
-        extend_key_ttl_to_full_window(&env, &balance_key);
+        // The helper also records a ledger checkpoint for historical lookups.
+        balance_checkpoints::write_holder_balance(&env, &creator, &buyer, new_balance);
         append_holder_to_registry(&env, &creator, &buyer);
 
         // SupplyCapReached (#997): fire exactly once, on the trade that fills
@@ -9187,15 +9185,14 @@ impl CreatorKeysContract {
         // Apply any newly reached graduated supply milestone (fee reduction).
         supply_milestones::check_and_apply_milestone(&env, &creator)?;
         supply_milestones::check_and_apply_curve_slope_milestone(&env, &creator)?;
+        // Writes (or clears) the balance and always records the checkpoint so
+        // historical lookups see the exit at this ledger.
+        balance_checkpoints::write_holder_balance(&env, &creator, &seller, new_balance);
         if new_balance == 0 {
-            env.storage().persistent().remove(&balance_key);
             env.storage()
                 .persistent()
                 .remove(&constants::storage::last_buy_timestamp(&creator, &seller));
             vote_delegation::prune_if_zero_balance(&env, &creator, &seller);
-        } else {
-            env.storage().persistent().set(&balance_key, &new_balance);
-            extend_key_ttl_to_full_window(&env, &balance_key);
         }
         // Launch penalty: if the sell occurs within the launch window
         // (7 days / 120,960 ledgers of the key's creation), deduct a
@@ -9376,7 +9373,8 @@ impl CreatorKeysContract {
 
         let key = constants::storage::creator(&creator);
         env.storage().persistent().set(&key, &profile);
-        env.storage().persistent().set(&balance_key, &new_balance);
+        balance_checkpoints::write_holder_balance(&env, &creator, &caller, new_balance);
+        balance_checkpoints::record_supply_checkpoint(&env, &creator, profile.supply);
         credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
 
         env.events().publish(
@@ -10480,13 +10478,14 @@ impl CreatorKeysContract {
             let new_balance = current_balance
                 .checked_add(entry.amount)
                 .ok_or(ContractError::Overflow)?;
-            env.storage().persistent().set(&balance_key, &new_balance);
+            balance_checkpoints::write_holder_balance(&env, &creator, &entry.address, new_balance);
             append_holder_to_registry(&env, &creator, &entry.address);
         }
 
         profile.supply = new_supply;
         let key = constants::storage::creator(&creator);
         env.storage().persistent().set(&key, &profile);
+        balance_checkpoints::record_supply_checkpoint(&env, &creator, new_supply);
 
         if protocol_fee > 0 {
             credit_protocol_fee_recipient_balance(&env, protocol_fee)?;
@@ -11608,8 +11607,10 @@ impl CreatorKeysContract {
         let snapshot_ledger = env.ledger().sequence();
         let mut total_holders: u32 = 0;
         for holder in holders.iter() {
-            let balance_key = constants::storage::holder_balance_key(&creator, &holder);
-            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            // Historical read: the snapshot records the balance in force at
+            // `snapshot_ledger`, not whatever the live entry says later.
+            let balance =
+                balance_checkpoints::balance_at_or_live(&env, &creator, &holder, snapshot_ledger);
             let staked_key = constants::storage::staked_balance(&creator, &holder);
             let staked_balance: u32 = env.storage().persistent().get(&staked_key).unwrap_or(0);
 
@@ -11968,12 +11969,10 @@ impl CreatorKeysContract {
         let mut eligible_balances = soroban_sdk::Vec::new(&env);
         let mut total_eligible_keys: u32 = 0;
 
+        let snapshot_ledger = env.ledger().sequence();
         for holder in registry.iter() {
-            let balance: u32 = env
-                .storage()
-                .persistent()
-                .get(&constants::storage::holder_balance_key(&key_id, &holder))
-                .unwrap_or(0);
+            let balance =
+                balance_checkpoints::balance_at_or_live(&env, &key_id, &holder, snapshot_ledger);
 
             if balance > 0 {
                 total_eligible_keys = total_eligible_keys
@@ -12894,8 +12893,10 @@ impl CreatorKeysContract {
         let mut total_holders: u32 = 0;
 
         for holder in holders.iter() {
-            let balance_key = constants::storage::holder_balance_key(&creator, &holder);
-            let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            // Historical read so the governance snapshot matches the ledger
+            // recorded in its metadata even if the live entry changes later.
+            let balance =
+                balance_checkpoints::balance_at_or_live(&env, &creator, &holder, snapshot_ledger);
             let staked_key = constants::storage::staked_balance(&creator, &holder);
             let staked_balance: u32 = env.storage().persistent().get(&staked_key).unwrap_or(0);
 
@@ -13264,8 +13265,7 @@ impl CreatorKeysContract {
                 let new_balance = current_balance
                     .checked_add(1)
                     .ok_or(ContractError::Overflow)?;
-                env.storage().persistent().set(&balance_key, &new_balance);
-                extend_key_ttl_to_full_window(&env, &balance_key);
+                balance_checkpoints::write_holder_balance(&env, &creator, &buyer, new_balance);
                 append_holder_to_registry(&env, &creator, &buyer);
 
                 // Collect the dynamic protocol fee and record volume once per key.
@@ -14861,9 +14861,10 @@ impl CreatorKeysContract {
 
         let per_key_net = net_amount / profile.supply as i128;
 
+        let snapshot_ledger = env.ledger().sequence();
         for holder in holders.iter() {
-            let balance_key = constants::storage::holder_balance_key(&creator, &holder);
-            let holder_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            let holder_balance =
+                balance_checkpoints::balance_at_or_live(&env, &creator, &holder, snapshot_ledger);
 
             if holder_balance == 0 {
                 continue;
@@ -15040,7 +15041,7 @@ impl CreatorKeysContract {
         let new_balance = current_balance
             .checked_add(locked.amount)
             .ok_or(ContractError::Overflow)?;
-        env.storage().persistent().set(&balance_key, &new_balance);
+        balance_checkpoints::write_holder_balance(&env, &creator, &creator, new_balance);
         append_holder_to_registry(&env, &creator, &creator);
 
         // Update holder count if this is the creator's first key
@@ -15920,10 +15921,7 @@ impl CreatorKeysContract {
         let new_from_balance = from_balance
             .checked_sub(amount)
             .ok_or(ContractError::InsufficientBalance)?;
-        env.storage()
-            .persistent()
-            .set(&from_balance_key, &new_from_balance);
-        extend_key_ttl_to_full_window(&env, &from_balance_key);
+        balance_checkpoints::write_holder_balance(&env, &creator, &from, new_from_balance);
 
         // Decrement holder count if sender balance reaches zero.
         if new_from_balance == 0 {
@@ -15939,10 +15937,7 @@ impl CreatorKeysContract {
             .checked_add(amount)
             .ok_or(ContractError::Overflow)?;
         assert_within_holding_cap(&env, &creator, new_to_balance)?;
-        env.storage()
-            .persistent()
-            .set(&to_balance_key, &new_to_balance);
-        extend_key_ttl_to_full_window(&env, &to_balance_key);
+        balance_checkpoints::write_holder_balance(&env, &creator, &to, new_to_balance);
         append_holder_to_registry(&env, &creator, &to);
         propagate_flash_loan_guard_ledger(&env, &creator, &from, &to);
 
@@ -16290,10 +16285,7 @@ impl CreatorKeysContract {
             // Increment the recipient balance.
             let new_to_balance = to_balance.checked_add(qty).ok_or(ContractError::Overflow)?;
             assert_within_holding_cap(&env, &creator, new_to_balance)?;
-            env.storage()
-                .persistent()
-                .set(&to_balance_key, &new_to_balance);
-            extend_key_ttl_to_full_window(&env, &to_balance_key);
+            balance_checkpoints::write_holder_balance(&env, &creator, &to, new_to_balance);
             append_holder_to_registry(&env, &creator, &to);
             propagate_flash_loan_guard_ledger(&env, &creator, &from, &to);
 
@@ -16307,10 +16299,7 @@ impl CreatorKeysContract {
         }
 
         // Write the final sender balance.
-        env.storage()
-            .persistent()
-            .set(&from_balance_key, &remaining_from_balance);
-        extend_key_ttl_to_full_window(&env, &from_balance_key);
+        balance_checkpoints::write_holder_balance(&env, &creator, &from, remaining_from_balance);
 
         // Decrement holder count if the sender balance reaches zero.
         if remaining_from_balance == 0 {
@@ -16957,11 +16946,12 @@ impl CreatorKeysContract {
         let balance_key = constants::storage::holder_balance_key(&actual_key_id, &actual_wallet);
         let current_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         let new_balance = current_balance.saturating_sub(penalty_quantity);
-        if new_balance == 0 {
-            env.storage().persistent().remove(&balance_key);
-        } else {
-            env.storage().persistent().set(&balance_key, &new_balance);
-        }
+        balance_checkpoints::write_holder_balance(
+            &env,
+            &actual_key_id,
+            &actual_wallet,
+            new_balance,
+        );
 
         // Add penalty_quantity to staking_rewards pool for key_id
         let pool_key = constants::storage::staking_rewards_pool(&actual_key_id);
@@ -17885,7 +17875,7 @@ impl CreatorKeysContract {
         let new_balance = current_balance
             .checked_add(claimable)
             .ok_or(ContractError::Overflow)?;
-        env.storage().persistent().set(&balance_key, &new_balance);
+        balance_checkpoints::write_holder_balance(&env, &creator, &beneficiary, new_balance);
         append_holder_to_registry(&env, &creator, &beneficiary);
 
         // Update holder count if first keys
@@ -17976,8 +17966,7 @@ impl CreatorKeysContract {
         let new_balance = current_balance
             .checked_add(claimable_u32)
             .ok_or(ContractError::Overflow)?;
-        env.storage().persistent().set(&balance_key, &new_balance);
-        extend_key_ttl_to_full_window(&env, &balance_key);
+        balance_checkpoints::write_holder_balance(&env, &creator, &beneficiary, new_balance);
         append_holder_to_registry(&env, &creator, &beneficiary);
 
         if current_balance == 0 {
@@ -18415,7 +18404,7 @@ impl CreatorKeysContract {
         let new_balance = current_balance
             .checked_sub(quantity)
             .ok_or(ContractError::Overflow)?;
-        env.storage().persistent().set(&balance_key, &new_balance);
+        balance_checkpoints::write_holder_balance(&env, &key_id, &caller, new_balance);
 
         let new_supply = profile
             .supply
@@ -19128,8 +19117,7 @@ impl CreatorKeysContract {
                 let new_balance = current_balance
                     .checked_add(1)
                     .ok_or(ContractError::Overflow)?;
-                env.storage().persistent().set(&balance_key, &new_balance);
-                extend_key_ttl_to_full_window(&env, &balance_key);
+                balance_checkpoints::write_holder_balance(&env, &creator, &buyer, new_balance);
                 append_holder_to_registry(&env, &creator, &buyer);
 
                 i += 1;
@@ -19311,14 +19299,11 @@ impl CreatorKeysContract {
                 let key = constants::storage::creator(&creator);
                 env.storage().persistent().set(&key, &profile);
                 write_creator_supply(&env, &creator, profile.supply);
+                balance_checkpoints::write_holder_balance(&env, &creator, &seller, new_balance);
                 if new_balance == 0 {
-                    env.storage().persistent().remove(&balance_key);
                     env.storage()
                         .persistent()
                         .remove(&constants::storage::last_buy_timestamp(&creator, &seller));
-                } else {
-                    env.storage().persistent().set(&balance_key, &new_balance);
-                    extend_key_ttl_to_full_window(&env, &balance_key);
                 }
 
                 let gross_proceeds = compute_sell_proceeds(&env, &creator, price)?;
@@ -19559,14 +19544,11 @@ impl CreatorKeysContract {
                 env.storage().persistent().set(&key, &profile);
 
                 write_creator_supply(&env, &creator, profile.supply);
+                balance_checkpoints::write_holder_balance(&env, &creator, &seller, new_balance);
                 if new_balance == 0 {
-                    env.storage().persistent().remove(&balance_key);
                     env.storage()
                         .persistent()
                         .remove(&constants::storage::last_buy_timestamp(&creator, &seller));
-                } else {
-                    env.storage().persistent().set(&balance_key, &new_balance);
-                    extend_key_ttl_to_full_window(&env, &balance_key);
                 }
 
                 let proceeds = compute_sell_proceeds(&env, &creator, price)?;
