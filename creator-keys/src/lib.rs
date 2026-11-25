@@ -110,6 +110,8 @@ pub mod english_auction;
 pub mod holder_enumeration;
 pub mod badge_access_control;
 pub mod test_issues_1283_1284_1285_1286;
+pub mod basket_tokens;
+pub mod joint_keys;
 
 // Contract error variants stability and ordering:
 //
@@ -420,9 +422,23 @@ pub enum ContractError {
     /// Badge required for this action (Issue #1286).
     BadgeRequired = 161,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 161,
+    StalePrice = 162,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 162,
+    PriceDeviation = 163,
+    QuorumNotMet = 164,
+    InvalidOracleSet = 165,
+    InvalidBasket = 166,
+    BasketNotFound = 167,
+    RebalanceTimelock = 168,
+    RebalanceLimitExceeded = 169,
+    JointKeyNotFound = 170,
+    NotJointOwner = 172,
+    JointProposalNotFound = 173,
+    ProposalActive = 174,
+    ThresholdNotMet = 175,
+    InvalidWeights = 176,
+    NoticePeriodActive = 177,
+    CyclicReferral = 178,
 }
 
 impl ContractError {
@@ -2373,6 +2389,10 @@ pub enum DataKey {
     PausedSince,
     /// Per-key reserve available to the emergency escape redemption flow.
     EscapeReserve(Address),
+    /// Global multi-feed oracle configuration.
+    OracleSet,
+    /// Per-(feed, asset) latest published oracle sample.
+    FeedPrice(Address, Address),
 }
 
 /// Maximum callback payload size accepted by `transfer_and_call`.
@@ -2969,6 +2989,24 @@ pub struct OraclePriceView {
     pub updated_at: u64,
     /// `true` when the price is older than the configured staleness threshold.
     pub is_stale: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct OracleSetConfig {
+    pub feeds: Vec<Address>,
+    pub min_sources: u32,
+    pub max_deviation_bps: u32,
+    pub max_age_ledgers: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct OracleReport {
+    pub feed: Address,
+    pub value: i128,
+    pub age_ledgers: u32,
+    pub used: bool,
 }
 
 /// A timelocked admin action awaiting its execution timestamp.
@@ -20816,6 +20854,183 @@ impl CreatorKeysContract {
             updated_at: stored.updated_at,
             is_stale: age > threshold,
         })
+    }
+
+    /// Configures the bounded set of oracle feeds used for median aggregation.
+    pub fn set_oracle_set(
+        env: Env,
+        admin: Address,
+        feeds: Vec<Address>,
+        min_sources: u32,
+        max_deviation_bps: u32,
+        max_age_ledgers: u32,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if feeds.len() == 0 || feeds.len() > 7 || min_sources == 0 || min_sources > feeds.len()
+            || max_age_ledgers == 0
+        {
+            return Err(ContractError::InvalidOracleSet);
+        }
+        let cfg = OracleSetConfig {
+            feeds,
+            min_sources,
+            max_deviation_bps,
+            max_age_ledgers,
+        };
+        env.storage().instance().set(&DataKey::OracleSet, &cfg);
+        Ok(())
+    }
+
+    /// Publishes a feed price for an asset. Feed authorization requires the feed to
+    /// belong to the configured oracle set.
+    pub fn set_feed_price(
+        env: Env,
+        feed: Address,
+        asset: Address,
+        price: i128,
+    ) -> Result<(), ContractError> {
+        feed.require_auth();
+        if price <= 0 {
+            return Err(ContractError::NotPositiveAmount);
+        }
+        let cfg: OracleSetConfig = env
+            .storage()
+            .instance()
+            .get(&DataKey::OracleSet)
+            .ok_or(ContractError::InvalidOracleSet)?;
+        if !cfg.feeds.iter().any(|f| f == feed) {
+            return Err(ContractError::Unauthorized);
+        }
+        let ledger = env.ledger().sequence();
+        env.storage().persistent().set(
+            &DataKey::FeedPrice(feed, asset),
+            &OraclePrice { price, updated_at: ledger as u64 },
+        );
+        Ok(())
+    }
+
+    /// Returns the median of fresh, non-outlier feed reports for an asset.
+    pub fn aggregate_price(env: Env, asset: Address) -> Result<i128, ContractError> {
+        let cfg: OracleSetConfig = env
+            .storage()
+            .instance()
+            .get(&DataKey::OracleSet)
+            .ok_or(ContractError::InvalidOracleSet)?;
+        let now = env.ledger().sequence();
+        let mut samples = Vec::new(&env);
+        for feed in cfg.feeds.iter() {
+            if let Some(p) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, OraclePrice>(&DataKey::FeedPrice(feed.clone(), asset.clone()))
+            {
+                let age = now.saturating_sub(p.updated_at as u32);
+                if age <= cfg.max_age_ledgers {
+                    samples.push_back(p.price);
+                }
+            }
+        }
+        if samples.len() == 0 {
+            return Err(ContractError::QuorumNotMet);
+        }
+        let mut sorted = Vec::new(&env);
+        for v in samples.iter() {
+            sorted.push_back(v);
+        }
+        for i in 1..sorted.len() {
+            let mut j = i;
+            while j > 0 && sorted.get(j).unwrap() < sorted.get(j - 1).unwrap() {
+                let a = sorted.get(j).unwrap();
+                let b = sorted.get(j - 1).unwrap();
+                sorted.set(j - 1, a);
+                sorted.set(j, b);
+                j -= 1;
+            }
+        }
+        let median = if sorted.len() % 2 == 1 {
+            sorted.get(sorted.len() / 2).unwrap()
+        } else {
+            let a = sorted.get(sorted.len() / 2 - 1).unwrap();
+            let b = sorted.get(sorted.len() / 2).unwrap();
+            (a + b) / 2
+        };
+        let mut remaining = Vec::new(&env);
+        for v in sorted.iter() {
+            let deviation = if v >= median {
+                v - median
+            } else {
+                median - v
+            };
+            let limit = median.saturating_mul(cfg.max_deviation_bps as i128) / 10_000;
+            if deviation <= limit {
+                remaining.push_back(v);
+            } else {
+                // Feed identity is unavailable after sorting; oracle_report emits identities.
+            }
+        }
+        if remaining.len() < cfg.min_sources {
+            return Err(ContractError::QuorumNotMet);
+        }
+        let n = remaining.len();
+        if n % 2 == 1 {
+            Ok(remaining.get(n / 2).unwrap())
+        } else {
+            let a = remaining.get(n / 2 - 1).unwrap();
+            let b = remaining.get(n / 2).unwrap();
+            Ok((a + b) / 2)
+        }
+    }
+
+    /// Read-only report of each configured feed for an asset.
+    pub fn oracle_report(env: Env, asset: Address) -> Vec<OracleReport> {
+        let cfg: OracleSetConfig = match env.storage().instance().get(&DataKey::OracleSet) {
+            Some(c) => c,
+            None => return Vec::new(&env),
+        };
+        let now = env.ledger().sequence();
+        let mut reports = Vec::new(&env);
+        let mut values = Vec::new(&env);
+        for feed in cfg.feeds.iter() {
+            if let Some(p) = env.storage().persistent().get::<DataKey, OraclePrice>(&DataKey::FeedPrice(feed.clone(), asset.clone())) {
+                let age = now.saturating_sub(p.updated_at as u32);
+                if age <= cfg.max_age_ledgers {
+                    values.push_back(p.price);
+                }
+            }
+        }
+        for i in 1..values.len() {
+            let mut j = i;
+            while j > 0 && values.get(j).unwrap() < values.get(j - 1).unwrap() {
+                let a = values.get(j).unwrap();
+                let b = values.get(j - 1).unwrap();
+                values.set(j - 1, a);
+                values.set(j, b);
+                j -= 1;
+            }
+        }
+        let median = if values.len() == 0 {
+            0
+        } else if values.len() % 2 == 1 {
+            values.get(values.len() / 2).unwrap()
+        } else {
+            (values.get(values.len() / 2 - 1).unwrap() + values.get(values.len() / 2).unwrap()) / 2
+        };
+        for feed in cfg.feeds.iter() {
+            let p: Option<OraclePrice> = env.storage().persistent().get(&DataKey::FeedPrice(feed.clone(), asset.clone()));
+            let (value, age) = match p {
+                Some(v) => (v.price, now.saturating_sub(v.updated_at as u32)),
+                None => (0, cfg.max_age_ledgers.saturating_add(1)),
+            };
+            let limit = median.saturating_mul(cfg.max_deviation_bps as i128) / 10_000;
+            let deviation = if value >= median { value - median } else { median - value };
+            let used = value > 0 && age <= cfg.max_age_ledgers && deviation <= limit;
+            if !used && value > 0 && age <= cfg.max_age_ledgers {
+                env.events().publish((Symbol::new(&env, "oracle_outlier"), feed.clone()), ());
+            }
+            reports.push_back(OracleReport { feed, value, age_ledgers: age, used });
+        }
+        reports
     }
 
     // =========================================================================
