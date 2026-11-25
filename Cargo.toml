@@ -31,6 +31,9 @@ members = [
     "safe-mode-contract",
     "holder-insurance-pool",
     "sealed-launch-auction",
+    "keeper-registry",
+    "signed-quote-execution",
+    "presale-reservations",
 ]
 resolver = "2"
 
