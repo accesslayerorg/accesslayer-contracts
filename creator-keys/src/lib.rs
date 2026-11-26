@@ -23906,6 +23906,12 @@ impl CreatorKeysContract {
                 creator_id: creator,
                 quantity,
                 ledger: env.ledger().sequence(),
+            },
+        );
+
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Feature: redeemable event pass keys (issue #1257)
     // -----------------------------------------------------------------------
@@ -24082,6 +24088,8 @@ impl CreatorKeysContract {
 
     pub fn get_payment_base_reserve(env: Env) -> i128 {
         multi_asset_payment::get_base_reserve(&env)
+    }
+
     /// Redeems an event pass for `holder`.
     ///
     /// Checks that the holder's available balance is at least `min_balance`,
