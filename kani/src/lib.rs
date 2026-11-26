@@ -26,6 +26,12 @@ mod proofs {
         (creator_bps, protocol_bps)
     }
 
+    fn any_fee_comparison_amount() -> i128 {
+        // Keep the amount small for comparisons involving a symbolic rate
+        // and rounding. The separate safety proof uses the full u32 range.
+        i128::from(kani::any::<u8>())
+    }
+
     fn any_curve() -> CurveKind {
         let selector = kani::any::<u8>();
         kani::assume(selector <= 2);
@@ -71,8 +77,22 @@ mod proofs {
     }
 
     #[kani::proof]
-    fn percentage_fee_is_bounded_and_exact() {
+    fn fee_arithmetic_is_safe_for_u32_amounts() {
         let amount = i128::from(kani::any::<u32>());
+        let (creator_bps, protocol_bps) = any_fee_split();
+        let (creator_fee, protocol_fee) =
+            math::checked_compute_fee_split(amount, creator_bps, protocol_bps).unwrap();
+        let fees = math::checked_fee_sum(creator_fee, protocol_fee).unwrap();
+
+        assert!(math::checked_add_i128(amount, fees).is_some());
+        assert!(math::checked_sub_i128(amount, fees).is_some());
+        assert!(math::compute_net_buyback_cost(amount, protocol_bps).is_some());
+        assert!(math::compute_buyback_cost(amount, protocol_bps).is_some());
+    }
+
+    #[kani::proof]
+    fn percentage_fee_is_bounded_and_exact() {
+        let amount = any_fee_comparison_amount();
         let bps = any_bps();
 
         let fee = math::apply_percentage_fee(amount, bps).unwrap();
@@ -85,7 +105,7 @@ mod proofs {
 
     #[kani::proof]
     fn full_fee_split_conserves_amount() {
-        let amount = i128::from(kani::any::<u32>());
+        let amount = any_fee_comparison_amount();
         let protocol_bps = any_bps();
         let creator_bps = math::BPS_MAX - protocol_bps;
 
@@ -99,7 +119,7 @@ mod proofs {
 
     #[kani::proof]
     fn partial_fee_split_never_overallocates() {
-        let amount = i128::from(kani::any::<u32>());
+        let amount = any_fee_comparison_amount();
         let (creator_bps, protocol_bps) = any_fee_split();
 
         let (creator, protocol) =
@@ -113,7 +133,7 @@ mod proofs {
 
     #[kani::proof]
     fn quote_totals_preserve_accounting() {
-        let price = i128::from(kani::any::<u32>());
+        let price = any_fee_comparison_amount();
         let (creator_bps, protocol_bps) = any_fee_split();
         let (creator_fee, protocol_fee) =
             math::checked_compute_fee_split(price, creator_bps, protocol_bps).unwrap();
@@ -130,7 +150,7 @@ mod proofs {
 
     #[kani::proof]
     fn buyback_costs_are_ordered() {
-        let gross = i128::from(kani::any::<u32>());
+        let gross = any_fee_comparison_amount();
         let protocol_bps = any_bps();
 
         let net = math::compute_net_buyback_cost(gross, protocol_bps).unwrap();

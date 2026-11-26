@@ -21504,7 +21504,7 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        if feeds.len() == 0
+        if feeds.is_empty()
             || feeds.len() > 7
             || min_sources == 0
             || min_sources > feeds.len()
@@ -21574,7 +21574,7 @@ impl CreatorKeysContract {
                 }
             }
         }
-        if samples.len() == 0 {
+        if samples.is_empty() {
             return Err(ContractError::QuorumNotMet);
         }
         let mut sorted = Vec::new(&env);
@@ -21652,7 +21652,7 @@ impl CreatorKeysContract {
                 j -= 1;
             }
         }
-        let median = if values.len() == 0 {
+        let median = if values.is_empty() {
             0
         } else if values.len() % 2 == 1 {
             values.get(values.len() / 2).unwrap()

@@ -12,7 +12,8 @@ changed or restricted by the proofs.
 
 | Input | Verified range |
 |---|---|
-| Fee amount / gross price | `0..=u32::MAX` |
+| Fee amount / gross price for arithmetic safety | `0..=u32::MAX` |
+| Fee amount / gross price for rounding and accounting comparisons | `0..=255` |
 | Individual fee rate | `0..=10_000` bps |
 | Combined creator + protocol rate | `0..=10_000` bps |
 | Curve safety base price | `1..=1_000_000` |
@@ -32,6 +33,11 @@ stated range. The spot monotonicity, batch lower-bound, and round-trip harnesses
 compare symbolic prices, so they use the smaller curve comparison ranges. The
 round-trip harness has an unwind limit of 4 and still covers all valid fee
 splits.
+
+The fee, quote, and buyback comparisons use a narrower amount range because
+comparing rounded products with symbolic rates is expensive for the solver.
+The safety harness checks the same checked arithmetic over `0..=u32::MAX`.
+Both ranges cover every valid fee rate and split.
 
 ## Properties
 

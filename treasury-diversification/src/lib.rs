@@ -493,7 +493,7 @@ mod test {
         let (_env, client, _governor, _keeper) = setup();
         let report = client.treasury_report();
         // Report should be calculable even with no targets
-        assert!(report.len() == 0);
+        assert!(report.is_empty());
     }
 
     #[test]

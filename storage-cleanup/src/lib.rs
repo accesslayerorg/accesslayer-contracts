@@ -110,21 +110,7 @@ impl StorageCleanupContract {
         key_id: Address,
     ) -> Result<(), CleanupError> {
         caller.require_auth();
-
-        let balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Balance(holder.clone(), key_id.clone()))
-            .unwrap_or(0);
-
-        if balance != 0 {
-            return Err(CleanupError::RecordActive);
-        }
-
-        // Check if referenced by open claims or disputes
-        if Self::has_open_claims(env.clone(), &holder) {
-            return Err(CleanupError::ReferencedByClaim);
-        }
+        Self::check_balance_cleanable(&env, &holder, &key_id)?;
 
         env.storage()
             .persistent()
@@ -265,31 +251,26 @@ impl StorageCleanupContract {
         Ok(())
     }
 
+    /// Check the balance row for a specific holder and key.
+    pub fn cleanable_balance(env: Env, holder: Address, key_id: Address) -> CleanableStatus {
+        let (can_remove, reason) = match Self::check_balance_cleanable(&env, &holder, &key_id) {
+            Ok(()) => (true, "ok"),
+            Err(CleanupError::RecordActive) => (false, "balance_non_zero"),
+            Err(CleanupError::ReferencedByClaim) => (false, "referenced_by_claim"),
+            Err(_) => (false, "not_cleanable"),
+        };
+        CleanableStatus {
+            can_remove,
+            reason: String::from_str(&env, reason),
+        }
+    }
+
     pub fn cleanable(env: Env, kind: RecordKind, holder: Address, id: u64) -> CleanableStatus {
         match kind {
-            RecordKind::Balance => {
-                let balance: i128 = env
-                    .storage()
-                    .persistent()
-                    .get(&DataKey::Balance(holder.clone(), Address::generate(&env)))
-                    .unwrap_or(0);
-                if balance != 0 {
-                    CleanableStatus {
-                        can_remove: false,
-                        reason: String::from_str(&env, "balance_non_zero"),
-                    }
-                } else if Self::has_open_claims(env.clone(), &holder) {
-                    CleanableStatus {
-                        can_remove: false,
-                        reason: String::from_str(&env, "referenced_by_claim"),
-                    }
-                } else {
-                    CleanableStatus {
-                        can_remove: true,
-                        reason: String::from_str(&env, "ok"),
-                    }
-                }
-            }
+            RecordKind::Balance => CleanableStatus {
+                can_remove: false,
+                reason: String::from_str(&env, "key_id_required"),
+            },
             RecordKind::Auction => {
                 let status: Option<String> =
                     env.storage().persistent().get(&DataKey::AuctionStatus(id));
@@ -353,6 +334,25 @@ impl StorageCleanupContract {
     }
 
     // Helper functions
+    fn check_balance_cleanable(
+        env: &Env,
+        holder: &Address,
+        key_id: &Address,
+    ) -> Result<(), CleanupError> {
+        let balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Balance(holder.clone(), key_id.clone()))
+            .unwrap_or(0);
+        if balance != 0 {
+            return Err(CleanupError::RecordActive);
+        }
+        if Self::has_open_claims(env.clone(), holder) {
+            return Err(CleanupError::ReferencedByClaim);
+        }
+        Ok(())
+    }
+
     fn pay_reward(env: Env, caller: &Address) -> Result<(), CleanupError> {
         let current_fund: i128 = env
             .storage()
@@ -413,6 +413,7 @@ mod test {
         let (env, client, _admin) = setup();
         let holder = Address::generate(&env);
         let key_id = Address::generate(&env);
+        let other_key = Address::generate(&env);
         let cleaner = Address::generate(&env);
 
         // Set non-zero balance
@@ -426,6 +427,8 @@ mod test {
             client.try_cleanup_balance(&cleaner, &holder, &key_id),
             Err(Ok(CleanupError::RecordActive))
         );
+        assert!(!client.cleanable_balance(&holder, &key_id).can_remove);
+        assert!(client.cleanable_balance(&holder, &other_key).can_remove);
     }
 
     #[test]
