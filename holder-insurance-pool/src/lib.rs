@@ -205,7 +205,9 @@ impl HolderInsurancePool {
         if amount < 0 || pool - amount < total.saturating_mul(RESERVE_BPS as i128) / 10_000 {
             return Err(Error::ReserveViolation);
         }
-        e.storage().persistent().set(&DataKey::Pool, &(pool - amount));
+        e.storage()
+            .persistent()
+            .set(&DataKey::Pool, &(pool - amount));
         Ok(())
     }
 }

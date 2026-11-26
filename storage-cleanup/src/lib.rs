@@ -56,14 +56,6 @@ pub enum CleanupError {
 #[contract]
 pub struct StorageCleanupContract;
 
-fn require_admin(env: &Env, caller: &Address) -> Result<(), CleanupError> {
-    caller.require_auth();
-    if env.storage().instance().get::<_, Address>(&DataKey::Admin) != Some(caller.clone()) {
-        return Err(CleanupError::Unauthorized);
-    }
-    Ok(())
-}
-
 #[contractimpl]
 impl StorageCleanupContract {
     pub fn initialize(
