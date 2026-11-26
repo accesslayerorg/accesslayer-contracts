@@ -56,14 +56,6 @@ pub enum CleanupError {
 #[contract]
 pub struct StorageCleanupContract;
 
-fn require_admin(env: &Env, caller: &Address) -> Result<(), CleanupError> {
-    caller.require_auth();
-    if env.storage().instance().get::<_, Address>(&DataKey::Admin) != Some(caller.clone()) {
-        return Err(CleanupError::Unauthorized);
-    }
-    Ok(())
-}
-
 #[contractimpl]
 impl StorageCleanupContract {
     pub fn initialize(
@@ -265,31 +257,31 @@ impl StorageCleanupContract {
         Ok(())
     }
 
+    pub fn cleanable_balance(env: Env, holder: Address, key_id: Address) -> CleanableStatus {
+        let balance: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Balance(holder.clone(), key_id))
+            .unwrap_or(0);
+        let reason = if balance != 0 {
+            "balance_non_zero"
+        } else if Self::has_open_claims(env.clone(), &holder) {
+            "referenced_by_claim"
+        } else {
+            "ok"
+        };
+        CleanableStatus {
+            can_remove: reason == "ok",
+            reason: String::from_str(&env, reason),
+        }
+    }
+
     pub fn cleanable(env: Env, kind: RecordKind, holder: Address, id: u64) -> CleanableStatus {
         match kind {
-            RecordKind::Balance => {
-                let balance: i128 = env
-                    .storage()
-                    .persistent()
-                    .get(&DataKey::Balance(holder.clone(), Address::generate(&env)))
-                    .unwrap_or(0);
-                if balance != 0 {
-                    CleanableStatus {
-                        can_remove: false,
-                        reason: String::from_str(&env, "balance_non_zero"),
-                    }
-                } else if Self::has_open_claims(env.clone(), &holder) {
-                    CleanableStatus {
-                        can_remove: false,
-                        reason: String::from_str(&env, "referenced_by_claim"),
-                    }
-                } else {
-                    CleanableStatus {
-                        can_remove: true,
-                        reason: String::from_str(&env, "ok"),
-                    }
-                }
-            }
+            RecordKind::Balance => CleanableStatus {
+                can_remove: false,
+                reason: String::from_str(&env, "key_required"),
+            },
             RecordKind::Auction => {
                 let status: Option<String> =
                     env.storage().persistent().get(&DataKey::AuctionStatus(id));
