@@ -24,6 +24,8 @@ pub struct Cover {
     pub expiry: u32,
     pub claimed: bool,
 }
+// Variant names are part of the stored key encoding, so keep them as-is.
+#[allow(clippy::enum_variant_names)]
 #[contracttype]
 enum Key {
     Admin,

@@ -67,15 +67,12 @@ impl SafeModeContract {
             .instance()
             .get(&Key::Mode)
             .unwrap_or(Mode::Normal);
-        match (current, mode) {
-            (Mode::SafeMode, Mode::Normal) => {
-                e.storage().instance().set(
-                    &Key::PendingNormal(e.ledger().sequence().saturating_add(NORMAL_DELAY)),
-                    &true,
-                );
-                return Err(Error::Timelock);
-            }
-            _ => {}
+        if let (Mode::SafeMode, Mode::Normal) = (current, mode) {
+            e.storage().instance().set(
+                &Key::PendingNormal(e.ledger().sequence().saturating_add(NORMAL_DELAY)),
+                &true,
+            );
+            return Err(Error::Timelock);
         }
         e.storage().instance().set(&Key::Mode, &mode);
         e.events()
