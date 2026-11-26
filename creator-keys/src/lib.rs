@@ -20,9 +20,6 @@ pub use multi_asset_payment::{
     PaymentAssetRemovedEvent,
 };
 
-// Standalone example contracts whose exported symbols (`init`) collide with the
-// main contract in a wasm build. Native (test) builds only, see #1309.
-#[cfg(not(target_family = "wasm"))]
 #[contractclient(name = "CircuitBreakerClient")]
 pub trait CircuitBreaker {
     fn is_suspended(env: Env, key_id: Address) -> bool;
@@ -72,6 +69,9 @@ pub enum CircuitBreakerRemoteError {
     ArithmeticOverflow = 5,
 }
 
+// Standalone example contracts whose exported symbols (`init`) collide with the
+// main contract in a wasm build. Native (test) builds only, see #1309.
+#[cfg(not(target_family = "wasm"))]
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
 pub mod acl_roles;
@@ -99,9 +99,11 @@ pub mod key_ownership_transfer;
 pub mod launch_window;
 pub mod lp_reward;
 pub mod multi_buy;
+#[cfg(not(target_family = "wasm"))]
 pub mod p2p_swap_dividend_stream_oracle;
 pub mod price_alerts;
 pub mod protocol_governance;
+#[cfg(not(target_family = "wasm"))]
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod social_recovery;
@@ -111,6 +113,7 @@ pub mod supply_milestones;
 pub mod timed_pause;
 pub mod token_rescue;
 pub mod trading_primitives;
+#[cfg(not(target_family = "wasm"))]
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 pub mod vote_delegation;
 pub use vote_delegation::VoteDelegationKey;
@@ -303,7 +306,7 @@ pub enum ContractError {
     CircuitBreakerTripped = 102,
     // --- Storage migration (Issue #1309) ---
     /// `migrate` has already run for this storage layout version.
-    AlreadyMigrated = 103,
+    AlreadyMigrated = 179,
     InvalidSignature = 103,
     NonceAlreadyUsed = 104,
     /// The requested holder cap is above the currently stored cap; the cap can
@@ -448,13 +451,13 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 161,
+    BadgeRequired = 180,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 162,
+    StalePrice = 181,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 163,
-    QuorumNotMet = 164,
-    InvalidOracleSet = 165,
+    PriceDeviation = 182,
+    QuorumNotMet = 183,
+    InvalidOracleSet = 184,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,
