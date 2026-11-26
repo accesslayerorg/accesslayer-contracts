@@ -931,7 +931,7 @@ pub mod constants {
 
     pub mod storage {
         use super::{creator_key, key_balance_key, DataKey};
-        use crate::StakingKey;
+        use crate::{EventDataKey, StakingKey};
         use soroban_sdk::Address;
 
         pub const FEE_CONFIG: DataKey = DataKey::FeeConfig;
@@ -1103,23 +1103,27 @@ pub mod constants {
         }
 
         /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
-        pub fn event_config(key_id: &Address, event_id: &u32) -> DataKey {
-            DataKey::EventConfig(key_id.clone(), *event_id)
+        pub fn event_config(key_id: &Address, event_id: &u32) -> EventDataKey {
+            EventDataKey::EventConfig(key_id.clone(), *event_id)
         }
 
         /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
-        pub fn event_redemption(key_id: &Address, event_id: &u32, holder: &Address) -> DataKey {
-            DataKey::EventRedeemed(key_id.clone(), *event_id, holder.clone())
+        pub fn event_redemption(
+            key_id: &Address,
+            event_id: &u32,
+            holder: &Address,
+        ) -> EventDataKey {
+            EventDataKey::EventRedeemed(key_id.clone(), *event_id, holder.clone())
         }
 
         /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
-        pub fn event_redeemed_count(key_id: &Address, event_id: &u32) -> DataKey {
-            DataKey::EventRedeemedCount(key_id.clone(), *event_id)
+        pub fn event_redeemed_count(key_id: &Address, event_id: &u32) -> EventDataKey {
+            EventDataKey::EventRedeemedCount(key_id.clone(), *event_id)
         }
 
         /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
-        pub fn event_lock_until(key_id: &Address, holder: &Address) -> DataKey {
-            DataKey::EventLockUntil(key_id.clone(), holder.clone())
+        pub fn event_lock_until(key_id: &Address, holder: &Address) -> EventDataKey {
+            EventDataKey::EventLockUntil(key_id.clone(), holder.clone())
         }
 
         pub fn snapshot_meta(creator: &Address, snapshot_id: u32) -> DataKey {
@@ -2559,13 +2563,18 @@ pub struct PriceCeilingStatus {
     pub active: bool,
     /// Ledger sequence when the cool-off period expires (unused if `active` is `false`).
     pub cooloff_end_ledger: u32,
-    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum EventDataKey {
+    /// (key_id, event_id) -> redeemable event pass configuration.
     EventConfig(Address, u32),
-    /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event.
     EventRedeemed(Address, u32, Address),
-    /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
+    /// (key_id, event_id) -> number of redemptions recorded.
     EventRedeemedCount(Address, u32),
-    /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
+    /// (key_id, holder) -> ledger until which redeemed keys are locked.
     EventLockUntil(Address, Address),
 }
 
