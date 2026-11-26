@@ -1,0 +1,67 @@
+name: Kani proofs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "creator-keys/src/lib.rs"
+      - "creator-keys/src/math.rs"
+      - "creator-keys/tests/math_parity.rs"
+      - "kani/**"
+      - "docs/proofs.md"
+      - ".github/workflows/kani.yml"
+  pull_request:
+    paths:
+      - "creator-keys/src/lib.rs"
+      - "creator-keys/src/math.rs"
+      - "creator-keys/tests/math_parity.rs"
+      - "kani/**"
+      - "docs/proofs.md"
+      - ".github/workflows/kani.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kani-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify arithmetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Kani
+        id: cache-kani
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-kani
+            ~/.cargo/bin/kani
+            ~/.cargo/bin/kani-driver
+            ~/.kani
+          key: kani-${{ runner.os }}-${{ runner.arch }}-0.68.0
+
+      - name: Install Kani
+        if: steps.cache-kani.outputs.cache-hit != 'true'
+        run: |
+          cargo install --locked --version 0.68.0 kani-verifier
+          cargo kani setup
+
+      - name: Kani version
+        run: cargo kani --version
+
+      - name: Verify proofs
+        working-directory: kani
+        timeout-minutes: 15
+        run: cargo kani --output-format terse

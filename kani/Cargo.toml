@@ -1,0 +1,15 @@
+[package]
+name = "creator-keys-kani"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+# Keep the verifier independent from the Soroban workspace and its dependency
+# graph. The production math source is included directly below.
+[workspace]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
