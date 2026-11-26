@@ -8,7 +8,7 @@ It is intentionally lightweight. Use it for contributor validation, review envir
 
 Before deploying, make sure the machine running the release checks has:
 
-- Rust 1.85.0 installed
+- Rust 1.88.0 installed
 - `rustfmt` and `clippy` components installed
 - the `wasm32v1-none` target installed
 - Stellar CLI 22.0.0 installed and available on `PATH`
@@ -16,7 +16,7 @@ Before deploying, make sure the machine running the release checks has:
 
 This repository currently assumes:
 
-- Rust 1.85.0 workspace tooling from [`rust-toolchain.toml`](../rust-toolchain.toml)
+- Rust 1.88.0 workspace tooling from [`rust-toolchain.toml`](../rust-toolchain.toml)
 - Soroban SDK `22.0.11` from [`Cargo.toml`](../Cargo.toml)
 - a deployable contract crate at [`creator-keys`](../creator-keys)
 
