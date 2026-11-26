@@ -56,6 +56,7 @@ pub enum CleanupError {
 #[contract]
 pub struct StorageCleanupContract;
 
+#[allow(dead_code)]
 fn require_admin(env: &Env, caller: &Address) -> Result<(), CleanupError> {
     caller.require_auth();
     if env.storage().instance().get::<_, Address>(&DataKey::Admin) != Some(caller.clone()) {
@@ -268,11 +269,13 @@ impl StorageCleanupContract {
     pub fn cleanable(env: Env, kind: RecordKind, holder: Address, id: u64) -> CleanableStatus {
         match kind {
             RecordKind::Balance => {
-                let balance: i128 = env
-                    .storage()
-                    .persistent()
-                    .get(&DataKey::Balance(holder.clone(), Address::generate(&env)))
-                    .unwrap_or(0);
+                // `Address::generate` is a testutils-only API and does not exist
+                // in contract builds. It produced a fresh, never-stored address,
+                // so this lookup always read 0. `cleanable` has no `key_id`
+                // argument to look up the real balance; keep the same effective
+                // result here and rely on `cleanup_balance`, which checks the
+                // actual (holder, key_id) balance before removing anything.
+                let balance: i128 = 0;
                 if balance != 0 {
                     CleanableStatus {
                         can_remove: false,
