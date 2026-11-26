@@ -404,8 +404,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id =
-            env.register(StorageCleanupContract, (&admin, &100i128, &86400u64));
+        let contract_id = env.register(StorageCleanupContract, (&admin, &100i128, &86400u64));
         let client = StorageCleanupContractClient::new(&env, &contract_id);
         (env, client, admin)
     }

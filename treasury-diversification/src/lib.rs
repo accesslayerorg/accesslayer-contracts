@@ -353,8 +353,10 @@ mod test {
         env.mock_all_auths();
         let governor = Address::generate(&env);
         let keeper = Address::generate(&env);
-        let contract_id =
-            env.register(TreasuryDiversificationContract, (&governor, &keeper, &3600u64));
+        let contract_id = env.register(
+            TreasuryDiversificationContract,
+            (&governor, &keeper, &3600u64),
+        );
         let client = TreasuryDiversificationContractClient::new(&env, &contract_id);
         (env, client, governor, keeper)
     }
