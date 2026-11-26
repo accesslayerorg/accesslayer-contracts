@@ -196,7 +196,7 @@ pub fn update_top_holders(
 ) -> Result<(), ContractError> {
     // Get current top holders
     let top_key = HolderEnumerationKey::TopHolders(key_id.clone());
-    let mut top: Vec<HolderInfo> = env
+    let top: Vec<HolderInfo> = env
         .storage()
         .persistent()
         .get(&top_key)
