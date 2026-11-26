@@ -316,7 +316,10 @@ impl PersonhoodHookContract {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        Env,
+    };
 
     fn setup() -> (Env, PersonhoodHookContractClient<'static>, Address) {
         let env = Env::default();
@@ -385,6 +388,8 @@ mod test {
     #[test]
     fn test_unlinking_subject_to_cooldown() {
         let (env, client, _admin) = setup();
+        // Start past the first cooldown window so the initial unlink is allowed.
+        env.ledger().set_timestamp(1_000_000);
         let wallet = Address::generate(&env);
         let person_id = BytesN::from_array(&env, &[1u8; 32]);
         let valid_until = env.ledger().timestamp() + 3600;
@@ -457,6 +462,8 @@ mod test {
     #[test]
     fn test_expired_attestation_reverts() {
         let (env, client, _admin) = setup();
+        // Ledger time starts at 0 in tests; move it forward so `now - 1` is valid.
+        env.ledger().set_timestamp(1_000_000);
         let wallet = Address::generate(&env);
         let person_id = BytesN::from_array(&env, &[1u8; 32]);
         let valid_until = env.ledger().timestamp() - 1; // Expired
