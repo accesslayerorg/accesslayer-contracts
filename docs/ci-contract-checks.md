@@ -8,7 +8,7 @@ The CI pipeline ensures code quality, correctness, and consistency across the co
 
 ## CI Workflow
 
-The CI workflow is defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) and runs three primary checks:
+The CI workflow is defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) and runs format, lint, test, and budget checks:
 
 ### 1. Format Check
 
@@ -111,6 +111,14 @@ make test
 - **Integration tests**: Test contract behavior end-to-end with mocked Soroban environment
 - **Snapshot tests**: Verify deterministic output by comparing against stored snapshots
 
+### 4. Size and Resource Budgets
+
+**Commands**: `./scripts/check-wasm-size.sh` and `cargo test -p creator-keys --test resource_budget_benchmarks -- --nocapture`
+
+**Purpose**: Fails CI when optimized WASM size, CPU instructions, or memory use exceed the limits in [`budgets.toml`](../budgets.toml).
+
+The budget job prints the current value, the budget, and the budget change from the pull request base commit. A budget increase must include a change to `budgets.toml` in the same pull request. See [docs/performance.md](./performance.md) for profiling and reduction steps.
+
 ## Running All Checks Locally
 
 Before pushing code, run all CI checks locally:
@@ -120,6 +128,8 @@ Before pushing code, run all CI checks locally:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+./scripts/check-wasm-size.sh
+cargo test -p creator-keys --test resource_budget_benchmarks -- --nocapture
 
 # Or use the Makefile to run all checks
 make verify
@@ -216,9 +226,6 @@ Potential additions to the CI pipeline:
 
 - **Code coverage**: Track test coverage percentage
 - **Security audits**: Run `cargo audit` to check for vulnerable dependencies
-- **Benchmark tests**: Detect performance regressions
-- **Contract size checks**: Ensure WASM output stays within size limits
-- **Gas/instruction cost analysis**: Monitor computational costs
 
 ## Questions
 
