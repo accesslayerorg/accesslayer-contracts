@@ -169,14 +169,13 @@ impl PersonhoodHookContract {
             .instance()
             .get(&DataKey::UnlinkCooldown)
             .unwrap_or(0);
-        let last_unlink: u64 = env
+        let last_unlink: Option<u64> = env
             .storage()
             .persistent()
-            .get(&DataKey::LastUnlink(wallet.clone()))
-            .unwrap_or(0);
+            .get(&DataKey::LastUnlink(wallet.clone()));
         let now = env.ledger().timestamp();
 
-        if now < last_unlink + cooldown {
+        if last_unlink.is_some_and(|timestamp| now.saturating_sub(timestamp) < cooldown) {
             return Err(PersonhoodError::CooldownActive);
         }
 
@@ -316,7 +315,10 @@ impl PersonhoodHookContract {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Env,
+    };
 
     fn setup() -> (Env, PersonhoodHookContractClient<'static>, Address) {
         let env = Env::default();
@@ -459,7 +461,8 @@ mod test {
         let (env, client, _admin) = setup();
         let wallet = Address::generate(&env);
         let person_id = BytesN::from_array(&env, &[1u8; 32]);
-        let valid_until = env.ledger().timestamp() - 1; // Expired
+        env.ledger().set_timestamp(1);
+        let valid_until = 0;
         let signature = Bytes::from_array(&env, &[1, 2, 3, 4]);
 
         assert_eq!(
