@@ -7,9 +7,8 @@ use contract_test_env::{
     set_pricing_and_fees, test_env_with_auths,
 };
 use creator_keys::{
-    events,
-    events::PRICE_FLOOR_TRIGGERED_EVENT_NAME,
-    ContractError, CreatorKeysContractClient, SwapDirection,
+    events, events::PRICE_FLOOR_TRIGGERED_EVENT_NAME, ContractError, CreatorKeysContractClient,
+    SwapDirection,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger as _},
@@ -19,14 +18,7 @@ use soroban_sdk::{
 const KEY_PRICE: i128 = 1_000;
 const SLOPE: i128 = 100;
 
-fn setup(
-    env: &Env,
-) -> (
-    CreatorKeysContractClient<'_>,
-    Address,
-    Address,
-    Address,
-) {
+fn setup(env: &Env) -> (CreatorKeysContractClient<'_>, Address, Address, Address) {
     let (client, _) = register_creator_keys(env);
     let admin = set_pricing_and_fees(env, &client, KEY_PRICE, 9_000, 1_000);
     set_curve_slope(env, &client, SLOPE);
