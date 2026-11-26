@@ -117,13 +117,13 @@ pub mod test_issues_1086_1087_1088_1093;
 pub mod test_new_features;
 
 // New features for issues #1283-#1286
+pub mod badge_access_control;
+pub mod basket_tokens;
 pub mod creator_allocation;
 pub mod english_auction;
 pub mod holder_enumeration;
-pub mod badge_access_control;
-pub mod test_issues_1283_1284_1285_1286;
-pub mod basket_tokens;
 pub mod joint_keys;
+pub mod test_issues_1283_1284_1285_1286;
 
 // Contract error variants stability and ordering:
 //
@@ -430,16 +430,6 @@ pub enum ContractError {
     NoGuardians = 159,
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
-    /// A multi-buy was called without any legs.
-    LegsEmpty = 161,
-    /// A multi-buy contained more than ten legs.
-    TooManyLegs = 162,
-    /// The same creator appeared in more than one multi-buy leg.
-    DuplicateCreator = 163,
-    /// The buyer cannot cover the worst-case cost of a multi-buy.
-    InsufficientFunds = 164,
-    /// A sell was attempted at or below its configured price floor.
-    PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
     BadgeRequired = 161,
@@ -461,6 +451,16 @@ pub enum ContractError {
     InvalidWeights = 176,
     NoticePeriodActive = 177,
     CyclicReferral = 178,
+    /// A multi-buy was called without any legs.
+    LegsEmpty = 179,
+    /// A multi-buy contained more than ten legs.
+    TooManyLegs = 180,
+    /// The same creator appeared in more than one multi-buy leg.
+    DuplicateCreator = 181,
+    /// The buyer cannot cover the worst-case cost of a multi-buy.
+    InsufficientFunds = 182,
+    /// A sell was attempted at or below its configured price floor.
+    PriceFloorBreached = 183,
 }
 
 impl ContractError {
@@ -926,11 +926,11 @@ pub mod staking {
 }
 
 pub mod constants {
-    use super::DataKey;
+    use super::{DataKey, EventStorageKey};
     use soroban_sdk::Address;
 
     pub mod storage {
-        use super::{creator_key, key_balance_key, DataKey};
+        use super::{creator_key, key_balance_key, DataKey, EventStorageKey};
         use crate::StakingKey;
         use soroban_sdk::Address;
 
@@ -1103,23 +1103,27 @@ pub mod constants {
         }
 
         /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
-        pub fn event_config(key_id: &Address, event_id: &u32) -> DataKey {
-            DataKey::EventConfig(key_id.clone(), *event_id)
+        pub fn event_config(key_id: &Address, event_id: &u32) -> EventStorageKey {
+            EventStorageKey::EventConfig(key_id.clone(), *event_id)
         }
 
         /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
-        pub fn event_redemption(key_id: &Address, event_id: &u32, holder: &Address) -> DataKey {
-            DataKey::EventRedeemed(key_id.clone(), *event_id, holder.clone())
+        pub fn event_redemption(
+            key_id: &Address,
+            event_id: &u32,
+            holder: &Address,
+        ) -> EventStorageKey {
+            EventStorageKey::EventRedeemed(key_id.clone(), *event_id, holder.clone())
         }
 
         /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
-        pub fn event_redeemed_count(key_id: &Address, event_id: &u32) -> DataKey {
-            DataKey::EventRedeemedCount(key_id.clone(), *event_id)
+        pub fn event_redeemed_count(key_id: &Address, event_id: &u32) -> EventStorageKey {
+            EventStorageKey::EventRedeemedCount(key_id.clone(), *event_id)
         }
 
         /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
-        pub fn event_lock_until(key_id: &Address, holder: &Address) -> DataKey {
-            DataKey::EventLockUntil(key_id.clone(), holder.clone())
+        pub fn event_lock_until(key_id: &Address, holder: &Address) -> EventStorageKey {
+            EventStorageKey::EventLockUntil(key_id.clone(), holder.clone())
         }
 
         pub fn snapshot_meta(creator: &Address, snapshot_id: u32) -> DataKey {
@@ -2474,6 +2478,23 @@ pub enum DataKey {
     FeedPrice(Address, Address),
 }
 
+/// Storage keys for redeemable event passes.
+///
+/// Kept separate from [`DataKey`] to stay within Soroban's 50-variant
+/// `#[contracttype]` cap.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum EventStorageKey {
+    /// (key_id, event_id) -> redeemable event pass configuration.
+    EventConfig(Address, u32),
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event.
+    EventRedeemed(Address, u32, Address),
+    /// (key_id, event_id) -> number of redemptions recorded.
+    EventRedeemedCount(Address, u32),
+    /// (key_id, holder) -> ledger until which redeemed keys are locked.
+    EventLockUntil(Address, Address),
+}
+
 /// Maximum callback payload size accepted by `transfer_and_call`.
 ///
 /// Soroban applies its CPU and memory resource limits to the complete
@@ -2559,14 +2580,6 @@ pub struct PriceCeilingStatus {
     pub active: bool,
     /// Ledger sequence when the cool-off period expires (unused if `active` is `false`).
     pub cooloff_end_ledger: u32,
-    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
-    EventConfig(Address, u32),
-    /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
-    EventRedeemed(Address, u32, Address),
-    /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
-    EventRedeemedCount(Address, u32),
-    /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
-    EventLockUntil(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14670,7 +14683,8 @@ impl CreatorKeysContract {
 
         // Record the pre-swap price and compute the post-swap price before any
         // state is committed, so a breach reverts without side effects.
-        let (pre_price, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
+        let (pre_price, _, impact_bps) =
+            compute_swap_price_impact(&env, &creator, amount, direction)?;
 
         // A configured floor blocks sells at or below the floor. Buys are
         // deliberately unaffected.
@@ -21560,7 +21574,10 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        if feeds.len() == 0 || feeds.len() > 7 || min_sources == 0 || min_sources > feeds.len()
+        if feeds.is_empty()
+            || feeds.len() > 7
+            || min_sources == 0
+            || min_sources > feeds.len()
             || max_age_ledgers == 0
         {
             return Err(ContractError::InvalidOracleSet);
@@ -21598,7 +21615,10 @@ impl CreatorKeysContract {
         let ledger = env.ledger().sequence();
         env.storage().persistent().set(
             &DataKey::FeedPrice(feed, asset),
-            &OraclePrice { price, updated_at: ledger as u64 },
+            &OraclePrice {
+                price,
+                updated_at: ledger as u64,
+            },
         );
         Ok(())
     }
@@ -21624,7 +21644,7 @@ impl CreatorKeysContract {
                 }
             }
         }
-        if samples.len() == 0 {
+        if samples.is_empty() {
             return Err(ContractError::QuorumNotMet);
         }
         let mut sorted = Vec::new(&env);
@@ -21650,11 +21670,7 @@ impl CreatorKeysContract {
         };
         let mut remaining = Vec::new(&env);
         for v in sorted.iter() {
-            let deviation = if v >= median {
-                v - median
-            } else {
-                median - v
-            };
+            let deviation = if v >= median { v - median } else { median - v };
             let limit = median.saturating_mul(cfg.max_deviation_bps as i128) / 10_000;
             if deviation <= limit {
                 remaining.push_back(v);
@@ -21685,7 +21701,11 @@ impl CreatorKeysContract {
         let mut reports = Vec::new(&env);
         let mut values = Vec::new(&env);
         for feed in cfg.feeds.iter() {
-            if let Some(p) = env.storage().persistent().get::<DataKey, OraclePrice>(&DataKey::FeedPrice(feed.clone(), asset.clone())) {
+            if let Some(p) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, OraclePrice>(&DataKey::FeedPrice(feed.clone(), asset.clone()))
+            {
                 let age = now.saturating_sub(p.updated_at as u32);
                 if age <= cfg.max_age_ledgers {
                     values.push_back(p.price);
@@ -21702,7 +21722,7 @@ impl CreatorKeysContract {
                 j -= 1;
             }
         }
-        let median = if values.len() == 0 {
+        let median = if values.is_empty() {
             0
         } else if values.len() % 2 == 1 {
             values.get(values.len() / 2).unwrap()
@@ -21710,18 +21730,31 @@ impl CreatorKeysContract {
             (values.get(values.len() / 2 - 1).unwrap() + values.get(values.len() / 2).unwrap()) / 2
         };
         for feed in cfg.feeds.iter() {
-            let p: Option<OraclePrice> = env.storage().persistent().get(&DataKey::FeedPrice(feed.clone(), asset.clone()));
+            let p: Option<OraclePrice> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::FeedPrice(feed.clone(), asset.clone()));
             let (value, age) = match p {
                 Some(v) => (v.price, now.saturating_sub(v.updated_at as u32)),
                 None => (0, cfg.max_age_ledgers.saturating_add(1)),
             };
             let limit = median.saturating_mul(cfg.max_deviation_bps as i128) / 10_000;
-            let deviation = if value >= median { value - median } else { median - value };
+            let deviation = if value >= median {
+                value - median
+            } else {
+                median - value
+            };
             let used = value > 0 && age <= cfg.max_age_ledgers && deviation <= limit;
             if !used && value > 0 && age <= cfg.max_age_ledgers {
-                env.events().publish((Symbol::new(&env, "oracle_outlier"), feed.clone()), ());
+                env.events()
+                    .publish((Symbol::new(&env, "oracle_outlier"), feed.clone()), ());
             }
-            reports.push_back(OracleReport { feed, value, age_ledgers: age, used });
+            reports.push_back(OracleReport {
+                feed,
+                value,
+                age_ledgers: age,
+                used,
+            });
         }
         reports
     }
@@ -23906,6 +23939,11 @@ impl CreatorKeysContract {
                 creator_id: creator,
                 quantity,
                 ledger: env.ledger().sequence(),
+            },
+        );
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Feature: redeemable event pass keys (issue #1257)
     // -----------------------------------------------------------------------
@@ -24082,6 +24120,8 @@ impl CreatorKeysContract {
 
     pub fn get_payment_base_reserve(env: Env) -> i128 {
         multi_asset_payment::get_base_reserve(&env)
+    }
+
     /// Redeems an event pass for `holder`.
     ///
     /// Checks that the holder's available balance is at least `min_balance`,
@@ -27192,7 +27232,6 @@ mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
 #[cfg(test)]
-mod test_issues_1072_1186_1250_1251;
-#[cfg(test)]
 mod test_issue_1259;
-
+#[cfg(test)]
+mod test_issues_1072_1186_1250_1251;

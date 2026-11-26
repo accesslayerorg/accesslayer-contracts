@@ -49,12 +49,23 @@ jobs:
           fi
           cargo scout-audit --version
 
+      - name: Work around Scout's stale rust-clippy branch reference
+        run: |
+          clippy_mirror="$RUNNER_TEMP/rust-clippy"
+          git clone --bare https://github.com/rust-lang/rust-clippy.git "$clippy_mirror"
+          git -C "$clippy_mirror" update-ref refs/heads/master HEAD
+          git -C "$clippy_mirror" symbolic-ref HEAD refs/heads/master
+          git config --file "$RUNNER_TEMP/scout-gitconfig" --add \
+            url."file://$clippy_mirror".insteadOf \
+            https://github.com/rust-lang/rust-clippy
+
       - name: Run Scout
         id: scout
         continue-on-error: true
         env:
           # Disable Scout telemetry and its release-update check in CI.
           SCOUT_OFFLINE: "1"
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/scout-gitconfig
         run: |
           mkdir -p security-reports
           cargo scout-audit \

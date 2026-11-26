@@ -46,6 +46,14 @@ the blocking findings are visible without downloading anything.
 Soroban contracts. CI installs the pinned version (`cargo-scout-audit 0.3.17`)
 and runs it over the workspace.
 
+Scout 0.3.17 resolves Dylint 4.1.2, whose build currently requests the removed
+`master` branch of `rust-clippy` (upstream issue
+[CoinFabrik/scout-audit#350](https://github.com/CoinFabrik/scout-audit/issues/350)).
+CI mirrors the repository's default branch and provides a temporary local
+`master` alias so Dylint can continue checking out the toolchain-specific
+historical commit. This compatibility step does not skip detectors or change
+the finding threshold; remove it once Scout ships a compatible Dylint version.
+
 Scout's severities are **Critical**, **Medium**, **Minor** and **Enhancement**.
 There is no separate "high" label: Critical is the tool's high-severity bucket,
 so the gate fails on new Critical findings. The threshold can be lowered in

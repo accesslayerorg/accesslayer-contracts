@@ -156,6 +156,21 @@ through `AllowanceError::KeyFrozen` (12) because that entrypoint returns
 **Backward compatibility for 148**: this code is appended after the key-retirement
 error codes (`142`-`147`). No existing variant was renumbered, reordered, or reused.
 
+### Multi-buy and price floor (Issue #1301)
+
+| Code | Variant | Description | Trigger Condition |
+| :--- | :--- | :--- | :--- |
+| `179` | `LegsEmpty` | A multi-buy has no purchase legs | Triggered by `multi_buy` when the requested legs list is empty. |
+| `180` | `TooManyLegs` | A multi-buy exceeds its ten-leg limit | Triggered by `multi_buy` when more than ten legs are provided. |
+| `181` | `DuplicateCreator` | A multi-buy contains the same creator more than once | Triggered by `multi_buy` when multiple legs name the same creator. |
+| `182` | `InsufficientFunds` | The buyer cannot cover the multi-buy's worst-case cost | Triggered by `multi_buy` when available funds are below the total maximum payment. |
+| `183` | `PriceFloorBreached` | A sell would breach the configured price floor | Triggered by `swap` when a sell would leave the key price at or below its configured floor. |
+
+**Backward compatibility for 179-183**: these codes are appended after the
+existing highest code (`178`, `CyclicReferral`). This keeps the previously
+assigned codes for badge access and oracle errors intact and avoids reusing
+their numeric values.
+
 ---
 
 ## `PollError` Reference (Governance Polls)

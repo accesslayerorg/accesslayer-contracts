@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, String,
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env,
 };
 
 #[contracttype]
@@ -104,7 +104,7 @@ impl PersonhoodHookContract {
         }
 
         // Verify signature (simplified - in reality would verify against attestor)
-        if signature.len() == 0 {
+        if signature.is_empty() {
             return Err(PersonhoodError::InvalidAttestation);
         }
 
@@ -169,15 +169,16 @@ impl PersonhoodHookContract {
             .instance()
             .get(&DataKey::UnlinkCooldown)
             .unwrap_or(0);
-        let last_unlink: u64 = env
+        let last_unlink: Option<u64> = env
             .storage()
             .persistent()
-            .get(&DataKey::LastUnlink(wallet.clone()))
-            .unwrap_or(0);
+            .get(&DataKey::LastUnlink(wallet.clone()));
         let now = env.ledger().timestamp();
 
-        if now < last_unlink + cooldown {
-            return Err(PersonhoodError::CooldownActive);
+        if let Some(last_unlink) = last_unlink {
+            if now < last_unlink.saturating_add(cooldown) {
+                return Err(PersonhoodError::CooldownActive);
+            }
         }
 
         // Unlink wallet
@@ -459,7 +460,7 @@ mod test {
         let (env, client, _admin) = setup();
         let wallet = Address::generate(&env);
         let person_id = BytesN::from_array(&env, &[1u8; 32]);
-        let valid_until = env.ledger().timestamp() - 1; // Expired
+        let valid_until = env.ledger().timestamp(); // Expired at the current timestamp
         let signature = Bytes::from_array(&env, &[1, 2, 3, 4]);
 
         assert_eq!(
