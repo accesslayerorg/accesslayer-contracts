@@ -1,0 +1,64 @@
+name: Reproducible WASM builds
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  compare-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build pinned release image
+        run: docker build --file Dockerfile --tag accesslayer-wasm-build:${GITHUB_SHA} .
+
+      - name: Build independently in clean containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          mkdir -p "$work/source-one" "$work/source-two" "$work/output-one" "$work/output-two"
+          mkdir -p reproducibility-results
+          git archive "$GITHUB_SHA" | tar -x -C "$work/source-one"
+          git archive "$GITHUB_SHA" | tar -x -C "$work/source-two"
+          docker run --rm \
+            --env "SOURCE_COMMIT=$GITHUB_SHA" \
+            --volume "$work/source-one:/workspace:ro" \
+            --volume "$work/output-one:/output" \
+            "accesslayer-wasm-build:$GITHUB_SHA" creator-keys /output
+          hash_one="$(sha256sum "$work/output-one/creator_keys.wasm" | cut -d ' ' -f 1)"
+          cp "$work/output-one/build-info.json" reproducibility-results/build-one.json
+          cp "$work/output-one/creator_keys.wasm" reproducibility-results/build-one.wasm
+          printf 'commit=%s\npackage=creator-keys\nfirst_sha256=%s\n' \
+            "$GITHUB_SHA" "$hash_one" > reproducibility-results/reproducibility.txt
+          docker run --rm \
+            --env "SOURCE_COMMIT=$GITHUB_SHA" \
+            --volume "$work/source-two:/workspace:ro" \
+            --volume "$work/output-two:/output" \
+            "accesslayer-wasm-build:$GITHUB_SHA" creator-keys /output
+          hash_two="$(sha256sum "$work/output-two/creator_keys.wasm" | cut -d ' ' -f 1)"
+          cp "$work/output-two/build-info.json" reproducibility-results/build-two.json
+          cp "$work/output-two/creator_keys.wasm" reproducibility-results/build-two.wasm
+          printf 'second_sha256=%s\n' "$hash_two" >> reproducibility-results/reproducibility.txt
+          if [[ "$hash_one" != "$hash_two" ]]; then
+            echo "Independent WASM builds differ: $hash_one != $hash_two" >&2
+            exit 1
+          fi
+          echo "Independent WASM builds match: $hash_one"
+
+      - name: Upload build metadata and hashes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproducible-wasm-builds
+          path: reproducibility-results/
+          if-no-files-found: warn
