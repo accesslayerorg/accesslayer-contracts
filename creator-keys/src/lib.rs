@@ -431,15 +431,15 @@ pub enum ContractError {
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
     /// A multi-buy was called without any legs.
-    LegsEmpty = 161,
+    LegsEmpty = 179,
     /// A multi-buy contained more than ten legs.
-    TooManyLegs = 162,
+    TooManyLegs = 180,
     /// The same creator appeared in more than one multi-buy leg.
-    DuplicateCreator = 163,
+    DuplicateCreator = 181,
     /// The buyer cannot cover the worst-case cost of a multi-buy.
-    InsufficientFunds = 164,
+    InsufficientFunds = 182,
     /// A sell was attempted at or below its configured price floor.
-    PriceFloorBreached = 165,
+    PriceFloorBreached = 183,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
     BadgeRequired = 161,
