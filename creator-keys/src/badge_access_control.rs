@@ -105,11 +105,7 @@ pub fn clear_badge_requirement(
 }
 
 /// Get badge requirements for a specific action.
-pub fn badge_requirement_of(
-    env: &Env,
-    key_id: Address,
-    action: BadgeGatedAction,
-) -> Vec<Address> {
+pub fn badge_requirement_of(env: &Env, key_id: Address, action: BadgeGatedAction) -> Vec<Address> {
     let req_key = BadgeAccessControlKey::BadgeRequirement(key_id, action);
     env.storage()
         .persistent()
