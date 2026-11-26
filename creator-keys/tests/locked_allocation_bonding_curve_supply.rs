@@ -4,6 +4,8 @@
 //! counts those keys in `total_supply`. Because the bonding curve prices the next buy
 //! against the current supply, the buy quote must reflect N, not zero.
 //! A creator registered without a locked allocation must still start at supply zero.
+//
+//! Invariant IDs: INV-ESCW-003
 
 mod contract_test_env;
 

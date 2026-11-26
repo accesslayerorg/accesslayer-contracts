@@ -4,6 +4,8 @@
 //! - creator_fee + protocol_fee + total_amount == price (for sell quotes)
 //! - creator_fee + protocol_fee == price - total_amount (seller net)
 //! - Boundary and nominal cases with deterministic assertions
+//!
+//! Invariant IDs: INV-FEE-001, INV-FEE-004, INV-FEE-005
 
 mod contract_test_env;
 

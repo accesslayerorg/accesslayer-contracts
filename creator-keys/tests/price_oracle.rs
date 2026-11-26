@@ -5,6 +5,8 @@
 //! callers. Unapproved callers are rejected with `CallerNotApproved`. Every
 //! successful read emits a `price_queried` event carrying the caller address
 //! and the returned price.
+//
+//! Invariant IDs: INV-AUTH-003
 
 mod contract_test_env;
 

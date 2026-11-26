@@ -2,6 +2,8 @@
 //
 //! Every function gated by `assert_is_admin` must reject a non-admin caller with
 //! `ContractError::Unauthorized` and must not mutate any contract state.
+//!
+//! Invariant IDs: INV-AUTH-001, INV-AUTH-002
 
 mod contract_test_env;
 

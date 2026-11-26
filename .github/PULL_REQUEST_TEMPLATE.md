@@ -17,3 +17,4 @@
 - [ ] Confirmed event names, topic order, payload field order, and field meanings remain compatible with `docs/contract-event-conventions.md`, or documented the breaking change and versioning plan
 - [ ] Updated docs for any changed public contract interface, read-only method, event schema, storage behavior, fee logic, or deployment workflow
 - [ ] Scope stays limited to one contract concern and does not include unrelated formatting, lockfile, generated artifact, or dependency changes
+- [ ] Threat model: when trust assumptions change (actors, powers, assets at risk, or attack scenarios), `docs/threat-model.md` and `docs/invariants.md` are updated and the PR reviewer confirms they match current behavior

@@ -6,6 +6,8 @@
 //! before a trade that is expected to fail, trigger the failing trade, and
 //! assert the balance is identical afterward, covering both a buy failure and a
 //! sell failure.
+//
+//! Invariant IDs: INV-RESV-001
 
 mod contract_test_env;
 

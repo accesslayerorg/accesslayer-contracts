@@ -4,6 +4,8 @@
 //! calls `creator.require_auth()` and looks up the allocation keyed by that address.
 //! A wallet that is not the registered creator has no allocation stored under its address
 //! and will receive `NotRegistered`, confirming it cannot access another creator's locked keys.
+//
+//! Invariant IDs: INV-ESCW-001
 
 mod contract_test_env;
 

@@ -1,5 +1,7 @@
 //! Regression test: locked allocation claim must revert before unlock_ledger
 //! and succeed exactly at unlock_ledger.
+//
+//! Invariant IDs: INV-ESCW-002
 
 mod contract_test_env;
 

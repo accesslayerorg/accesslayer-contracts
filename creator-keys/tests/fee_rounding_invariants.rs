@@ -5,6 +5,8 @@
 //! - Rounding direction: remainder from integer division goes to creator
 //! - Boundary handling: zero, negative, and minimum amounts
 //! - Maximum input values near i128 limits
+//!
+//! Invariant IDs: INV-FEE-002, INV-FEE-003
 
 use creator_keys::fee;
 

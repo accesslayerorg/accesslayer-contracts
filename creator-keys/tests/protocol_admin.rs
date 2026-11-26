@@ -1,3 +1,7 @@
+//! Authorization tests for the protocol admin.
+//!
+//! Invariant IDs: INV-AUTH-005
+//!
 use creator_keys::{CreatorKeysContract, CreatorKeysContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 

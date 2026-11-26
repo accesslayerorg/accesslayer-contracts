@@ -10,6 +10,8 @@
 //! The contract exposes pricing through the quote views (`get_buy_quote`,
 //! `get_sell_quote`, `get_buyback_quote`) rather than a single `get_price`
 //! entrypoint, so those are the read paths asserted here.
+//
+//! Invariant IDs: INV-AUTH-004
 
 mod contract_test_env;
 

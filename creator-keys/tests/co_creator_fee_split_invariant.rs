@@ -2,6 +2,8 @@
 //!
 //! Validates the invariant: co_creator_amount + creator_recipient_amount == total_creator_fee
 //! across different split percentages (30%, 50%, 10%).
+//!
+//! Invariant IDs: INV-FEE-006
 
 mod contract_test_env;
 

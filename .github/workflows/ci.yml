@@ -33,3 +33,6 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Invariant test coverage check
+        run: python3 scripts/check_invariants_tested.py

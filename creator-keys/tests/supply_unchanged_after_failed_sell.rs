@@ -3,6 +3,8 @@
 //! When a sell fails (e.g. insufficient balance), total supply must remain
 //! exactly the value it was before the call. This test confirms no partial
 //! state mutation occurs on the sell error path.
+//
+//! Invariant IDs: INV-SPLY-004
 
 mod contract_test_env;
 

@@ -1,4 +1,6 @@
 //! Regression test verifying `get_locked_allocation` returns claimed `true` after claim.
+//
+//! Invariant IDs: INV-ESCW-002
 
 mod contract_test_env;
 

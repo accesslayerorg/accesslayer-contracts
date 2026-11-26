@@ -5,6 +5,8 @@
 //!   - sum of individual holder balances equals total supply
 //!   - supply decrements correctly on sells
 //!   - supply is consistent across multiple participants
+//!
+//! Invariant IDs: INV-SPLY-001, INV-SPLY-002, INV-SPLY-003, INV-SPLY-005
 
 mod contract_test_env;
 
