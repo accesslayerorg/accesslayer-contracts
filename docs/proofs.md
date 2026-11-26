@@ -15,16 +15,22 @@ changed or restricted by the proofs.
 | Fee amount / gross price | `0..=u32::MAX` |
 | Individual fee rate | `0..=10_000` bps |
 | Combined creator + protocol rate | `0..=10_000` bps |
-| Curve base price | `1..=1_000_000` |
-| Curve slope | `0..=10_000` |
-| Starting supply | `0..=10_000` |
-| Batch quantity | `1..=4` |
+| Standalone curve base price | `1..=1_000_000` |
+| Standalone curve slope | `0..=10_000` |
+| Standalone curve starting supply | `0..=10_000` |
+| Standalone curve batch quantity | `1..=4` |
+| Round-trip base price | `1..=64` |
+| Round-trip slope | `0..=4` |
+| Round-trip starting supply | `0..=8` |
+| Round-trip quantity | `1..=2` |
 | Checked-power base | `0..=1_000` |
 | Checked-power exponent | `0..=5` |
 
 All three presets (`Flat`, `Linear`, and `Quadratic`) are selected
 symbolically. Batch proofs unwind the pricing loop for every quantity in the
-stated range.
+stated range. The round-trip harness composes pricing and fee arithmetic, so
+it uses smaller curve inputs and an unwind limit of 4. Its fee rates still
+range over all valid splits.
 
 ## Properties
 

@@ -154,9 +154,17 @@ mod proofs {
     }
 
     #[kani::proof]
-    #[kani::unwind(6)]
+    #[kani::unwind(4)]
     fn buy_cost_covers_round_trip_sell_proceeds() {
-        let (base_price, slope, supply, quantity, curve) = any_curve_inputs();
+        // Expose the input widths to the bit-vector solver while keeping all
+        // three presets and the full range of valid fee splits.
+        let base_price = 1 + i128::from(kani::any::<u8>() & 63);
+        let slope = i128::from(kani::any::<u8>() & 7);
+        let supply = u32::from(kani::any::<u8>() & 15);
+        let quantity = 1 + u32::from(kani::any::<bool>());
+        kani::assume(slope <= 4);
+        kani::assume(supply <= 8);
+        let curve = any_curve();
         let resulting_supply = supply.checked_add(quantity).unwrap();
 
         let gross_buy = math::compute_price(base_price, slope, supply, quantity, curve).unwrap();
@@ -165,9 +173,11 @@ mod proofs {
             math::compute_price(base_price, slope, sell_start, quantity, curve).unwrap();
         assert_eq!(gross_buy, gross_sell);
 
+        // No truncation is allowed: Kani checks the conversion succeeds.
+        let fee_base = i128::from(u16::try_from(gross_sell).unwrap());
         let (creator_bps, protocol_bps) = any_fee_split();
         let (creator_fee, protocol_fee) =
-            math::checked_compute_fee_split(gross_sell, creator_bps, protocol_bps).unwrap();
+            math::checked_compute_fee_split(fee_base, creator_bps, protocol_bps).unwrap();
         let fees = math::checked_fee_sum(creator_fee, protocol_fee).unwrap();
         let buy_cost = math::checked_add_i128(gross_buy, fees).unwrap();
         let sell_proceeds = math::checked_sub_i128(gross_sell, fees).unwrap();
