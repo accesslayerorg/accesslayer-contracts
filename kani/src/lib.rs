@@ -10,7 +10,6 @@ mod proofs {
     const MAX_PROOF_BASE_PRICE: u32 = 1_000_000;
     const MAX_PROOF_SLOPE: u16 = 10_000;
     const MAX_PROOF_SUPPLY: u16 = 10_000;
-    const MAX_PROOF_QUANTITY: u8 = 4;
     const MAX_PROOF_POWER_BASE: u16 = 1_000;
     const MAX_PROOF_EXPONENT: u8 = 5;
 
@@ -37,26 +36,38 @@ mod proofs {
         }
     }
 
-    fn any_curve_inputs() -> (i128, i128, u32, u32, CurveKind) {
-        let base_price = kani::any::<u32>();
+    fn any_batch_quantity() -> u32 {
+        1 + u32::from(kani::any::<u8>() & 3)
+    }
+
+    fn any_curve_inputs() -> (i128, i128, u32, CurveKind) {
+        // Clear bits outside the documented range before widening to i128.
+        let base_price = kani::any::<u32>() & 0xF_FFFF;
         kani::assume(base_price > 0 && base_price <= MAX_PROOF_BASE_PRICE);
 
-        let slope = kani::any::<u16>();
+        let slope = kani::any::<u16>() & 0x3FFF;
         kani::assume(slope <= MAX_PROOF_SLOPE);
 
-        let supply = kani::any::<u16>();
+        let supply = kani::any::<u16>() & 0x3FFF;
         kani::assume(supply <= MAX_PROOF_SUPPLY);
-
-        let quantity = kani::any::<u8>();
-        kani::assume(quantity > 0 && quantity <= MAX_PROOF_QUANTITY);
 
         (
             i128::from(base_price),
             i128::from(slope),
             u32::from(supply),
-            u32::from(quantity),
             any_curve(),
         )
+    }
+
+    fn any_curve_comparison_inputs() -> (i128, i128, u32, CurveKind) {
+        // Comparing two symbolic prices multiplies symbolic values on both
+        // sides of the assertion. Keep that domain separate from safety.
+        let base_price = 1 + i128::from(kani::any::<u8>() & 63);
+        let slope = i128::from(kani::any::<u8>() & 7);
+        let supply = u32::from(kani::any::<u8>() & 15);
+        kani::assume(slope <= 4);
+        kani::assume(supply <= 8);
+        (base_price, slope, supply, any_curve())
     }
 
     #[kani::proof]
@@ -131,40 +142,42 @@ mod proofs {
     }
 
     #[kani::proof]
+    #[kani::unwind(6)]
+    fn curve_batch_cost_is_safe_within_bounds() {
+        let (base_price, slope, supply, curve) = any_curve_inputs();
+        let quantity = any_batch_quantity();
+        let total = math::compute_price(base_price, slope, supply, quantity, curve).unwrap();
+
+        assert!(total > 0);
+    }
+
+    #[kani::proof]
     #[kani::unwind(3)]
-    fn curve_spot_price_is_positive_and_monotone() {
-        let (base_price, slope, supply, _, curve) = any_curve_inputs();
+    fn curve_spot_price_is_monotone() {
+        let (base_price, slope, supply, curve) = any_curve_comparison_inputs();
         let current = math::compute_price(base_price, slope, supply, 1, curve).unwrap();
         let next = math::compute_price(base_price, slope, supply + 1, 1, curve).unwrap();
 
-        assert!(current > 0);
         assert!(next >= current);
     }
 
     #[kani::proof]
     #[kani::unwind(6)]
-    fn curve_batch_cost_is_safe_and_not_below_initial_spot() {
-        let (base_price, slope, supply, quantity, curve) = any_curve_inputs();
+    fn curve_batch_cost_is_not_below_initial_spot() {
+        let (base_price, slope, supply, curve) = any_curve_comparison_inputs();
+        let quantity = any_batch_quantity();
         let initial_spot = math::compute_price(base_price, slope, supply, 1, curve).unwrap();
         let total = math::compute_price(base_price, slope, supply, quantity, curve).unwrap();
         let minimum = initial_spot.checked_mul(i128::from(quantity)).unwrap();
 
-        assert!(total > 0);
         assert!(total >= minimum);
     }
 
     #[kani::proof]
     #[kani::unwind(4)]
     fn buy_cost_covers_round_trip_sell_proceeds() {
-        // Expose the input widths to the bit-vector solver while keeping all
-        // three presets and the full range of valid fee splits.
-        let base_price = 1 + i128::from(kani::any::<u8>() & 63);
-        let slope = i128::from(kani::any::<u8>() & 7);
-        let supply = u32::from(kani::any::<u8>() & 15);
+        let (base_price, slope, supply, curve) = any_curve_comparison_inputs();
         let quantity = 1 + u32::from(kani::any::<bool>());
-        kani::assume(slope <= 4);
-        kani::assume(supply <= 8);
-        let curve = any_curve();
         let resulting_supply = supply.checked_add(quantity).unwrap();
 
         let gross_buy = math::compute_price(base_price, slope, supply, quantity, curve).unwrap();

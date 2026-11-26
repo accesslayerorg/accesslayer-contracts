@@ -64,4 +64,4 @@ jobs:
       - name: Verify proofs
         working-directory: kani
         timeout-minutes: 15
-        run: cargo kani --output-format terse
+        run: cargo kani --output-format terse --jobs 4 -Z unstable-options --harness-timeout 3m
