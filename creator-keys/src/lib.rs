@@ -27181,8 +27181,10 @@ mod test_issue_998;
 mod test_issue_1000;
 
 #[cfg(test)]
-mod test_upgrade_rehearsal;
 mod test_proxy;
+
+#[cfg(test)]
+mod test_upgrade_rehearsal;
 
 #[cfg(test)]
 mod test_announcements;
