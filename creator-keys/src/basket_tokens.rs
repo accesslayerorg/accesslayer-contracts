@@ -44,7 +44,11 @@ pub fn create_basket(
     if sum != BPS_SCALE {
         return Err(ContractError::InvalidWeights);
     }
-    let basket_id: u32 = env.storage().instance().get(&Symbol::new(env, "basket_next")).unwrap_or(1);
+    let basket_id: u32 = env
+        .storage()
+        .instance()
+        .get(&Symbol::new(env, "basket_next"))
+        .unwrap_or(1);
     let basket = Basket {
         manager,
         name_hash,
@@ -56,21 +60,38 @@ pub fn create_basket(
         last_rebalance_ledger: env.ledger().sequence(),
         total_units: 0,
     };
-    env.storage().instance().set(&BasketKey::Basket(basket_id), &basket);
-    env.storage().instance().set(&Symbol::new(env, "basket_next"), &(basket_id + 1));
-    env.events().publish((Symbol::new(env, "basket_created"), basket_id), ());
+    env.storage()
+        .instance()
+        .set(&BasketKey::Basket(basket_id), &basket);
+    env.storage()
+        .instance()
+        .set(&Symbol::new(env, "basket_next"), &(basket_id + 1));
+    env.events()
+        .publish((Symbol::new(env, "basket_created"), basket_id), ());
     Ok(basket_id)
 }
 
-pub fn mint(env: &Env, depositor: Address, basket_id: u32, units: i128) -> Result<(), ContractError> {
+pub fn mint(
+    env: &Env,
+    depositor: Address,
+    basket_id: u32,
+    units: i128,
+) -> Result<(), ContractError> {
     depositor.require_auth();
     if units <= 0 {
         return Err(ContractError::NotPositiveAmount);
     }
-    let mut basket: Basket = env.storage().instance().get(&BasketKey::Basket(basket_id)).ok_or(ContractError::BasketNotFound)?;
+    let mut basket: Basket = env
+        .storage()
+        .instance()
+        .get(&BasketKey::Basket(basket_id))
+        .ok_or(ContractError::BasketNotFound)?;
     for i in 0..basket.keys.len() {
         let key = basket.keys.get(i).unwrap();
-        let amount = units.checked_mul(basket.weights_bps.get(i).unwrap() as i128).ok_or(ContractError::Overflow)? / BPS_SCALE;
+        let amount = units
+            .checked_mul(basket.weights_bps.get(i).unwrap() as i128)
+            .ok_or(ContractError::Overflow)?
+            / BPS_SCALE;
         if amount <= 0 {
             continue;
         }
@@ -85,18 +106,33 @@ pub fn mint(env: &Env, depositor: Address, basket_id: u32, units: i128) -> Resul
         let amount = units * basket.weights_bps.get(i).unwrap() as i128 / BPS_SCALE;
         let balance_key = crate::DataKey::KeyBalance(key, depositor.clone());
         let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        env.storage().persistent().set(&balance_key, &(balance - amount as u32));
+        env.storage()
+            .persistent()
+            .set(&balance_key, &(balance - amount as u32));
     }
     let units_key = BasketKey::Units(basket_id, depositor.clone());
     let old: i128 = env.storage().instance().get(&units_key).unwrap_or(0);
     env.storage().instance().set(&units_key, &(old + units));
-    basket.total_units = basket.total_units.checked_add(units).ok_or(ContractError::Overflow)?;
-    env.storage().instance().set(&BasketKey::Basket(basket_id), &basket);
-    env.events().publish((Symbol::new(env, "basket_minted"), basket_id), (depositor, units));
+    basket.total_units = basket
+        .total_units
+        .checked_add(units)
+        .ok_or(ContractError::Overflow)?;
+    env.storage()
+        .instance()
+        .set(&BasketKey::Basket(basket_id), &basket);
+    env.events().publish(
+        (Symbol::new(env, "basket_minted"), basket_id),
+        (depositor, units),
+    );
     Ok(())
 }
 
-pub fn redeem(env: &Env, holder: Address, basket_id: u32, units: i128) -> Result<(), ContractError> {
+pub fn redeem(
+    env: &Env,
+    holder: Address,
+    basket_id: u32,
+    units: i128,
+) -> Result<(), ContractError> {
     holder.require_auth();
     if units <= 0 {
         return Err(ContractError::NotPositiveAmount);
@@ -106,17 +142,28 @@ pub fn redeem(env: &Env, holder: Address, basket_id: u32, units: i128) -> Result
     if held < units {
         return Err(ContractError::InsufficientSupply);
     }
-    let mut basket: Basket = env.storage().instance().get(&BasketKey::Basket(basket_id)).ok_or(ContractError::BasketNotFound)?;
+    let mut basket: Basket = env
+        .storage()
+        .instance()
+        .get(&BasketKey::Basket(basket_id))
+        .ok_or(ContractError::BasketNotFound)?;
     for i in 0..basket.keys.len() {
         let key = basket.keys.get(i).unwrap();
         let amount = units * basket.weights_bps.get(i).unwrap() as i128 / BPS_SCALE;
         let balance_key = crate::DataKey::KeyBalance(key, holder.clone());
         let balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-        env.storage().persistent().set(&balance_key, &(balance.saturating_add(amount as u32)));
+        env.storage()
+            .persistent()
+            .set(&balance_key, &(balance.saturating_add(amount as u32)));
     }
     env.storage().instance().set(&units_key, &(held - units));
     basket.total_units = basket.total_units.saturating_sub(units);
-    env.storage().instance().set(&BasketKey::Basket(basket_id), &basket);
-    env.events().publish((Symbol::new(env, "basket_redeemed"), basket_id), (holder, units));
+    env.storage()
+        .instance()
+        .set(&BasketKey::Basket(basket_id), &basket);
+    env.events().publish(
+        (Symbol::new(env, "basket_redeemed"), basket_id),
+        (holder, units),
+    );
     Ok(())
 }
