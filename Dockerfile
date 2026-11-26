@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 rust:1.84.0-bookworm@sha256:e6e40c05cfe7dd55ad13794333d31b6d0818f0c6086876e7dc65871e6c8c0b21
+FROM --platform=linux/amd64 rust:1.85.0-bookworm@sha256:16a7f242108de02f10fe4a392991679bafa7694e59f5b40a54d5af1be9b40d03
 
 ENV SOROBAN_CLI_VERSION=22.0.0
 

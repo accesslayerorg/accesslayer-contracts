@@ -12,7 +12,7 @@ funded account, or privileged credentials.
 - Python 3
 - `sha256sum`
 
-The release container pins Rust **1.84.0**, the `wasm32v1-none` target,
+The release container pins Rust **1.85.0**, the `wasm32v1-none` target,
 `clippy`/`rustfmt`, and Stellar CLI **22.0.0**. Cargo dependencies are resolved
 from the committed `Cargo.lock` with `--locked`.
 
@@ -60,7 +60,7 @@ The build fixes `SOURCE_DATE_EPOCH=0`, locale and timezone, disables Cargo
 incremental compilation, uses a fresh container-local target directory, and
 remaps workspace and registry source paths.
 
-The image pins the official `rust:1.84.0-bookworm` base image by digest and
+The image pins the official `rust:1.85.0-bookworm` base image by digest and
 targets `linux/amd64`; the Stellar CLI binary is pinned to its official release
 asset by SHA-256. Rust, Cargo dependencies, OS image, and CLI are pinned.
 Non-amd64 hosts need Docker emulation to use this image.
