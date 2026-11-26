@@ -1,0 +1,63 @@
+name: Publish release verification metadata
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Confirm release tag commit
+        id: release-commit
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          tag_commit="$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+            echo "Checked-out commit does not match the published release tag." >&2
+            exit 1
+          fi
+          echo "commit=$tag_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Build pinned release image
+        run: docker build --file Dockerfile --tag accesslayer-wasm-release:${GITHUB_SHA} .
+
+      - name: Build tagged contract artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          docker run --rm \
+            --env "SOURCE_COMMIT=${{ steps.release-commit.outputs.commit }}" \
+            --volume "$PWD:/workspace" \
+            --volume "$PWD/release-artifacts:/output" \
+            "accesslayer-wasm-release:$GITHUB_SHA" --all /output
+
+      - name: Generate release metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_COMMIT: ${{ steps.release-commit.outputs.commit }}
+        run: |
+          python3 scripts/create-release-metadata.py \
+            "$RELEASE_TAG" \
+            "$RELEASE_COMMIT" \
+            release-artifacts/build-info.json \
+            release-artifacts \
+            releases.json
+          jq -e '.schema_version == 1 and (.releases | length > 0)' releases.json >/dev/null
+
+      - name: Attach metadata to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" releases.json --clobber

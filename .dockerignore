@@ -1,0 +1,6 @@
+.git
+.github
+target
+**/target
+**/test_snapshots
+*.md
