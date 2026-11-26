@@ -120,7 +120,6 @@ fn second_leg_over_max_price_rolls_back_every_leg() {
         assert_eq!(client.get_total_key_supply(key), 0);
         assert_eq!(client.get_key_balance(key, &buyer), 0);
     }
-    
 }
 
 #[test]
@@ -191,13 +190,7 @@ fn insufficient_worst_case_balance_is_rejected_before_any_purchase() {
     client.set_xlm_token_address(&_admin, &token);
     token::StellarAssetClient::new(&env, &token).mint(&buyer, &1_000);
 
-    let legs = Vec::from_array(
-        &env,
-        [
-            leg(&keys[0], 1, 1_000),
-            leg(&keys[1], 1, 1_000),
-        ],
-    );
+    let legs = Vec::from_array(&env, [leg(&keys[0], 1, 1_000), leg(&keys[1], 1, 1_000)]);
     assert_eq!(
         client.try_multi_buy(&buyer, &legs, &deadline(&env)),
         Err(Ok(ContractError::InsufficientFunds))

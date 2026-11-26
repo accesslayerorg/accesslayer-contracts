@@ -38,7 +38,11 @@ pub fn create_joint_key(
     weights_bps: Vec<u32>,
     threshold_bps: u32,
 ) -> Result<(), ContractError> {
-    if creators.len() == 0 || creators.len() != weights_bps.len() || threshold_bps == 0 || threshold_bps > 10_000 {
+    if creators.len() == 0
+        || creators.len() != weights_bps.len()
+        || threshold_bps == 0
+        || threshold_bps > 10_000
+    {
         return Err(ContractError::InvalidWeights);
     }
     let mut sum = 0u32;
@@ -48,9 +52,20 @@ pub fn create_joint_key(
     if sum != 10_000 {
         return Err(ContractError::InvalidWeights);
     }
-    let joint = JointKey { key_id: key_id.clone(), creators, weights_bps, threshold_bps, notice_ledgers: 17_280 };
-    env.storage().instance().set(&JointKeyDataKey::Joint(key_id.clone()), &joint);
-    env.events().publish((soroban_sdk::Symbol::new(env, "joint_key_created"), key_id), ());
+    let joint = JointKey {
+        key_id: key_id.clone(),
+        creators,
+        weights_bps,
+        threshold_bps,
+        notice_ledgers: 17_280,
+    };
+    env.storage()
+        .instance()
+        .set(&JointKeyDataKey::Joint(key_id.clone()), &joint);
+    env.events().publish(
+        (soroban_sdk::Symbol::new(env, "joint_key_created"), key_id),
+        (),
+    );
     Ok(())
 }
 
@@ -61,11 +76,19 @@ pub fn propose_change(
     change: u32,
 ) -> Result<u32, ContractError> {
     owner.require_auth();
-    let joint: JointKey = env.storage().instance().get(&JointKeyDataKey::Joint(key_id.clone())).ok_or(ContractError::JointKeyNotFound)?;
+    let joint: JointKey = env
+        .storage()
+        .instance()
+        .get(&JointKeyDataKey::Joint(key_id.clone()))
+        .ok_or(ContractError::JointKeyNotFound)?;
     if !joint.creators.iter().any(|c| c == owner) {
         return Err(ContractError::NotJointOwner);
     }
-    let id: u32 = env.storage().instance().get(&JointKeyDataKey::NextProposal).unwrap_or(1);
+    let id: u32 = env
+        .storage()
+        .instance()
+        .get(&JointKeyDataKey::NextProposal)
+        .unwrap_or(1);
     let proposal = ChangeProposal {
         key_id,
         owner,
@@ -74,16 +97,29 @@ pub fn propose_change(
         execution_not_before: env.ledger().sequence().saturating_add(17_280),
         approvals_bps: 0,
     };
-    env.storage().instance().set(&JointKeyDataKey::Proposal(id), &proposal);
-    env.storage().instance().set(&JointKeyDataKey::NextProposal, &(id + 1));
-    env.events().publish((soroban_sdk::Symbol::new(env, "change_proposed"), id), ());
+    env.storage()
+        .instance()
+        .set(&JointKeyDataKey::Proposal(id), &proposal);
+    env.storage()
+        .instance()
+        .set(&JointKeyDataKey::NextProposal, &(id + 1));
+    env.events()
+        .publish((soroban_sdk::Symbol::new(env, "change_proposed"), id), ());
     Ok(id)
 }
 
 pub fn approve_change(env: &Env, owner: Address, proposal_id: u32) -> Result<(), ContractError> {
     owner.require_auth();
-    let mut proposal: ChangeProposal = env.storage().instance().get(&JointKeyDataKey::Proposal(proposal_id)).ok_or(ContractError::JointProposalNotFound)?;
-    let joint: JointKey = env.storage().instance().get(&JointKeyDataKey::Joint(proposal.key_id.clone())).ok_or(ContractError::JointKeyNotFound)?;
+    let mut proposal: ChangeProposal = env
+        .storage()
+        .instance()
+        .get(&JointKeyDataKey::Proposal(proposal_id))
+        .ok_or(ContractError::JointProposalNotFound)?;
+    let joint: JointKey = env
+        .storage()
+        .instance()
+        .get(&JointKeyDataKey::Joint(proposal.key_id.clone()))
+        .ok_or(ContractError::JointKeyNotFound)?;
     let mut weight = 0u32;
     for i in 0..joint.creators.len() {
         if joint.creators.get(i).unwrap() == owner {
@@ -95,20 +131,42 @@ pub fn approve_change(env: &Env, owner: Address, proposal_id: u32) -> Result<(),
         return Err(ContractError::NotJointOwner);
     }
     proposal.approvals_bps = proposal.approvals_bps.saturating_add(weight);
-    env.storage().instance().set(&JointKeyDataKey::Proposal(proposal_id), &proposal);
-    env.events().publish((soroban_sdk::Symbol::new(env, "change_approved"), proposal_id), ());
+    env.storage()
+        .instance()
+        .set(&JointKeyDataKey::Proposal(proposal_id), &proposal);
+    env.events().publish(
+        (
+            soroban_sdk::Symbol::new(env, "change_approved"),
+            proposal_id,
+        ),
+        (),
+    );
     Ok(())
 }
 
 pub fn execute_change(env: &Env, proposal_id: u32) -> Result<(), ContractError> {
-    let proposal: ChangeProposal = env.storage().instance().get(&JointKeyDataKey::Proposal(proposal_id)).ok_or(ContractError::JointProposalNotFound)?;
-    let joint: JointKey = env.storage().instance().get(&JointKeyDataKey::Joint(proposal.key_id.clone())).ok_or(ContractError::JointKeyNotFound)?;
+    let proposal: ChangeProposal = env
+        .storage()
+        .instance()
+        .get(&JointKeyDataKey::Proposal(proposal_id))
+        .ok_or(ContractError::JointProposalNotFound)?;
+    let joint: JointKey = env
+        .storage()
+        .instance()
+        .get(&JointKeyDataKey::Joint(proposal.key_id.clone()))
+        .ok_or(ContractError::JointKeyNotFound)?;
     if proposal.approvals_bps < joint.threshold_bps {
         return Err(ContractError::ThresholdNotMet);
     }
     if env.ledger().sequence() < proposal.execution_not_before {
         return Err(ContractError::TimelockNotElapsed);
     }
-    env.events().publish((soroban_sdk::Symbol::new(env, "change_executed"), proposal_id), ());
+    env.events().publish(
+        (
+            soroban_sdk::Symbol::new(env, "change_executed"),
+            proposal_id,
+        ),
+        (),
+    );
     Ok(())
 }
