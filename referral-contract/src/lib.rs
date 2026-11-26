@@ -34,7 +34,8 @@ pub const DEFAULT_GOLD_THRESHOLD: i128 = 1_000_000;
 /// Default reward rate for Gold tier: 1,500 bps (15.00%).
 pub const DEFAULT_GOLD_BPS: u32 = 1_500;
 pub const MAX_LEVELS: u32 = 5;
-pub const DEFAULT_REFERRAL_SHARE_BPS: [u32; MAX_LEVELS as usize] = [5_000, 2_500, 1_250, 625, 312];
+pub const DEFAULT_REFERRAL_SHARE_BPS: [u32; MAX_LEVELS as usize] =
+    [5_000, 2_500, 1_250, 625, 312];
 
 // New variants must be appended at the end; discriminants are part of the ABI.
 #[contracterror]
@@ -301,10 +302,7 @@ impl ReferralContract {
             .instance()
             .get(&DataKey::MaxReferralBps)
             .unwrap_or(2_000);
-        let trade_pool = trade_fee
-            .checked_mul(max_trade_bps)
-            .ok_or(ContractError::ArithmeticOverflow)?
-            / BPS_SCALE;
+        let trade_pool = trade_fee.checked_mul(max_trade_bps).ok_or(ContractError::ArithmeticOverflow)? / BPS_SCALE;
         let expiry: u32 = env
             .storage()
             .instance()
@@ -327,42 +325,30 @@ impl ReferralContract {
             }
             env.storage().instance().set(&period_key, &(used + payable));
             let entry_key = DataKey::RewardEntry(referrer.clone());
-            let entry: ReferralRewardEntry =
-                env.storage()
-                    .persistent()
-                    .get(&entry_key)
-                    .unwrap_or(ReferralRewardEntry {
-                        amount: 0,
-                        claim_by_ledger: env.ledger().sequence().saturating_add(expiry),
-                    });
+            let entry: ReferralRewardEntry = env
+                .storage()
+                .persistent()
+                .get(&entry_key)
+                .unwrap_or(ReferralRewardEntry {
+                    amount: 0,
+                    claim_by_ledger: env.ledger().sequence().saturating_add(expiry),
+                });
             let claim_by = env.ledger().sequence().saturating_add(expiry);
             let updated = ReferralRewardEntry {
                 amount: entry.amount.saturating_add(payable),
-                claim_by_ledger: if entry.claim_by_ledger > claim_by {
-                    entry.claim_by_ledger
-                } else {
-                    claim_by
-                },
+                claim_by_ledger: if entry.claim_by_ledger > claim_by { entry.claim_by_ledger } else { claim_by },
             };
             env.storage().persistent().set(&entry_key, &updated);
             env.storage().persistent().set(
                 &DataKey::RewardBalance(referrer.clone()),
-                &(env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, i128>(&DataKey::RewardBalance(referrer.clone()))
-                    .unwrap_or(0)
-                    .saturating_add(payable)),
+                &(env.storage().persistent().get::<DataKey,i128>(&DataKey::RewardBalance(referrer.clone())).unwrap_or(0).saturating_add(payable)),
             );
-            env.events().publish(
-                (REFERRAL_REWARD_ACCRUED_EVENT_NAME, referrer.clone()),
-                ReferralRewardAccrued {
-                    referrer,
-                    amount: payable,
-                    tier: ReferralTier::Bronze,
-                    reward_rate_bps: DEFAULT_REFERRAL_SHARE_BPS[level],
-                },
-            );
+            env.events().publish((REFERRAL_REWARD_ACCRUED_EVENT_NAME, referrer.clone()), ReferralRewardAccrued {
+                referrer,
+                amount: payable,
+                tier: ReferralTier::Bronze,
+                reward_rate_bps: DEFAULT_REFERRAL_SHARE_BPS[level],
+            });
         }
         Ok(())
     }
@@ -674,41 +660,26 @@ impl ReferralContract {
     pub fn claim_referral(env: Env, referrer: Address) -> Result<i128, ContractError> {
         referrer.require_auth();
         let entry_key = DataKey::RewardEntry(referrer.clone());
-        let entry: ReferralRewardEntry =
-            env.storage()
-                .persistent()
-                .get(&entry_key)
-                .unwrap_or(ReferralRewardEntry {
-                    amount: 0,
-                    claim_by_ledger: 0,
-                });
+        let entry: ReferralRewardEntry = env.storage().persistent().get(&entry_key).unwrap_or(ReferralRewardEntry {
+            amount: 0,
+            claim_by_ledger: 0,
+        });
         if entry.amount <= 0 || entry.claim_by_ledger <= env.ledger().sequence() {
             return Err(ContractError::NoRewardsPending);
         }
         env.storage().persistent().remove(&entry_key);
-        env.storage()
-            .persistent()
-            .set(&DataKey::RewardBalance(referrer.clone()), &0i128);
-        env.events().publish(
-            (REFERRAL_REWARDS_CLAIMED_EVENT_NAME, referrer.clone()),
-            ReferralRewardsClaimed {
-                referrer,
-                amount: entry.amount,
-            },
-        );
+        env.storage().persistent().set(&DataKey::RewardBalance(referrer.clone()), &0i128);
+        env.events().publish((REFERRAL_REWARDS_CLAIMED_EVENT_NAME, referrer.clone()), ReferralRewardsClaimed {
+            referrer,
+            amount: entry.amount,
+        });
         Ok(entry.amount)
     }
 
     pub fn sweep_expired(env: Env, admin: Address) -> Result<i128, ContractError> {
         admin.require_auth();
-        if let Some(stored) = env
-            .storage()
-            .instance()
-            .get::<DataKey, Address>(&DataKey::Admin)
-        {
-            if stored != admin {
-                return Err(ContractError::Unauthorized);
-            }
+        if let Some(stored) = env.storage().instance().get::<DataKey, Address>(&DataKey::Admin) {
+            if stored != admin { return Err(ContractError::Unauthorized); }
         }
         // Sweep-all requires an index, which this storage layout does not retain.
         Ok(0)
