@@ -2567,6 +2567,14 @@ pub struct PriceCeilingStatus {
     pub active: bool,
     /// Ledger sequence when the cool-off period expires (unused if `active` is `false`).
     pub cooloff_end_ledger: u32,
+    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
+    EventConfig(Address, u32),
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
+    EventRedeemed(Address, u32, Address),
+    /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
+    EventRedeemedCount(Address, u32),
+    /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
+    EventLockUntil(Address, Address),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23926,6 +23934,74 @@ impl CreatorKeysContract {
                 creator_id: creator,
                 quantity,
                 ledger: env.ledger().sequence(),
+    // -----------------------------------------------------------------------
+    // Feature: redeemable event pass keys (issue #1257)
+    // -----------------------------------------------------------------------
+
+    /// Creates a redeemable event pass for `key_id`.
+    ///
+    /// The caller must be the key's creator and authorise the call. The event
+    /// accepts redemptions between `start_ledger` and `end_ledger` (inclusive)
+    /// and at most `max_redemptions` total redemptions. A holder may redeem
+    /// at most once per event. When `lock_on_redeem` is set, the holder's
+    /// redeemed keys are locked until `end_ledger`.
+    ///
+    /// # Errors
+    /// - [`EventError::Unauthorized`] if `creator` does not own `key_id`.
+    /// - [`EventError::EventClosed`] if an event with `event_id` already exists.
+    pub fn create_event(env: Env, params: EventParams) -> Result<(), EventError> {
+        let creator = params.creator.clone();
+        let key_id = params.key_id.clone();
+        creator.require_auth();
+
+        // Only the key's creator may create events for it.
+        let creator_profile: Option<CreatorProfile> = env
+            .storage()
+            .persistent()
+            .get(&constants::storage::creator(&key_id));
+        let Some(profile) = creator_profile else {
+            return Err(EventError::Unauthorized);
+        };
+        if profile.creator != creator {
+            return Err(EventError::Unauthorized);
+        }
+
+        let config_key = constants::storage::event_config(&key_id, &params.event_id);
+        if env.storage().persistent().has(&config_key) {
+            return Err(EventError::EventClosed);
+        }
+
+        let current_ledger = env.ledger().sequence();
+        let config = EventConfig {
+            creator: creator.clone(),
+            key_id: key_id.clone(),
+            event_id: params.event_id,
+            min_balance: params.min_balance,
+            max_redemptions: params.max_redemptions,
+            start_ledger: params.start_ledger,
+            end_ledger: params.end_ledger,
+            lock_on_redeem: params.lock_on_redeem,
+            closed: false,
+            created_at_ledger: current_ledger,
+        };
+        env.storage().persistent().set(&config_key, &config);
+        env.storage().persistent().set(
+            &constants::storage::event_redeemed_count(&key_id, &params.event_id),
+            &0u32,
+        );
+
+        env.events().publish(
+            events::event_created_topics(&creator, &key_id, params.event_id),
+            events::EventCreatedEvent {
+                creator: creator.clone(),
+                key_id: key_id.clone(),
+                event_id: params.event_id,
+                min_balance: params.min_balance,
+                max_redemptions: params.max_redemptions,
+                start_ledger: params.start_ledger,
+                end_ledger: params.end_ledger,
+                lock_on_redeem: params.lock_on_redeem,
+                ledger: current_ledger,
             },
         );
 
