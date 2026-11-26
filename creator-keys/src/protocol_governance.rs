@@ -1,7 +1,8 @@
 //! Holder governance with a fixed electorate, snapshot weights and delayed execution.
 use crate::{
-    assert_is_admin, constants, extend_key_ttl_to_full_window, read_registered_creator_profile,
-    ContractError, CreatorKeysContract, CreatorKeysContractArgs, CreatorKeysContractClient,
+    assert_is_admin, balance_checkpoints, constants, extend_key_ttl_to_full_window,
+    read_registered_creator_profile, ContractError, CreatorKeysContract, CreatorKeysContractArgs,
+    CreatorKeysContractClient,
 };
 use common::guard::ReentrancyGuard;
 use soroban_sdk::{contractimpl, contracttype, symbol_short, Address, Env, String};
@@ -153,8 +154,16 @@ impl CreatorKeysContract {
         let executable_at = voting_ends_at
             .checked_add(EXECUTION_DELAY_SECONDS)
             .ok_or(ContractError::Overflow)?;
+        // Snapshot weights from the historical checkpoint at this ledger so a
+        // later trade cannot change the electorate after the proposal opens.
+        let snapshot_ledger = env.ledger().sequence();
         for holder in holders.iter() {
-            let balance = Self::get_key_balance(env.clone(), config.key_id.clone(), holder.clone());
+            let balance = balance_checkpoints::balance_at_or_live(
+                &env,
+                &config.key_id,
+                &holder,
+                snapshot_ledger,
+            );
             let key = GovernanceKey::ProtocolGovWeight(id, holder);
             env.storage().persistent().set(&key, &balance);
             extend_key_ttl_to_full_window(&env, &key);

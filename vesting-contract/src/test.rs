@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
@@ -35,9 +33,10 @@ fn test_init_and_admin_management() {
         Err(Ok(ContractError::AlreadyInitialized))
     );
 
-    // Update admin
+    // Update admin through the two-step transfer
     let new_admin = Address::generate(&env);
-    client.set_admin(&new_admin);
+    client.propose_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
     assert_eq!(client.get_admin(), Some(new_admin));
 }
 
@@ -345,4 +344,176 @@ fn test_non_existent_vest_fails() {
         client.try_claim_vested(&999),
         Err(Ok(ContractError::VestNotFound))
     );
+}
+
+fn set_sequence(env: &Env, sequence: u32) {
+    env.ledger().with_mut(|li| li.sequence_number = sequence);
+}
+
+#[test]
+fn test_propose_keeps_old_admin_until_accept() {
+    let (env, client, admin) = setup_test();
+    let new_admin = Address::generate(&env);
+    set_sequence(&env, 100);
+
+    assert_eq!(client.pending_admin(), None);
+    client.propose_admin(&admin, &new_admin);
+
+    let pending = client.pending_admin().unwrap();
+    assert_eq!(pending.address, new_admin);
+    assert_eq!(pending.expiry_ledger, 100 + ADMIN_TRANSFER_WINDOW_LEDGERS);
+
+    // The old admin still has full rights and the new admin has none yet.
+    assert_eq!(client.get_admin(), Some(admin.clone()));
+    let wallet = Address::generate(&env);
+    let key_id = Address::generate(&env);
+    assert_eq!(client.create_vest(&wallet, &key_id, &1_000, &0, &100), 1);
+
+    client.accept_admin(&new_admin);
+    assert_eq!(client.get_admin(), Some(new_admin.clone()));
+    assert_eq!(client.pending_admin(), None);
+    // Accepting twice has nothing left to accept.
+    assert_eq!(
+        client.try_accept_admin(&new_admin),
+        Err(Ok(ContractError::NoPendingAdmin))
+    );
+}
+
+#[test]
+fn test_propose_rejects_invalid_targets_and_non_admin() {
+    let (env, client, admin) = setup_test();
+    let stranger = Address::generate(&env);
+
+    assert_eq!(
+        client.try_propose_admin(&admin, &admin),
+        Err(Ok(ContractError::InvalidAdmin))
+    );
+    assert_eq!(
+        client.try_propose_admin(&admin, &Address::from_str(&env, ZERO_ACCOUNT)),
+        Err(Ok(ContractError::InvalidAdmin))
+    );
+    assert_eq!(
+        client.try_propose_admin(&admin, &Address::from_str(&env, ZERO_CONTRACT)),
+        Err(Ok(ContractError::InvalidAdmin))
+    );
+    assert_eq!(
+        client.try_propose_admin(&stranger, &Address::generate(&env)),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_only_pending_admin_can_accept() {
+    let (env, client, admin) = setup_test();
+    let new_admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+
+    assert_eq!(
+        client.try_accept_admin(&new_admin),
+        Err(Ok(ContractError::NoPendingAdmin))
+    );
+
+    client.propose_admin(&admin, &new_admin);
+    assert_eq!(
+        client.try_accept_admin(&stranger),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    assert_eq!(client.get_admin(), Some(admin));
+}
+
+#[test]
+fn test_accept_after_expiry_reverts() {
+    let (env, client, admin) = setup_test();
+    let new_admin = Address::generate(&env);
+    set_sequence(&env, 10);
+    client.propose_admin(&admin, &new_admin);
+    let expiry = 10 + ADMIN_TRANSFER_WINDOW_LEDGERS;
+
+    // The expiry ledger itself is still valid; the next one is not.
+    set_sequence(&env, expiry + 1);
+    assert_eq!(
+        client.try_accept_admin(&new_admin),
+        Err(Ok(ContractError::AdminTransferExpired))
+    );
+    assert_eq!(client.get_admin(), Some(admin.clone()));
+
+    // The old admin can propose again after an expiry.
+    client.propose_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
+    assert_eq!(client.get_admin(), Some(new_admin));
+}
+
+#[test]
+fn test_accept_on_expiry_ledger_succeeds() {
+    let (env, client, admin) = setup_test();
+    let new_admin = Address::generate(&env);
+    set_sequence(&env, 10);
+    client.propose_admin(&admin, &new_admin);
+    set_sequence(&env, 10 + ADMIN_TRANSFER_WINDOW_LEDGERS);
+    client.accept_admin(&new_admin);
+    assert_eq!(client.get_admin(), Some(new_admin));
+}
+
+#[test]
+fn test_cancel_admin_transfer_clears_pending() {
+    let (env, client, admin) = setup_test();
+    let new_admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+
+    assert_eq!(
+        client.try_cancel_admin_transfer(&admin),
+        Err(Ok(ContractError::NoPendingAdmin))
+    );
+
+    client.propose_admin(&admin, &new_admin);
+    assert_eq!(
+        client.try_cancel_admin_transfer(&stranger),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    client.cancel_admin_transfer(&admin);
+    assert_eq!(client.pending_admin(), None);
+    assert_eq!(
+        client.try_accept_admin(&new_admin),
+        Err(Ok(ContractError::NoPendingAdmin))
+    );
+    assert_eq!(client.get_admin(), Some(admin));
+}
+
+#[test]
+fn test_new_proposal_replaces_the_old_one() {
+    let (env, client, admin) = setup_test();
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+    client.propose_admin(&admin, &first);
+    client.propose_admin(&admin, &second);
+
+    assert_eq!(client.pending_admin().unwrap().address, second);
+    assert_eq!(
+        client.try_accept_admin(&first),
+        Err(Ok(ContractError::Unauthorized))
+    );
+    client.accept_admin(&second);
+    assert_eq!(client.get_admin(), Some(second));
+}
+
+#[test]
+fn test_admin_transfer_events() {
+    let (env, client, admin) = setup_test();
+    let new_admin = Address::generate(&env);
+    client.propose_admin(&admin, &new_admin);
+    // The last event emitted so far, whether or not earlier ones are kept.
+    let topic0 = |env: &Env, _i: u32| -> Symbol {
+        let all = env.events().all();
+        let (_, topics, _) = all.get(all.len() - 1).unwrap();
+        Symbol::try_from_val(env, &topics.get(0).unwrap()).unwrap()
+    };
+    assert_eq!(topic0(&env, 0), Symbol::new(&env, "admin_proposed"));
+
+    client.cancel_admin_transfer(&admin);
+    assert_eq!(topic0(&env, 0), Symbol::new(&env, "admin_transfer_cancelled"));
+
+    client.propose_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
+    assert_eq!(topic0(&env, 0), Symbol::new(&env, "admin_accepted"));
 }

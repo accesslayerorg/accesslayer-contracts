@@ -1,0 +1,14 @@
+[package]
+name = "test-utils"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

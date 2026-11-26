@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     AnalyticsSnapshotError, KeyAnalyticsContract, KeyAnalyticsContractClient, KeyMarketStatsView,
     SnapshotTaken, MAX_SNAPSHOT_RANGE_DAYS, SECONDS_PER_DAY, SNAPSHOT_TAKEN_EVENT_NAME,

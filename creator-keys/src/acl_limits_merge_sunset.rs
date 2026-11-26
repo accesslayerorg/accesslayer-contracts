@@ -453,8 +453,12 @@ pub fn execute_key_merge(
                 env.storage()
                     .persistent()
                     .set(&target_balance_key, &updated);
+                crate::balance_checkpoints::record_balance_checkpoint(
+                    env, target_key, &holder, updated,
+                );
             }
             env.storage().persistent().remove(&source_liquid_key);
+            crate::balance_checkpoints::record_balance_checkpoint(env, source_key, &holder, 0);
         }
 
         if staked > 0 {

@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     depth_updated_topics, DepthLevel, DepthUpdated, KeyLiquidityDepthContract,
     KeyLiquidityDepthContractClient, LiquidityDepthError, OrderSide, DEPTH_UPDATED_EVENT_NAME,

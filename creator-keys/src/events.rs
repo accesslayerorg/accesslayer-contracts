@@ -5146,3 +5146,232 @@ pub struct CeilingRaisedEvent {
 pub fn ceiling_raised_topics(creator: &Address) -> (Symbol, Address) {
     (CEILING_RAISED_EVENT_NAME, creator.clone())
 }
+
+/// Event name emitted once after every leg of a multi-buy succeeds.
+pub const MULTI_BUY_COMPLETED_EVENT_NAME: Symbol = symbol_short!("m_buy_cmp");
+
+/// Stable multi-buy completion event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(MULTI_BUY_COMPLETED_EVENT_NAME, buyer)`
+/// - data: `MultiBuyCompletedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MultiBuyCompletedEvent {
+    pub buyer: Address,
+    pub leg_count: u32,
+    pub total_cost: i128,
+    pub ledger: u32,
+}
+
+/// Shared multi-buy completion event topics tuple.
+pub fn multi_buy_completed_topics(buyer: &Address) -> (Symbol, Address) {
+    (MULTI_BUY_COMPLETED_EVENT_NAME, buyer.clone())
+}
+
+/// Event name emitted when a sell is blocked by a configured price floor.
+pub const PRICE_FLOOR_TRIGGERED_EVENT_NAME: Symbol = symbol_short!("pf_trg");
+
+/// Alias reflecting the error name used for a blocked sell.
+pub const PRICE_FLOOR_BREACHED_EVENT_NAME: Symbol = PRICE_FLOOR_TRIGGERED_EVENT_NAME;
+
+/// Stable price-floor-triggered payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(PRICE_FLOOR_TRIGGERED_EVENT_NAME, key_id)`
+/// - data: `PriceFloorTriggeredEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceFloorTriggeredEvent {
+    pub key_id: Address,
+    pub attempted_price: i128,
+    pub floor_price: i128,
+    pub ledger: u32,
+}
+
+/// Alias for indexers that key off the error name.
+pub type PriceFloorBreachedEvent = PriceFloorTriggeredEvent;
+
+/// Shared price floor event topics tuple.
+pub fn price_floor_triggered_topics(key_id: &Address) -> (Symbol, Address) {
+    (PRICE_FLOOR_TRIGGERED_EVENT_NAME, key_id.clone())
+}
+
+/// Event name emitted when an admin sets or updates a price floor.
+pub const PRICE_FLOOR_SET_EVENT_NAME: Symbol = symbol_short!("pf_set");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct PriceFloorSetEvent {
+    pub key_id: Address,
+    pub floor_price: i128,
+    pub ledger: u32,
+}
+
+/// Shared price floor setter event topics tuple.
+pub fn price_floor_set_topics(key_id: &Address) -> (Symbol, Address) {
+    (PRICE_FLOOR_SET_EVENT_NAME, key_id.clone())
+}
+
+/// Event name emitted when a primary creator grants a co-creator role.
+pub const CO_CREATOR_ADDED_EVENT_NAME: Symbol = symbol_short!("cc_add");
+
+/// Stable co-creator role grant payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(CO_CREATOR_ADDED_EVENT_NAME, key_id, wallet)`
+/// - data: `CoCreatorAddedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorAddedEvent {
+    pub key_id: Address,
+    pub wallet: Address,
+    pub role: crate::co_creators::CoCreatorRole,
+    pub ledger: u32,
+}
+
+pub fn co_creator_added_topics(key_id: &Address, wallet: &Address) -> (Symbol, Address, Address) {
+    (CO_CREATOR_ADDED_EVENT_NAME, key_id.clone(), wallet.clone())
+}
+
+/// Event name emitted when a role-based co-creator is revoked.
+pub const CO_CREATOR_ROLE_REMOVED_EVENT_NAME: Symbol = symbol_short!("cc_rrm");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CoCreatorRoleRemovedEvent {
+    pub key_id: Address,
+    pub wallet: Address,
+    pub role: crate::co_creators::CoCreatorRole,
+    pub ledger: u32,
+}
+
+pub fn co_creator_role_removed_topics(
+    key_id: &Address,
+    wallet: &Address,
+) -> (Symbol, Address, Address) {
+    (
+        CO_CREATOR_ROLE_REMOVED_EVENT_NAME,
+        key_id.clone(),
+        wallet.clone(),
+    )
+}
+
+// ============================================================================
+// Feature: redeemable event pass keys (issue #1257)
+// ============================================================================
+
+/// Event name emitted when a creator creates a redeemable event pass.
+pub const EVENT_CREATED_EVENT_NAME: Symbol = symbol_short!("evt_crt");
+
+/// Event name emitted when a holder redeems an event pass.
+pub const REDEEMED_EVENT_NAME: Symbol = symbol_short!("evt_rdm");
+
+/// Event name emitted when a creator closes an event early.
+pub const EVENT_CLOSED_EVENT_NAME: Symbol = symbol_short!("evt_clo");
+
+/// Stable event-created event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(EVENT_CREATED_EVENT_NAME, creator, key_id, event_id)`
+/// - data: `EventCreatedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EventCreatedEvent {
+    /// Key's creator.
+    pub creator: Address,
+    /// Key the event is attached to.
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Minimum available key balance required to redeem.
+    pub min_balance: u32,
+    /// Maximum total redemptions allowed.
+    pub max_redemptions: u32,
+    /// First ledger (inclusive) at which redemptions are accepted.
+    pub start_ledger: u32,
+    /// Last ledger (inclusive) at which redemptions are accepted.
+    pub end_ledger: u32,
+    /// When true, redeemed keys are locked until `end_ledger`.
+    pub lock_on_redeem: bool,
+    /// Ledger sequence at which the event was created.
+    pub ledger: u32,
+}
+
+/// Shared event-created event topics tuple.
+pub fn event_created_topics(
+    creator: &Address,
+    key_id: &Address,
+    event_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (
+        EVENT_CREATED_EVENT_NAME,
+        creator.clone(),
+        key_id.clone(),
+        event_id,
+    )
+}
+
+/// Stable redeemed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(REDEEMED_EVENT_NAME, key_id, event_id, holder)`
+/// - data: `RedeemedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct RedeemedEvent {
+    /// Key the event is attached to.
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Holder that redeemed the event pass.
+    pub holder: Address,
+    /// Ledger sequence at which the redemption was recorded.
+    pub ledger: u32,
+}
+
+/// Shared redeemed event topics tuple.
+pub fn redeemed_topics(
+    key_id: &Address,
+    event_id: u32,
+    holder: &Address,
+) -> (Symbol, Address, u32, Address) {
+    (
+        REDEEMED_EVENT_NAME,
+        key_id.clone(),
+        event_id,
+        holder.clone(),
+    )
+}
+
+/// Stable event-closed event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(EVENT_CLOSED_EVENT_NAME, creator, key_id, event_id)`
+/// - data: `EventClosedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct EventClosedEvent {
+    /// Key's creator.
+    pub creator: Address,
+    /// Key the event was attached to.
+    pub key_id: Address,
+    /// Sequential event id, scoped to the key.
+    pub event_id: u32,
+    /// Ledger sequence at which the event was closed.
+    pub ledger: u32,
+}
+
+/// Shared event-closed event topics tuple.
+pub fn event_closed_topics(
+    creator: &Address,
+    key_id: &Address,
+    event_id: u32,
+) -> (Symbol, Address, Address, u32) {
+    (
+        EVENT_CLOSED_EVENT_NAME,
+        creator.clone(),
+        key_id.clone(),
+        event_id,
+    )
+}

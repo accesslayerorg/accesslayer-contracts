@@ -252,10 +252,11 @@ fn test_graduated_curve_validation_and_storage() {
     assert!(stored.is_some());
     assert_eq!(stored.unwrap(), valid_milestones);
 
-    // Exponent view query
+    // Exponent view query. #829: below the first threshold the base exponent
+    // applies, and a milestone's exponent takes over once its threshold is hit.
     assert_eq!(client.get_graduated_exponent(&creator, &50), Some(1));
     assert_eq!(client.get_graduated_exponent(&creator, &100), Some(1));
-    assert_eq!(client.get_graduated_exponent(&creator, &101), Some(2));
+    assert_eq!(client.get_graduated_exponent(&creator, &101), Some(1));
     assert_eq!(client.get_graduated_exponent(&creator, &500), Some(2));
     assert_eq!(client.get_graduated_exponent(&creator, &1000), Some(2));
 
@@ -275,6 +276,7 @@ fn test_graduated_curve_validation_and_storage() {
     assert_eq!(p100, 2_000);
 
     let p102 = client.query_price(&creator, &102);
-    // base at 100 is 2000. delta = 2, exp = 2 => 2^2 = 4. 2000 + 10 * 4 = 2040
-    assert_eq!(p102, 2_040);
+    // base at 100 is 2000. The (100, 1) band still uses exponent 1, so
+    // delta = 2, exp = 1 => 1000 + 10 * 100 + 10 * 2 = 2020.
+    assert_eq!(p102, 2_020);
 }
