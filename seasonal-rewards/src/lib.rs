@@ -111,7 +111,7 @@ pub struct SeasonalRewardsContract;
 
 #[contractimpl]
 impl SeasonalRewardsContract {
-    pub fn initialize(env: Env, admin: Address) -> Result<(), SeasonalError> {
+    pub fn __constructor(env: Env, admin: Address) -> Result<(), SeasonalError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(SeasonalError::AlreadyInitialized);
         }

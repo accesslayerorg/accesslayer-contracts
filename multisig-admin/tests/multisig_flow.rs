@@ -34,9 +34,11 @@ fn setup(env: &Env) -> (Vec<Address>, MultisigAdminContractClient<'_>) {
         Address::generate(env),
         Address::generate(env),
     ];
-    let contract_id = env.register(MultisigAdminContract, ());
+    let contract_id = env.register(
+        MultisigAdminContract,
+        (&signers.get(0).unwrap(), signers.clone(), &2u32),
+    );
     let client = MultisigAdminContractClient::new(env, &contract_id);
-    client.initialize(&signers.get(0).unwrap(), &signers, &2);
     (signers, client)
 }
 

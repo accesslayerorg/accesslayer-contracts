@@ -225,7 +225,7 @@ impl KeyStakingContract {
     /// One-time setup. `treasury` is the protocol fee treasury contract, the
     /// only address allowed to fund epochs. Epoch 0 starts at the current
     /// ledger timestamp.
-    pub fn initialize(
+    pub fn __constructor(
         env: Env,
         treasury: Address,
         epoch_duration: u64,

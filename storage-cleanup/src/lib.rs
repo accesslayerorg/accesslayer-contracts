@@ -66,7 +66,7 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), CleanupError> {
 
 #[contractimpl]
 impl StorageCleanupContract {
-    pub fn initialize(
+    pub fn __constructor(
         env: Env,
         admin: Address,
         reward_per_entry: i128,
@@ -268,10 +268,12 @@ impl StorageCleanupContract {
     pub fn cleanable(env: Env, kind: RecordKind, holder: Address, id: u64) -> CleanableStatus {
         match kind {
             RecordKind::Balance => {
+                // `cleanable` only receives the holder, so the balance record is
+                // addressed by the holder's own entry rather than a generated one.
                 let balance: i128 = env
                     .storage()
                     .persistent()
-                    .get(&DataKey::Balance(holder.clone(), Address::generate(&env)))
+                    .get(&DataKey::Balance(holder.clone(), holder.clone()))
                     .unwrap_or(0);
                 if balance != 0 {
                     CleanableStatus {
@@ -402,9 +404,9 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id = env.register(StorageCleanupContract, ());
+        let contract_id =
+            env.register(StorageCleanupContract, (&admin, &100i128, &86400u64));
         let client = StorageCleanupContractClient::new(&env, &contract_id);
-        client.initialize(&admin, &100, &86400);
         (env, client, admin)
     }
 

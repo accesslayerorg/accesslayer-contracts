@@ -185,7 +185,7 @@ pub struct DividendDistributionContract;
 impl DividendDistributionContract {
     /// One-time setup: records the admin and the deployed `creator-keys`
     /// contract whose holder registry and balances are snapshotted.
-    pub fn initialize(
+    pub fn __constructor(
         env: Env,
         admin: Address,
         creator_keys_contract: Address,

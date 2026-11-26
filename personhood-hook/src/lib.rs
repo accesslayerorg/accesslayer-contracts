@@ -56,7 +56,7 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), PersonhoodError> {
 
 #[contractimpl]
 impl PersonhoodHookContract {
-    pub fn initialize(
+    pub fn __constructor(
         env: Env,
         admin: Address,
         max_wallets_per_person: u32,
@@ -322,9 +322,9 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id = env.register(PersonhoodHookContract, ());
+        // 1 wallet, 1 day cooldown, bound at deployment.
+        let contract_id = env.register(PersonhoodHookContract, (&admin, &1u32, &86400u64));
         let client = PersonhoodHookContractClient::new(&env, &contract_id);
-        client.initialize(&admin, &1, &86400); // 1 wallet, 1 day cooldown
         (env, client, admin)
     }
 

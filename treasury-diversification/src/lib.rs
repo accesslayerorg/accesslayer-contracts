@@ -91,7 +91,7 @@ fn require_keeper(env: &Env, caller: &Address) -> Result<(), DiversificationErro
 
 #[contractimpl]
 impl TreasuryDiversificationContract {
-    pub fn initialize(
+    pub fn __constructor(
         env: Env,
         governor: Address,
         keeper: Address,
@@ -353,9 +353,9 @@ mod test {
         env.mock_all_auths();
         let governor = Address::generate(&env);
         let keeper = Address::generate(&env);
-        let contract_id = env.register(TreasuryDiversificationContract, ());
+        let contract_id =
+            env.register(TreasuryDiversificationContract, (&governor, &keeper, &3600u64));
         let client = TreasuryDiversificationContractClient::new(&env, &contract_id);
-        client.initialize(&governor, &keeper, &3600);
         (env, client, governor, keeper)
     }
 

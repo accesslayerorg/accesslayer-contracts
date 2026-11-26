@@ -29,7 +29,7 @@ enum Key {
 pub struct SocialMetadataContract;
 #[contractimpl]
 impl SocialMetadataContract {
-    pub fn initialize(e: Env, admin: Address) -> Result<(), Error> {
+    pub fn __constructor(e: Env, admin: Address) -> Result<(), Error> {
         if e.storage().instance().has(&Key::Admin) {
             return Err(Error::AlreadyInitialized);
         }

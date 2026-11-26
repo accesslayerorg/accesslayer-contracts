@@ -38,7 +38,7 @@ const RESERVE_BPS: u32 = 2_000;
 pub struct HolderInsurancePool;
 #[contractimpl]
 impl HolderInsurancePool {
-    pub fn initialize(e: Env, admin: Address) -> Result<(), Error> {
+    pub fn __constructor(e: Env, admin: Address) -> Result<(), Error> {
         if e.storage().instance().has(&Key::Admin) {
             return Err(Error::Unauthorized);
         }

@@ -12,7 +12,7 @@ enum Key { Admin, Nonce(Address, u64) }
 pub struct SponsoredTransactions;
 #[contractimpl]
 impl SponsoredTransactions {
-    pub fn initialize(e: Env, admin: Address) -> Result<(), Error> { if e.storage().instance().has(&Key::Admin) { return Err(Error::AlreadyInitialized); } admin.require_auth(); e.storage().instance().set(&Key::Admin, &admin); Ok(()) }
+    pub fn __constructor(e: Env, admin: Address) -> Result<(), Error> { if e.storage().instance().has(&Key::Admin) { return Err(Error::AlreadyInitialized); } admin.require_auth(); e.storage().instance().set(&Key::Admin, &admin); Ok(()) }
     /// Records a relayed invocation after the user has authenticated its nonce and expiry.
     /// Execution of the target call remains atomic in the caller; this contract prevents replay.
     pub fn authorize(e: Env, user: Address, relayer: Address, nonce: u64, expires_at: u64, max_fee: i128) -> Result<(), Error> {

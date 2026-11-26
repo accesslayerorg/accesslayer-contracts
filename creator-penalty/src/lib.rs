@@ -18,7 +18,7 @@ pub struct CreatorPenaltyContract;
 
 #[contractimpl]
 impl CreatorPenaltyContract {
-    pub fn initialize(e: Env, admin: Address) -> Result<(), Error> {
+    pub fn __constructor(e: Env, admin: Address) -> Result<(), Error> {
         if e.storage().instance().has(&Key::Admin) { return Err(Error::AlreadyInitialized); }
         admin.require_auth(); e.storage().instance().set(&Key::Admin, &admin); Ok(())
     }
@@ -28,7 +28,7 @@ impl CreatorPenaltyContract {
         let v = Violation { creator: creator.clone(), amount, reason, resolved: false };
         if e.storage().persistent().has(&Key::Violation(creator.clone())) { return Err(Error::AlreadySlashed); }
         e.storage().persistent().set(&Key::Violation(creator.clone()), &v);
-        e.events().publish((soroban_sdk::symbol_short!("slash"), creator), &v); Ok(())
+        e.events().publish((soroban_sdk::symbol_short!("slash"), creator), v); Ok(())
     }
     pub fn resolve(e: Env, creator: Address) -> Result<(), Error> {
         let admin: Address = e.storage().instance().get(&Key::Admin).ok_or(Error::Unauthorized)?;

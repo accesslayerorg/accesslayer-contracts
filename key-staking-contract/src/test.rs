@@ -21,10 +21,9 @@ fn setup() -> Setup {
     let env = Env::default();
     env.mock_all_auths();
     env.ledger().set_timestamp(T0);
-    let contract_id = env.register(KeyStakingContract, ());
-    let client = KeyStakingContractClient::new(&env, &contract_id);
     let treasury = Address::generate(&env);
-    client.initialize(&treasury, &EPOCH);
+    let contract_id = env.register(KeyStakingContract, (&treasury, &EPOCH));
+    let client = KeyStakingContractClient::new(&env, &contract_id);
     let key_id = Address::generate(&env);
     Setup {
         env,
@@ -129,10 +128,9 @@ fn late_staker_does_not_earn_from_epochs_before_it_joined() {
 fn fund_epoch_requires_the_treasury_contract_auth() {
     let env = Env::default();
     env.ledger().set_timestamp(T0);
-    let contract_id = env.register(KeyStakingContract, ());
-    let client = KeyStakingContractClient::new(&env, &contract_id);
     let treasury = Address::generate(&env);
-    client.initialize(&treasury, &EPOCH);
+    let contract_id = env.register(KeyStakingContract, (&treasury, &EPOCH));
+    let client = KeyStakingContractClient::new(&env, &contract_id);
 
     // No authorisation at all, and an unrelated address, are both rejected.
     assert!(client.try_fund_epoch(&0, &100).is_err());
@@ -313,22 +311,22 @@ fn unstake_twice_and_unknown_stake_are_rejected() {
 #[test]
 fn initialize_is_one_time_and_contract_requires_it() {
     let s = setup();
-    assert_eq!(
-        s.client.try_initialize(&s.treasury, &EPOCH),
-        Err(Ok(KeyStakingError::AlreadyInitialized))
-    );
+    // Configured at deployment: a second party has no entrypoint left to call.
+    let res = s
+        .env
+        .try_invoke_contract::<soroban_sdk::Val, soroban_sdk::Val>(
+            &s.client.address,
+            &soroban_sdk::Symbol::new(&s.env, "initialize"),
+            soroban_sdk::Vec::new(&s.env),
+        );
+    assert!(res.is_err(), "initialize must not exist after deployment");
+}
 
+#[test]
+#[should_panic]
+fn constructor_rejects_zero_epoch_duration() {
     let env = Env::default();
     env.mock_all_auths();
-    let id = env.register(KeyStakingContract, ());
-    let client = KeyStakingContractClient::new(&env, &id);
-    assert_eq!(
-        client.try_initialize(&Address::generate(&env), &0),
-        Err(Ok(KeyStakingError::InvalidEpochDuration))
-    );
-    let staker = Address::generate(&env);
-    assert_eq!(
-        client.try_stake(&Address::generate(&env), &staker, &1, &1),
-        Err(Ok(KeyStakingError::NotInitialized))
-    );
+    // Invalid configuration must fail the deployment itself.
+    let _ = env.register(KeyStakingContract, (Address::generate(&env), 0u64));
 }

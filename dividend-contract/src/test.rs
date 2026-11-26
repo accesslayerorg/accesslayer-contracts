@@ -50,9 +50,9 @@ fn setup() -> Fixture {
     keys.set_fee_config(&admin, &9000u32, &1000u32);
     keys.set_protocol_fee_recipient(&admin, &treasury);
 
-    let dividend_contract_id = env.register(DividendDistributionContract, ());
+    let dividend_contract_id =
+        env.register(DividendDistributionContract, (&admin, &keys_contract_id));
     let dividend = DividendDistributionContractClient::new(&env, &dividend_contract_id);
-    dividend.initialize(&admin, &keys_contract_id);
 
     Fixture {
         env,
@@ -213,29 +213,41 @@ fn test_snapshot_requires_creator_auth() {
 }
 
 #[test]
-fn test_snapshot_requires_initialization() {
+fn test_second_party_cannot_initialize_deployed_contract() {
     let env = Env::default();
     env.mock_all_auths();
 
     let keys_contract_id = env.register(CreatorKeysContract, ());
-    let dividend_contract_id = env.register(DividendDistributionContract, ());
-    let dividend = DividendDistributionContractClient::new(&env, &dividend_contract_id);
+    let admin = Address::generate(&env);
+    let dividend_contract_id =
+        env.register(DividendDistributionContract, (&admin, &keys_contract_id));
+    let _dividend = DividendDistributionContractClient::new(&env, &dividend_contract_id);
 
-    let creator = Address::generate(&env);
-    assert_eq!(
-        dividend.try_snapshot_holders(&creator, &creator),
-        Err(Ok(DividendError::NotInitialized))
+    // The constructor configures the contract in the same operation that
+    // deploys it, so there is no post-deployment `initialize` to front-run.
+    let res = env.try_invoke_contract::<Val, Val>(
+        &dividend_contract_id,
+        &Symbol::new(&env, "initialize"),
+        Vec::new(&env),
     );
-    let _ = keys_contract_id;
+    assert!(res.is_err(), "initialize must not exist after deployment");
 }
 
 #[test]
-fn test_initialize_rejects_second_call() {
-    let f = setup();
-    let other = Address::generate(&f.env);
-    assert_eq!(
-        f.dividend.try_initialize(&f.admin.clone(), &other),
-        Err(Ok(DividendError::AlreadyInitialized))
+fn test_constructor_binds_configuration_at_deployment() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let keys_contract_id = env.register(CreatorKeysContract, ());
+    let admin = Address::generate(&env);
+    let dividend_contract_id =
+        env.register(DividendDistributionContract, (&admin, &keys_contract_id));
+    let dividend = DividendDistributionContractClient::new(&env, &dividend_contract_id);
+    let creator = Address::generate(&env);
+    // A freshly deployed instance is already configured, so it never reports
+    // the old post-deployment NotInitialized state.
+    assert_ne!(
+        dividend.try_snapshot_holders(&creator, &creator),
+        Err(Ok(DividendError::NotInitialized))
     );
 }
 
