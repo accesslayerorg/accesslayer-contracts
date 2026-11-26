@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check clippy test check ci wasm
+.PHONY: fmt fmt-check clippy test check ci wasm security-suppressions deny audit security-tests security-actions-check
 
 ## Code formatting targets
 fmt:
@@ -44,6 +44,29 @@ wasm:
 ## This is the standard check sequence to run before pushing to a branch
 ci: fmt-check clippy test check
 	@echo "✓ All CI checks passed"
+
+## Validate the reviewed security suppressions (reason, owner, expiry).
+security-suppressions:
+	python3 scripts/security/check_suppressions.py
+
+## Dependency policy: render reviewed suppressions and run cargo-deny.
+## Requires cargo-deny: cargo install cargo-deny --locked
+## Source policy and license policy live in deny.toml.
+deny:
+	python3 scripts/security/render_deny_config.py --output target/security/deny.toml
+	cargo deny --config target/security/deny.toml check advisories bans licenses sources
+
+## Known-advisory check. Requires cargo-audit: cargo install cargo-audit --locked
+audit:
+	cargo audit
+
+## Unit tests for the CI security policy scripts.
+security-tests:
+	python3 -m unittest discover -s scripts/security/tests
+
+## Detect GitHub Actions that are not pinned to immutable commit SHAs.
+security-actions-check:
+	python3 scripts/security/check_pinned_actions.py
 
 ## Convenience alias for running format checks and fixes
 fmt-fix:

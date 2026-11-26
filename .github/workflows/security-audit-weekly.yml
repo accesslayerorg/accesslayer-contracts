@@ -1,0 +1,72 @@
+name: Weekly dependency audit
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo-audit (weekly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Needed to list existing issues and open tracking issues for new advisories.
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@18101caa61cb89118e2ee749786f33c6d1f8a8cb  # v2.90.9
+        with:
+          tool: cargo-audit@0.23.0
+
+      - name: Validate suppression policy
+        run: python3 scripts/security/check_suppressions.py
+
+      - name: Run cargo-audit
+        id: audit
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p security-reports
+          audit_args=()
+          while IFS= read -r advisory_id; do
+            if [[ -n "$advisory_id" ]]; then
+              audit_args+=(--ignore "$advisory_id")
+            fi
+          done < <(python3 scripts/security/check_suppressions.py --audit-ignore-ids)
+          status=0
+          cargo audit "${audit_args[@]}" --color never 2>&1 \
+            | tee security-reports/cargo-audit.txt || status=$?
+          cargo audit "${audit_args[@]}" --json \
+            > security-reports/cargo-audit.json || true
+          exit "$status"
+
+      - name: Upload cargo-audit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: cargo-audit-weekly-report
+          path: security-reports/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Open tracking issues for new advisories
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/security/create_audit_issues.py \
+            --report security-reports/cargo-audit.json
+
+      - name: Fail when unsuppressed advisories are present
+        if: steps.audit.outcome == 'failure'
+        run: |
+          echo "::error title=Weekly dependency audit::cargo-audit reported vulnerable dependencies. Tracking issues were opened or already exist; see the cargo-audit-weekly-report artifact and docs/security-ci.md."
+          exit 1

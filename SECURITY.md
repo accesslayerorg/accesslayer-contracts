@@ -20,6 +20,17 @@ Security reports are especially relevant for:
 - pricing or fee calculations
 - event integrity and state consistency
 
+## Automated checks
+
+Every pull request runs Scout for Soroban, `cargo-deny` (advisories, licenses and
+dependency sources) and `cargo-audit`, and a weekly `cargo-audit` job opens a
+tracked issue for each new advisory. GitHub Actions are pinned to commit SHAs.
+
+Reviewed findings are recorded in `.github/security/suppressions.toml` with a
+justification, an owner and an expiry date. See
+[docs/security-ci.md](./docs/security-ci.md) for the triage workflow and the
+suppression rules.
+
 ## Responsible disclosure
 
 - Do not share exploit details publicly before a fix exists.

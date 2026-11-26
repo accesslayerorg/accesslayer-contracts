@@ -2,6 +2,13 @@ target/
 .DS_Store
 .soroban/
 
+# Local security analyzer reports (CI uploads these as artifacts)
+security-reports/
+
+# Python caches from the security policy scripts
+__pycache__/
+*.pyc
+
 # Local working notes
 fix.md
 claude.md

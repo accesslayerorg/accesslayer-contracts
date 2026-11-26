@@ -1,0 +1,67 @@
+# cargo-deny policy for the Access Layer contracts workspace.
+#
+# Every pull request runs:
+#   cargo deny check advisories bans licenses sources
+# from .github/workflows/security.yml.
+#
+# Reviewed advisory suppressions do NOT live in this file. They live in
+# .github/security/suppressions.toml, where a justification, an owner and an
+# expiry date are mandatory. The `ignore` list below must stay empty:
+# scripts/security/render_deny_config.py renders a temporary config that
+# injects only the reviewed, unexpired suppressions, so a finding cannot be
+# silenced without a reason and an expiry date.
+#
+# See docs/security-ci.md for the triage and suppression workflow.
+
+[advisories]
+# cargo-deny always errors on vulnerability advisories; this repo additionally
+# makes yanked crates fatal and reports unmaintained/unsound crates that the
+# workspace depends on directly.
+yanked = "deny"
+unmaintained = "workspace"
+unsound = "workspace"
+# A suppression that no longer matches anything must be removed, not kept.
+unused-ignored-advisory = "deny"
+# Safety net: an ignore entry without its own expiry expires immediately, so a
+# suppression can never be open ended.
+ignore-expiry = "P0D"
+# Rendered at CI time from .github/security/suppressions.toml. Do not populate.
+ignore = []
+
+[licenses]
+# Licenses approved for use by this workspace. Anything else fails the build.
+# GPL/AGPL/SSPL-style licenses are intentionally absent.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "Unlicense",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Workspace crates are unpublished (`publish = false`) and inherit the MIT
+# license from [workspace.package]. Their manifests are not published, so the
+# license check applies to third-party dependencies only.
+ignore = true
+
+[bans]
+# Duplicate versions and path-only dependency requirements are reported but not
+# fatal: the Soroban dependency tree has unavoidable duplicates and the
+# workspace uses path dependencies without version requirements.
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+# Dependencies may only come from crates.io. Unknown registries and git
+# sources are errors so a PR cannot silently introduce another source.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

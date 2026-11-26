@@ -1,0 +1,62 @@
+# Reviewed security suppressions for this repository.
+#
+# This file is the single source of truth for every accepted security finding.
+# CI validates it (scripts/security/check_suppressions.py) and fails when an
+# entry is missing a justification, is missing an owner, or has expired.
+#
+# Rules enforced by CI:
+#   * reason    - at least 20 characters, describing why the finding is safe to
+#                 accept and what compensating control exists. "tbd", "todo"
+#                 and similar placeholders are rejected.
+#   * expires   - YYYY-MM-DD, in the future and no more than 366 days away.
+#                 A suppression without a near-term review date is rejected.
+#   * owner     - the person or team accountable for the suppression.
+#   * ticket    - optional issue/PR reference for the follow-up work.
+#
+# Scout baseline entries ([scout]) silence one reviewed occurrence of a Scout
+# detector. The fingerprint is a SHA-256 over the detector id, the file path and
+# the whitespace-normalised code snippet; any edit to the flagged code produces
+# a new fingerprint and therefore a new, unreviewed finding.
+#
+# Advisory entries ([advisories]) silence a RustSec advisory (or a yanked crate
+# version) for cargo-deny and cargo-audit.
+#
+# Generate a starter block for every unreviewed Scout finding with:
+#   python3 scripts/security/check_scout.py \
+#       --report security-reports/scout-report.json --print-suppression-template
+# then fill in reason, expires and owner before committing.
+#
+# See docs/security-ci.md for the triage workflow.
+
+# ---------------------------------------------------------------------------
+# Scout for Soroban baseline (reviewed findings).
+# ---------------------------------------------------------------------------
+# Example:
+# [[scout]]
+# detector = "unsafe-unwrap"
+# file = "creator-keys/src/lib.rs"
+# fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# reason = "The value is set by the initializer immediately above and cannot be None."
+# owner = "@accesslayer-security"
+# expires = "2027-06-30"
+# ticket = "#1319"
+
+# ---------------------------------------------------------------------------
+# RustSec advisory suppressions (cargo-deny and cargo-audit).
+# ---------------------------------------------------------------------------
+
+[[advisories]]
+id = "RUSTSEC-2026-0387"
+reason = "crypto-bigint 0.5.5 is a transitive dependency of soroban-env-host through k256/ecdsa. The advisory covers timing variability in constant-time arithmetic over secret integers. Soroban contract execution is deterministic, receives its inputs from the public ledger and this workspace never handles secp256k1 secret keys, so the remote timing-attack precondition does not apply. Remove this entry once soroban-sdk ships an elliptic-curve/k256 version that resolves crypto-bigint >= 0.7.6."
+owner = "@accesslayerorg"
+expires = "2027-06-30"
+ticket = "#1319"
+
+# Example of a crate-version suppression (used when an advisory affects a yanked
+# version that cannot be updated yet):
+# [[advisories]]
+# id = "some-crate@0.4.1"
+# reason = "The vulnerable code path is not reachable; the crate is only used in tests."
+# owner = "@accesslayerorg"
+# expires = "2027-06-30"
+# ticket = "#1319"
