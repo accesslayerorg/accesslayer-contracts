@@ -38,7 +38,7 @@ pub fn create_joint_key(
     weights_bps: Vec<u32>,
     threshold_bps: u32,
 ) -> Result<(), ContractError> {
-    if creators.len() == 0
+    if creators.is_empty()
         || creators.len() != weights_bps.len()
         || threshold_bps == 0
         || threshold_bps > 10_000

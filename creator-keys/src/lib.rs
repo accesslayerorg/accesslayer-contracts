@@ -442,13 +442,13 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 161,
+    BadgeRequired = 179,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 162,
+    StalePrice = 180,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 163,
-    QuorumNotMet = 164,
-    InvalidOracleSet = 165,
+    PriceDeviation = 181,
+    QuorumNotMet = 182,
+    InvalidOracleSet = 183,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,
@@ -21577,7 +21577,7 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        if feeds.len() == 0
+        if feeds.is_empty()
             || feeds.len() > 7
             || min_sources == 0
             || min_sources > feeds.len()
@@ -21647,7 +21647,7 @@ impl CreatorKeysContract {
                 }
             }
         }
-        if samples.len() == 0 {
+        if samples.is_empty() {
             return Err(ContractError::QuorumNotMet);
         }
         let mut sorted = Vec::new(&env);
@@ -21725,7 +21725,7 @@ impl CreatorKeysContract {
                 j -= 1;
             }
         }
-        let median = if values.len() == 0 {
+        let median = if values.is_empty() {
             0
         } else if values.len() % 2 == 1 {
             values.get(values.len() / 2).unwrap()

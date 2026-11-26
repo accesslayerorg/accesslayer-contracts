@@ -29,7 +29,7 @@ pub fn grant_role(
     key_id.require_auth();
     read_registered_creator_profile(env, key_id)?;
     let key = role_key(key_id, wallet);
-    let mut roles: Vec<Role> = env
+    let roles: Vec<Role> = env
         .storage()
         .persistent()
         .get(&key)

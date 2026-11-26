@@ -8,12 +8,12 @@
 
 #[cfg(test)]
 mod tests {
-    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
-
-    use crate::{
-        badge_access_control, creator_allocation, english_auction, holder_enumeration,
-        ContractError,
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, Env, Vec,
     };
+
+    use crate::{badge_access_control, creator_allocation, english_auction, holder_enumeration};
 
     // ============================================================================
     // Issue #1283: Creator allocation with vesting
