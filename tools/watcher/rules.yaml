@@ -1,0 +1,49 @@
+rules:
+  - id: large_reserve_outflow
+    name: Large Reserve Outflow
+    description: Detects unusually large redemptions from the protocol reserve
+    event_pattern:
+      event_name: EscapeRedeemedEvent
+    threshold: 5
+    rolling_window_ledgers: 1000
+    severity: high
+    webhook_payload_template: "large_reserve_outflow"
+
+  - id: admin_action
+    name: Admin Action
+    description: Flags any admin or multisig actions
+    event_pattern:
+      event_name: ConfigChangeExecutedEvent
+    severity: medium
+
+  - id: upgrade_action
+    name: Contract Upgrade
+    description: Detects contract upgrade events
+    event_pattern:
+      event_name: ConfigChangeExecutedEvent
+    severity: high
+
+  - id: pause_action
+    name: Pause/Unpause
+    description: Flags protocol pause and unpause events
+    event_pattern:
+      event_name: ["PAUSE_EVENT_NAME", "UNPAUSE_EVENT_NAME"]
+    severity: high
+
+  - id: oracle_fallback
+    name: Oracle Fallback
+    description: Detects when oracle falls back to secondary price
+    event_pattern:
+      event_name: PriceDeviation
+    threshold: 3
+    rolling_window_ledgers: 500
+    severity: medium
+
+  - id: repeated_failed_calls
+    name: Repeated Failed Calls
+    description: Detects multiple failed contract calls from same address
+    event_pattern:
+      event_name: ContractError
+    threshold: 10
+    rolling_window_ledgers: 200
+    severity: high
