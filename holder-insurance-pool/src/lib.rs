@@ -30,7 +30,7 @@ enum Key {
     Pool,
     NextId,
     Cover(u64),
-    KeyTotal(Address),
+    Total(Address),
     Trigger(Address),
 }
 const RESERVE_BPS: u32 = 2_000;
@@ -84,7 +84,7 @@ impl HolderInsurancePool {
         let total = e
             .storage()
             .persistent()
-            .get::<Key, i128>(&Key::KeyTotal(key_id.clone()))
+            .get::<Key, i128>(&Key::Total(key_id.clone()))
             .unwrap_or(0);
         if total.checked_add(amount).ok_or(Error::InvalidAmount)?
             > pool.saturating_mul(max_cover_ratio_bps as i128) / 10_000
@@ -104,7 +104,7 @@ impl HolderInsurancePool {
         e.storage().persistent().set(&Key::NextId, &id);
         e.storage()
             .persistent()
-            .set(&Key::KeyTotal(key_id.clone()), &(total + amount));
+            .set(&Key::Total(key_id.clone()), &(total + amount));
         e.storage().persistent().set(
             &Key::Cover(id),
             &Cover {
@@ -200,7 +200,7 @@ impl HolderInsurancePool {
         let total = e
             .storage()
             .persistent()
-            .get::<Key, i128>(&Key::KeyTotal(admin.clone()))
+            .get::<Key, i128>(&Key::Total(admin.clone()))
             .unwrap_or(0);
         if amount < 0 || pool - amount < total.saturating_mul(RESERVE_BPS as i128) / 10_000 {
             return Err(Error::ReserveViolation);
