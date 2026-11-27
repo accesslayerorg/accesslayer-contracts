@@ -66,8 +66,6 @@ impl SponsoredTransactions {
     }
 
     pub fn is_used(e: Env, user: Address, nonce: u64) -> bool {
-        e.storage()
-            .persistent()
-            .has(&Key::Nonce(user, nonce))
+        e.storage().persistent().has(&Key::Nonce(user, nonce))
     }
 }

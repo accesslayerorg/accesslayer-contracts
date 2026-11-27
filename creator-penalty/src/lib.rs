@@ -80,7 +80,7 @@ impl CreatorPenaltyContract {
             .set(&Key::Violation(creator.clone()), &v);
         extend_violation_ttl(&e, &creator);
         e.events()
-            .publish((soroban_sdk::symbol_short!("slash"), creator), &v);
+            .publish((soroban_sdk::symbol_short!("slash"), creator), v.clone());
         Ok(())
     }
 

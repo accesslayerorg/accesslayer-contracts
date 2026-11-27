@@ -55,22 +55,14 @@ pub fn add_holder(env: &Env, key_id: Address, holder: Address) -> Result<(), Con
 
     // Get current count
     let count_key = HolderEnumerationKey::HolderCount(key_id.clone());
-    let count: u32 = env
-        .storage()
-        .persistent()
-        .get(&count_key)
-        .unwrap_or(0);
+    let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
 
     // Add holder at index = count
     let by_index_key = HolderEnumerationKey::HolderByIndex(key_id.clone(), count);
-    env.storage()
-        .persistent()
-        .set(&by_index_key, &holder);
+    env.storage().persistent().set(&by_index_key, &holder);
 
     // Store the index for this holder
-    env.storage()
-        .persistent()
-        .set(&holder_index_key, &count);
+    env.storage().persistent().set(&holder_index_key, &count);
 
     // Increment count
     env.storage().persistent().set(&count_key, &(count + 1));
@@ -117,9 +109,7 @@ pub fn remove_holder(env: &Env, key_id: Address, holder: Address) -> Result<(), 
 
         // Move last holder to the removed holder's position
         let by_index_key = HolderEnumerationKey::HolderByIndex(key_id.clone(), index);
-        env.storage()
-            .persistent()
-            .set(&by_index_key, &last_holder);
+        env.storage().persistent().set(&by_index_key, &last_holder);
 
         // Update last holder's index
         let last_holder_index_key =
@@ -145,10 +135,7 @@ pub fn remove_holder(env: &Env, key_id: Address, holder: Address) -> Result<(), 
 /// Get the total number of holders for a key.
 pub fn holder_count(env: &Env, key_id: Address) -> u32 {
     let count_key = HolderEnumerationKey::HolderCount(key_id);
-    env.storage()
-        .persistent()
-        .get(&count_key)
-        .unwrap_or(0)
+    env.storage().persistent().get(&count_key).unwrap_or(0)
 }
 
 /// Get a page of holders.
@@ -179,11 +166,7 @@ pub fn holders_page(
 }
 
 /// Get top N holders sorted by balance.
-pub fn top_holders(
-    env: &Env,
-    key_id: Address,
-    n: u32,
-) -> Result<Vec<HolderInfo>, ContractError> {
+pub fn top_holders(env: &Env, key_id: Address, n: u32) -> Result<Vec<HolderInfo>, ContractError> {
     // Validate n
     if n == 0 || n > MAX_TOP_HOLDERS_SIZE {
         return Err(ContractError::BatchSizeExceeded);
@@ -219,7 +202,7 @@ pub fn update_top_holders(
 ) -> Result<(), ContractError> {
     // Get current top holders
     let top_key = HolderEnumerationKey::TopHolders(key_id.clone());
-    let mut top: Vec<HolderInfo> = env
+    let top: Vec<HolderInfo> = env
         .storage()
         .persistent()
         .get(&top_key)
