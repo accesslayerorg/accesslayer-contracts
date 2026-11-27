@@ -1,0 +1,14 @@
+[package]
+name = "protocol-scenarios"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+creator-keys = { path = "../creator-keys" }
+multisig-admin = { path = "../multisig-admin" }
+soroban-sdk = { workspace = true, features = ["testutils"] }
+test-utils = { path = "../test-utils" }
