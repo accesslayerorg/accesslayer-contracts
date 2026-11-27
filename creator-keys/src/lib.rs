@@ -458,13 +458,6 @@ pub enum ContractError {
     PriceDeviation = 182,
     QuorumNotMet = 183,
     InvalidOracleSet = 184,
-    BadgeRequired = 179,
-    /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 180,
-    /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 181,
-    QuorumNotMet = 182,
-    InvalidOracleSet = 183,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,

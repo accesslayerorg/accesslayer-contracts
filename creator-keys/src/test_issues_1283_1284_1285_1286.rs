@@ -18,8 +18,6 @@ mod tests {
         ContractError,
     };
 
-    use crate::{badge_access_control, creator_allocation, english_auction, holder_enumeration};
-
     // ============================================================================
     // Issue #1283: Creator allocation with vesting
     // ============================================================================
