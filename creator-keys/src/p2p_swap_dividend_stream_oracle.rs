@@ -233,7 +233,7 @@ pub mod key_dividend_contract {
         ///
         /// Token holders cannot be enumerated on-chain, so the caller supplies
         /// the holder list; balances themselves are read from the key token.
-        pub fn declare_dividend(
+        pub fn declare_key_dividend(
             env: Env,
             creator: Address,
             key_id: Address,
@@ -329,7 +329,7 @@ pub mod key_dividend_contract {
             balance * d.total_amount / d.total_supply
         }
 
-        pub fn claim_dividend(
+        pub fn claim_key_dividend(
             env: Env,
             wallet: Address,
             key_id: Address,
@@ -749,7 +749,7 @@ pub mod oracle_guard_contract {
         /// Fresh primary wins (after a deviation check against a fresh
         /// fallback); a stale primary falls back to a fresh secondary; both
         /// stale reverts with `StalePrice`.
-        pub fn get_price(env: Env, asset: Address) -> Result<i128, ContractError> {
+        pub fn get_p2p_oracle_price(env: Env, asset: Address) -> Result<i128, ContractError> {
             let cfg = config(&env)?;
             let (p, p_age) = read(&env, &cfg.primary, &asset);
             let fb = cfg.fallback.as_ref().map(|f| read(&env, f, &asset));

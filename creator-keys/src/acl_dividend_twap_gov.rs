@@ -152,12 +152,12 @@ pub mod acl_contract {
 
     #[contractimpl]
     impl AclWhitelistContract {
-        pub fn init(env: Env, admin: Address) {
+        pub fn init_acl(env: Env, admin: Address) {
             admin.require_auth();
             env.storage().instance().set(&AclDataKey::Admin, &admin);
         }
 
-        pub fn get_admin(env: Env) -> Option<Address> {
+        pub fn get_acl_admin(env: Env) -> Option<Address> {
             env.storage().instance().get(&AclDataKey::Admin)
         }
 
@@ -453,7 +453,7 @@ pub mod dividend_contract {
 
     #[contractimpl]
     impl DividendPoolContract {
-        pub fn init(env: Env, admin: Address) {
+        pub fn init_dividend_pool(env: Env, admin: Address) {
             admin.require_auth();
             env.storage()
                 .instance()
@@ -725,7 +725,7 @@ pub mod twap_contract {
             record_twap_trade(&env, &key_id, price)
         }
 
-        pub fn get_twap(
+        pub fn get_price_twap(
             env: Env,
             key_id: Address,
             window_seconds: u64,
@@ -1001,7 +1001,7 @@ pub mod gov_contract {
 
     #[contractimpl]
     impl GovernanceProposalContract {
-        pub fn init(env: Env, admin: Address, min_holding_threshold: i128) {
+        pub fn init_governance(env: Env, admin: Address, min_holding_threshold: i128) {
             admin.require_auth();
             env.storage().instance().set(&GovDataKey::Admin, &admin);
             env.storage()
@@ -1009,7 +1009,7 @@ pub mod gov_contract {
                 .set(&GovDataKey::MinHoldingThreshold, &min_holding_threshold);
         }
 
-        pub fn create_proposal(
+        pub fn create_governance_proposal(
             env: Env,
             proposer: Address,
             params: CreateProposalParams,
@@ -1027,12 +1027,12 @@ pub mod gov_contract {
             vote(&env, &voter, proposal_id, approve, voter_weight)
         }
 
-        pub fn execute_proposal(
+        pub fn execute_governance_proposal(
             env: Env,
-            caller: Address,
+            proposer: Address,
             proposal_id: u32,
         ) -> Result<ProposalStatus, ContractError> {
-            execute_proposal(&env, &caller, proposal_id)
+            execute_proposal(&env, &proposer, proposal_id)
         }
 
         pub fn get_proposal(env: Env, proposal_id: u32) -> Result<Proposal, ContractError> {

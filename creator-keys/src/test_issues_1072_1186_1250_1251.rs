@@ -181,7 +181,7 @@ fn dividend_pro_rata_claim_expiry_and_reclaim() {
     pay_admin.mint(&creator, &1_000);
 
     let expiry = env.ledger().sequence() + 100;
-    let id = div.declare_dividend(
+    let id = div.declare_key_dividend(
         &creator,
         &key_id,
         &pay_id,
@@ -197,14 +197,14 @@ fn dividend_pro_rata_claim_expiry_and_reclaim() {
     assert_eq!(div.get_dividend_claimable(&key_id, &id, &h3), 600);
     assert_eq!(div.get_dividend_claimable(&key_id, &id, &nobody), 0);
 
-    assert_eq!(div.claim_dividend(&h2, &key_id, &id), 300);
+    assert_eq!(div.claim_key_dividend(&h2, &key_id, &id), 300);
     assert_eq!(pay.balance(&h2), 300);
     assert_eq!(
-        div.try_claim_dividend(&h2, &key_id, &id),
+        div.try_claim_key_dividend(&h2, &key_id, &id),
         Err(Ok(ContractError::AlreadyClaimed))
     );
     assert_eq!(
-        div.try_claim_dividend(&nobody, &key_id, &id),
+        div.try_claim_key_dividend(&nobody, &key_id, &id),
         Err(Ok(ContractError::NoDividendClaimable))
     );
     assert_eq!(
@@ -215,7 +215,7 @@ fn dividend_pro_rata_claim_expiry_and_reclaim() {
     env.ledger().with_mut(|l| l.sequence_number = expiry + 1);
     assert_eq!(div.get_dividend_claimable(&key_id, &id, &h1), 0);
     assert_eq!(
-        div.try_claim_dividend(&h1, &key_id, &id),
+        div.try_claim_key_dividend(&h1, &key_id, &id),
         Err(Ok(ContractError::DeadlinePassed))
     );
     assert_eq!(div.reclaim_expired_dividend(&key_id, &id), 700);
@@ -350,7 +350,7 @@ fn oracle_fresh_primary_returned_unchanged() {
     let f = oracle_fixture(&env);
     f.primary.set(&f.asset, &1_000, &995);
     f.fallback.set(&f.asset, &1_040, &998);
-    assert_eq!(f.guard.get_price(&f.asset), 1_000);
+    assert_eq!(f.guard.get_p2p_oracle_price(&f.asset), 1_000);
     let st = f.guard.oracle_status(&f.asset);
     assert_eq!(
         (st.primary_age, st.fallback_age, st.source),
@@ -365,7 +365,7 @@ fn oracle_stale_primary_uses_fresh_fallback() {
     f.primary.set(&f.asset, &1_000, &980);
     f.fallback.set(&f.asset, &2_000, &999);
     // Deviation is ignored when one feed is stale.
-    assert_eq!(f.guard.get_price(&f.asset), 2_000);
+    assert_eq!(f.guard.get_p2p_oracle_price(&f.asset), 2_000);
     assert!(has_event(f.env, "oracle_fallback_used"));
     assert_eq!(
         f.guard.oracle_status(&f.asset).source,
@@ -380,7 +380,7 @@ fn oracle_both_stale_reverts() {
     f.primary.set(&f.asset, &1_000, &980);
     f.fallback.set(&f.asset, &1_000, &985);
     assert_eq!(
-        f.guard.try_get_price(&f.asset),
+        f.guard.try_get_p2p_oracle_price(&f.asset),
         Err(Ok(ContractError::StalePrice))
     );
     assert_eq!(
@@ -399,7 +399,7 @@ fn oracle_stale_primary_without_fallback_reverts() {
     g.set_oracle_config(&admin, &f.primary.address, &None, &10, &500);
     f.primary.set(&f.asset, &1_000, &980);
     assert_eq!(
-        g.try_get_price(&f.asset),
+        g.try_get_p2p_oracle_price(&f.asset),
         Err(Ok(ContractError::StalePrice))
     );
 }
@@ -411,7 +411,7 @@ fn oracle_large_deviation_between_fresh_feeds_reverts() {
     f.primary.set(&f.asset, &1_000, &999);
     f.fallback.set(&f.asset, &1_100, &999);
     assert_eq!(
-        f.guard.try_get_price(&f.asset),
+        f.guard.try_get_p2p_oracle_price(&f.asset),
         Err(Ok(ContractError::PriceDeviation))
     );
 }

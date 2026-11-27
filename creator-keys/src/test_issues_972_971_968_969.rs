@@ -29,7 +29,7 @@ fn test_acl_add_and_permission_checks() {
 
     let admin = Address::generate(&env);
     let target_contract = Address::generate(&env);
-    client.init(&admin);
+    client.init_acl(&admin);
 
     let mut funcs = Vec::new(&env);
     funcs.push_back(symbol_short!("swap"));
@@ -62,7 +62,7 @@ fn test_acl_wildcard_permission() {
 
     let admin = Address::generate(&env);
     let router_contract = Address::generate(&env);
-    client.init(&admin);
+    client.init_acl(&admin);
 
     let mut funcs = Vec::new(&env);
     funcs.push_back(symbol_short!("all"));
@@ -85,7 +85,7 @@ fn test_acl_remove_clears_permissions() {
 
     let admin = Address::generate(&env);
     let target_contract = Address::generate(&env);
-    client.init(&admin);
+    client.init_acl(&admin);
 
     let mut funcs = Vec::new(&env);
     funcs.push_back(symbol_short!("swap"));
@@ -117,7 +117,7 @@ fn test_acl_contract_client_interactions() {
     let caller = Address::generate(&env);
     let target = Address::generate(&env);
 
-    client.init(&admin);
+    client.init_acl(&admin);
 
     let mut funcs = Vec::new(&env);
     funcs.push_back(symbol_short!("execute"));
@@ -161,7 +161,7 @@ fn test_dividend_pro_rata_distribution_and_claiming() {
     let holder_a = Address::generate(&env);
     let holder_b = Address::generate(&env);
 
-    client.init(&admin);
+    client.init_acl(&admin);
 
     // Snapshot: total supply = 1000, holder A has 300 (30%), holder B has 700 (70%)
     let mut records = Vec::new(&env);
@@ -225,7 +225,7 @@ fn test_dividend_contract_client() {
     let key_id = Address::generate(&env);
     let holder = Address::generate(&env);
 
-    client.init(&admin);
+    client.init_dividend_pool(&admin);
 
     let mut records = Vec::new(&env);
     records.push_back(HolderSnapshotRecord {
@@ -266,7 +266,7 @@ fn test_twap_oracle_accumulation_and_windows() {
     assert!(client.try_record_trade(&key_id, &100).is_ok());
 
     // Min observation guard should fail when only 1 observation exists
-    assert!(client.try_get_twap(&key_id, &3600).is_err());
+    assert!(client.try_get_price_twap(&key_id, &3600).is_err());
 
     // Trade 2 at t = 13_600 (1h later), price = 200
     // Cumulative added: 100 * 3600 = 360,000
@@ -279,11 +279,11 @@ fn test_twap_oracle_accumulation_and_windows() {
     assert!(client.try_record_trade(&key_id, &300).is_ok());
 
     // Check TWAP over 4h (14400s) window: 2,520,000 / 14400 = 175
-    let twap_4h = client.get_twap(&key_id, &14400);
+    let twap_4h = client.get_price_twap(&key_id, &14400);
     assert_eq!(twap_4h, 175);
 
     // Check TWAP over 1h (3600s) window from t=24_400 (from 20_800 to 24_400, price was 200)
-    let twap_1h = client.get_twap(&key_id, &3600);
+    let twap_1h = client.get_price_twap(&key_id, &3600);
     assert_eq!(twap_1h, 200);
 }
 
@@ -309,7 +309,7 @@ fn test_twap_wash_trade_same_block_protection() {
     assert!(client.try_record_trade(&key_id, &180).is_ok());
 
     // TWAP over 1000s window should be exactly 120
-    let twap = client.get_twap(&key_id, &1000);
+    let twap = client.get_price_twap(&key_id, &1000);
     assert_eq!(twap, 120);
 }
 
@@ -329,7 +329,7 @@ fn test_twap_oracle_contract_client() {
     env.ledger().with_mut(|l| l.timestamp = 4_600); // +3600s
     client.record_trade(&key_id, &700);
 
-    let twap = client.get_twap(&key_id, &3600);
+    let twap = client.get_price_twap(&key_id, &3600);
     assert_eq!(twap, 500);
 
     let observations = client.get_observations(&key_id);
@@ -365,7 +365,7 @@ fn test_governance_proposal_lifecycle_pass_and_execute() {
         min_quorum_weight: 500,
         pass_threshold_bps: 5000,
     };
-    let fail_res = client.try_create_proposal(&proposer, &invalid_params);
+    let fail_res = client.try_create_governance_proposal(&proposer, &invalid_params);
     assert!(fail_res.is_err());
 
     // Proposer with sufficient balance succeeds
@@ -378,7 +378,7 @@ fn test_governance_proposal_lifecycle_pass_and_execute() {
         min_quorum_weight: 500,
         pass_threshold_bps: 5000,
     };
-    let proposal_id = client.create_proposal(&proposer, &valid_params);
+    let proposal_id = client.create_governance_proposal(&proposer, &valid_params);
 
     let prop = client.get_proposal(&proposal_id);
     assert_eq!(prop.status, ProposalStatus::Active);
@@ -394,7 +394,7 @@ fn test_governance_proposal_lifecycle_pass_and_execute() {
     assert!(client.try_vote(&voter_b, &proposal_id, &true, &200).is_ok());
 
     // Execution before voting period ends fails
-    let early_exec = client.try_execute_proposal(&proposer, &proposal_id);
+    let early_exec = client.try_execute_governance_proposal(&proposer, &proposal_id);
     assert!(early_exec.is_err());
 
     // Advance ledger past voting end
@@ -405,7 +405,7 @@ fn test_governance_proposal_lifecycle_pass_and_execute() {
     assert_eq!(prop_passed.status, ProposalStatus::Passed);
 
     // Execute proposal
-    let exec_res = client.execute_proposal(&proposer, &proposal_id);
+    let exec_res = client.execute_governance_proposal(&proposer, &proposal_id);
     assert_eq!(exec_res, ProposalStatus::Executed);
 
     let prop_executed = client.get_proposal(&proposal_id);
@@ -434,7 +434,7 @@ fn test_governance_proposal_lifecycle_failure_below_threshold() {
         min_quorum_weight: 100,
         pass_threshold_bps: 5000, // 50% pass threshold
     };
-    let proposal_id = client.create_proposal(&proposer, &params);
+    let proposal_id = client.create_governance_proposal(&proposer, &params);
 
     // Vote reject: voter votes false
     assert!(client
@@ -448,7 +448,7 @@ fn test_governance_proposal_lifecycle_failure_below_threshold() {
     assert_eq!(prop.status, ProposalStatus::Failed);
 
     // Execution fails for rejected proposal
-    let exec_res = client.try_execute_proposal(&proposer, &proposal_id);
+    let exec_res = client.try_execute_governance_proposal(&proposer, &proposal_id);
     assert!(exec_res.is_err());
 }
 
@@ -465,7 +465,7 @@ fn test_governance_proposal_contract_client() {
     let key_id = Address::generate(&env);
     let voter = Address::generate(&env);
 
-    client.init(&admin, &50);
+    client.init_governance(&admin, &50);
 
     let discussion = String::from_str(&env, "https://forum.accesslayer.org");
     let params = CreateProposalParams {
@@ -477,7 +477,7 @@ fn test_governance_proposal_contract_client() {
         min_quorum_weight: 100,
         pass_threshold_bps: 5000,
     };
-    let prop_id = client.create_proposal(&proposer, &params);
+    let prop_id = client.create_governance_proposal(&proposer, &params);
 
     client.vote(&voter, &prop_id, &true, &200);
 
@@ -486,7 +486,7 @@ fn test_governance_proposal_contract_client() {
     let prop = client.get_proposal(&prop_id);
     assert_eq!(prop.status, ProposalStatus::Passed);
 
-    let final_status = client.execute_proposal(&admin, &prop_id);
+    let final_status = client.execute_governance_proposal(&admin, &prop_id);
     assert_eq!(final_status, ProposalStatus::Executed);
 }
 

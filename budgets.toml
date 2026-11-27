@@ -4,8 +4,8 @@ version = 1
 target = "wasm32v1-none"
 
 [wasm.contracts]
-creator-keys = 786432
-creator-keys-factory = 262144
+creator-keys = 1_310_720
+creator-keys-factory = 1_310_720
 referral-contract = 262144
 lp-reward-contract = 262144
 key-staking-contract = 262144

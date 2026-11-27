@@ -88,7 +88,7 @@ fn emit_upgrade_executed(env: &Env, old_impl: &Address, new_impl: &Address) {
 #[contractimpl]
 impl BondingCurveProxy {
     /// Initializes the proxy with an admin and the initial bonding curve implementation contract.
-    pub fn initialize(
+    pub fn initialize_proxy(
         env: Env,
         admin: Address,
         initial_implementation: Address,
@@ -173,7 +173,7 @@ impl BondingCurveProxy {
     }
 
     /// Returns whether the proxy is currently paused.
-    pub fn is_paused(env: Env) -> bool {
+    pub fn is_proxy_paused(env: Env) -> bool {
         env.storage()
             .instance()
             .get(&ProxyDataKey::IsPaused)
@@ -189,7 +189,7 @@ impl BondingCurveProxy {
     }
 
     /// Returns the current admin address.
-    pub fn get_admin(env: Env) -> Result<Address, ProxyError> {
+    pub fn get_proxy_admin(env: Env) -> Result<Address, ProxyError> {
         env.storage()
             .instance()
             .get(&ProxyDataKey::Admin)

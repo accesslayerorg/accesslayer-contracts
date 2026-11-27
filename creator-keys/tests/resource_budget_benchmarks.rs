@@ -5,7 +5,10 @@ use contract_test_env::{
     DEFAULT_CREATOR_BPS, DEFAULT_PROTOCOL_BPS,
 };
 use creator_keys::{CreatorKeysContractClient, TimelockChangeType};
-use soroban_sdk::{testutils::Address as _, Address, Bytes, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Address, Bytes, Env,
+};
 
 const BUDGETS: &str = include_str!("../../budgets.toml");
 const KEY_PRICE: i128 = 100;
@@ -128,6 +131,8 @@ fn sell_resource_benchmark() {
     let creator = register_test_creator(&env, &client, "bench_creator");
     let holders = seed_state(&env, &client, &creator);
     let seller = holders.first().unwrap().clone();
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 1);
 
     measure(&env, "sell", || {
         client.sell_key(&creator, &seller, &None);
