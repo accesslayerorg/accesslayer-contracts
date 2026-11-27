@@ -10,9 +10,7 @@ fn governance_timelock_upgrade() {
     let mut h = Harness::new(scenario_seed("governance_timelock_upgrade"));
 
     h.step("configure timelock delay", |h| {
-        h.keys
-            .set_timelock_delay(&h.admin, &TIMELOCK_DELAY)
-            .unwrap();
+        h.keys.set_timelock_delay(&h.admin, &TIMELOCK_DELAY);
     });
 
     let before_version = h.step("record current version", |h| h.keys.get_version());
@@ -25,7 +23,6 @@ fn governance_timelock_upgrade() {
         let payload = Bytes::from_array(h.env, &raw);
         h.keys
             .propose_action(&h.admin, &TimelockChangeType::Upgrade, &payload)
-            .unwrap()
     });
 
     h.step("execute before timelock fails", |h| {
@@ -53,7 +50,7 @@ fn governance_timelock_upgrade() {
 
     h.step("execute ratified upgrade", |h| {
         h.enforce_protocol_invariants = false;
-        h.keys.execute_action(&h.admin, &action_id).unwrap();
+        h.keys.execute_action(&h.admin, &action_id);
         assert_ne!(h.keys.get_version(), before_version);
     });
 

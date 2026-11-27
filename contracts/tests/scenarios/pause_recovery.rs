@@ -8,10 +8,10 @@ fn pause_and_recovery() {
     let buyer = h.actors[0].clone();
 
     h.step("seed initial position", |h| h.buy_one(&creator, &buyer));
-    h.step("pause protocol", |h| h.keys.pause(&h.admin).unwrap());
+    h.step("pause protocol", |h| h.keys.pause(&h.admin));
 
     h.step("buy blocked while paused", |h| {
-        let quote = h.keys.get_buy_quote(&creator).unwrap();
+        let quote = h.keys.get_buy_quote(&creator);
         h.assert_contract_error(
             h.keys
                 .try_buy_key(&creator, &h.actors[1], &quote.total_amount, &None),
@@ -19,7 +19,7 @@ fn pause_and_recovery() {
         );
     });
 
-    h.step("unpause protocol", |h| h.keys.unpause(&h.admin).unwrap());
+    h.step("unpause protocol", |h| h.keys.unpause(&h.admin));
     h.step("buy resumes after unpause", |h| {
         h.buy_one(&creator, &h.actors[1])
     });
@@ -27,8 +27,8 @@ fn pause_and_recovery() {
     let first_governor = h.governors[0].clone();
     let second_governor = h.governors[1].clone();
     h.step("global pause by two governors", |h| {
-        h.keys.global_pause(&first_governor).unwrap();
-        h.keys.global_pause(&second_governor).unwrap();
+        h.keys.global_pause(&first_governor);
+        h.keys.global_pause(&second_governor);
     });
 
     h.step("sell blocked while globally halted", |h| {
@@ -39,10 +39,11 @@ fn pause_and_recovery() {
     });
 
     h.step("global resume by two governors", |h| {
-        h.keys.global_resume(&first_governor).unwrap();
-        h.keys.global_resume(&second_governor).unwrap();
+        h.keys.global_resume(&first_governor);
+        h.keys.global_resume(&second_governor);
     });
 
+    h.advance_time(1);
     h.step("sell resumes after global resume", |h| {
         h.sell_one(&creator, &buyer);
     });

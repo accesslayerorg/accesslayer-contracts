@@ -25,16 +25,14 @@ fn escrow_dispute_and_redemption() {
     });
 
     h.step("deprecate key with escrow", |h| {
-        h.keys
-            .deprecate_key(
-                &creator,
-                &creator,
-                &buyback_price,
-                &buyback_escrow,
-                &String::from_str(h.env, "orderly wind down"),
-                &None,
-            )
-            .unwrap();
+        h.keys.deprecate_key(
+            &creator,
+            &creator,
+            &buyback_price,
+            &buyback_escrow,
+            &String::from_str(h.env, "orderly wind down"),
+            &None,
+        );
     });
 
     let claimant = h
@@ -59,7 +57,7 @@ fn escrow_dispute_and_redemption() {
     h.step("redeem all keys", |h| {
         for actor in &actors {
             if h.keys.get_key_balance(&creator, actor) > 0 {
-                let payout = h.keys.redeem(&creator, actor).unwrap();
+                let payout = h.keys.redeem(&creator, actor);
                 h.release_buyback(&creator, actor, payout);
             }
         }

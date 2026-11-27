@@ -15,6 +15,7 @@ fn trading_fees_and_royalties_reconcile() {
         let actors = h.shuffled_actors();
         let buyer = &actors[index % actors.len()];
         h.step(&format!("buy {index}"), |h| h.buy_one(&creator, buyer));
+        h.advance_time(1);
 
         if index % 2 == 1 {
             let sellers = h.shuffled_actors();

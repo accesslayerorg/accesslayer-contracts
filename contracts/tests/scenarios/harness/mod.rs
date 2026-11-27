@@ -7,7 +7,9 @@
 
 #![allow(dead_code)]
 
-use super::mocks::{
+mod mocks;
+
+use self::mocks::{
     MockEscrowContract, MockEscrowContractClient, MockKeeperContract, MockKeeperContractClient,
 };
 use creator_keys::{
@@ -20,7 +22,7 @@ use multisig_admin::{
 };
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
-    Address, Env, IntoVal, String, Symbol, Val, Vec as SorobanVec,
+    Address, Env, IntoVal, String, Symbol, TryFromVal, Val, Vec as SorobanVec,
 };
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},
@@ -147,14 +149,12 @@ impl Harness {
 
         let keys_id = env.register(CreatorKeysContract, ());
         let keys = CreatorKeysContractClient::new(env, &keys_id);
-        keys.set_protocol_admin(&admin, &admin).unwrap();
-        keys.set_protocol_fee_recipient(&admin, &protocol_recipient)
-            .unwrap();
+        keys.set_protocol_admin(&admin, &admin);
+        keys.set_protocol_fee_recipient(&admin, &protocol_recipient);
         keys.set_treasury_address(&admin, &protocol_recipient);
-        keys.set_key_price(&admin, &KEY_PRICE).unwrap();
-        keys.set_curve_slope(&admin, &0).unwrap();
-        keys.set_fee_config(&admin, &CREATOR_BPS, &PROTOCOL_BPS)
-            .unwrap();
+        keys.set_key_price(&admin, &KEY_PRICE);
+        keys.set_curve_slope(&admin, &0);
+        keys.set_fee_config(&admin, &CREATOR_BPS, &PROTOCOL_BPS);
 
         let (token, token_id) = MockToken::register(env);
         let (oracle, oracle_id) = MockOracle::register(env);
@@ -170,14 +170,11 @@ impl Harness {
 
         let multisig_id = env.register(MultisigAdminContract, ());
         let multisig = MultisigAdminContractClient::new(env, &multisig_id);
-        multisig
-            .initialize(&governors[0], &governor_vec, &2)
-            .unwrap();
+        multisig.initialize(&governors[0], &governor_vec, &2);
 
         let mut ratifiers = governors.clone();
         ratifiers.push(multisig_id.clone());
-        keys.set_global_pause_admins(&admin, &Self::to_soroban_vec(env, &ratifiers))
-            .unwrap();
+        keys.set_global_pause_admins(&admin, &Self::to_soroban_vec(env, &ratifiers));
 
         let actors: StdVec<Address> = (0..4).map(|_| Address::generate(env)).collect();
         for actor in &actors {
@@ -221,7 +218,10 @@ impl Harness {
         Symbol::new(env, "KEY")
     }
 
-    fn to_soroban_vec<T: Clone>(env: &Env, values: &[T]) -> SorobanVec<T> {
+    fn to_soroban_vec<T>(env: &Env, values: &[T]) -> SorobanVec<T>
+    where
+        T: Clone + IntoVal<Env, Val> + TryFromVal<Env, Val>,
+    {
         let mut out = SorobanVec::new(env);
         for value in values {
             out.push_back(value.clone());
@@ -231,20 +231,18 @@ impl Harness {
 
     pub fn register_creator(&mut self, handle: &str) -> Address {
         let creator = Address::generate(self.env);
-        self.keys
-            .register_creator(
-                &RegisterCreatorParams {
-                    creator: creator.clone(),
-                    handle: String::from_str(self.env, handle),
-                },
-                &None,
-                &None,
-                &None,
-                &Some(CurvePreset::Linear),
-                &None,
-                &None,
-            )
-            .unwrap();
+        self.keys.register_creator(
+            &RegisterCreatorParams {
+                creator: creator.clone(),
+                handle: String::from_str(self.env, handle),
+            },
+            &None,
+            &None,
+            &None,
+            &Some(CurvePreset::Linear),
+            &None,
+            &None,
+        );
         self.token.mint(&creator, &STARTING_BALANCE);
         self.creators.push(creator.clone());
         creator
@@ -255,11 +253,11 @@ impl Harness {
         for (threshold, exponent) in milestones {
             curve.push_back((*threshold, *exponent));
         }
-        self.keys.set_graduated_curve(creator, &curve).unwrap();
+        self.keys.set_graduated_curve(creator, &curve);
     }
 
     pub fn set_royalty(&self, creator: &Address, buy_bps: u32, sell_bps: u32) {
-        self.keys.set_royalty(creator, &buy_bps, &sell_bps).unwrap();
+        self.keys.set_royalty(creator, &buy_bps, &sell_bps);
     }
 
     pub fn prefund_royalty(&self, creator: &Address, amount: i128) {
@@ -267,20 +265,18 @@ impl Harness {
     }
 
     pub fn buy_one(&mut self, creator: &Address, buyer: &Address) -> i128 {
-        let quote = self.keys.get_buy_quote(creator).unwrap();
+        let quote = self.keys.get_buy_quote(creator);
         self.keys
-            .buy_key(creator, buyer, &quote.total_amount, &None)
-            .unwrap();
+            .buy_key(creator, buyer, &quote.total_amount, &None);
         self.token.transfer(buyer, &self.vault, &quote.total_amount);
         self.note_buy(creator, &quote);
         quote.total_amount
     }
 
     pub fn sell_one(&mut self, creator: &Address, seller: &Address) -> i128 {
-        let quote = self.keys.get_sell_quote(creator, seller).unwrap();
+        let quote = self.keys.get_sell_quote(creator, seller);
         self.keys
-            .sell_key(creator, seller, &Some(quote.total_amount))
-            .unwrap();
+            .sell_key(creator, seller, &Some(quote.total_amount));
         self.token
             .transfer(&self.vault, seller, &quote.total_amount);
         self.note_sell(creator, &quote);
@@ -305,7 +301,7 @@ impl Harness {
     pub fn advance_time(&mut self, seconds: u64) {
         let mut ledger = self.env.ledger().get();
         ledger.timestamp += seconds;
-        ledger.sequence += 1;
+        ledger.sequence_number += 1;
         self.env.ledger().set(ledger);
     }
 
@@ -342,13 +338,10 @@ impl Harness {
     pub fn settle_fees(&mut self, creator: &Address) {
         let protocol_fee = self.liabilities.protocol_fee;
         let creator_fee = self.liabilities.creator_fee + self.liabilities.royalty;
-        let creator_recipient = self.keys.get_creator_fee_recipient(creator).unwrap();
+        let creator_recipient = self.keys.get_creator_fee_recipient(creator);
 
         assert_eq!(self.keys.get_treasury_balance(), protocol_fee);
-        assert_eq!(
-            self.keys.get_creator_fee_balance(creator).unwrap(),
-            creator_fee
-        );
+        assert_eq!(self.keys.get_creator_fee_balance(creator), creator_fee);
 
         let protocol_before = self.token.balance(&self.protocol_recipient);
         let creator_before = self.token.balance(&creator_recipient);
@@ -402,19 +395,11 @@ impl Harness {
             function: Symbol::new(self.env, "approve_upgrade"),
             args,
         });
-        let proposal_id = self
-            .multisig
-            .propose_action(&self.governors[0], &action)
-            .unwrap();
+        let proposal_id = self.multisig.propose_action(&self.governors[0], &action);
+        self.multisig.sign_action(&self.governors[0], &proposal_id);
+        self.multisig.sign_action(&self.governors[1], &proposal_id);
         self.multisig
-            .sign_action(&self.governors[0], &proposal_id)
-            .unwrap();
-        self.multisig
-            .sign_action(&self.governors[1], &proposal_id)
-            .unwrap();
-        self.multisig
-            .execute_action(&self.governors[0], &proposal_id)
-            .unwrap();
+            .execute_action(&self.governors[0], &proposal_id);
     }
 
     pub fn step<F, R>(&mut self, label: &str, action: F) -> R
@@ -476,7 +461,7 @@ impl Harness {
                 "{label}: holder count must match tracked nonzero balances"
             );
             assert!(
-                self.keys.get_creator_fee_balance(creator).unwrap() >= 0,
+                self.keys.get_creator_fee_balance(creator) >= 0,
                 "{label}: creator fee balance cannot be negative"
             );
         }
@@ -507,6 +492,7 @@ impl Harness {
     }
 
     pub fn assert_contract_error<T, E>(
+        &self,
         result: Result<T, Result<ContractError, E>>,
         expected: ContractError,
     ) where
