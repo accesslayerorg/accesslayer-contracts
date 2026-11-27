@@ -68,7 +68,7 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), HealthScoreError> {
 
 #[contractimpl]
 impl KeyHealthScoreContract {
-    pub fn initialize(env: Env, admin: Address) -> Result<(), HealthScoreError> {
+    pub fn __constructor(env: Env, admin: Address) -> Result<(), HealthScoreError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(HealthScoreError::AlreadyInitialized);
         }
@@ -363,9 +363,8 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id = env.register(KeyHealthScoreContract, ());
+        let contract_id = env.register(KeyHealthScoreContract, (&admin,));
         let client = KeyHealthScoreContractClient::new(&env, &contract_id);
-        client.initialize(&admin);
         (env, client, admin)
     }
 

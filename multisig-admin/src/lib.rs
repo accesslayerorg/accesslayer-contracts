@@ -161,7 +161,7 @@ fn emit_action_event(env: &Env, name: Symbol, proposal_id: u32, actor: &Address)
 #[contractimpl]
 impl MultisigAdminContract {
     /// One-time initialization of the signer set and approval threshold.
-    pub fn initialize(
+    pub fn __constructor(
         env: Env,
         initializer: Address,
         signers: Vec<Address>,

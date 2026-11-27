@@ -13,10 +13,9 @@ const DAY: u64 = 86_400;
 fn setup() -> (Env, SeasonalRewardsContractClient<'static>, Address) {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register(SeasonalRewardsContract, ());
-    let client = SeasonalRewardsContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    client.initialize(&admin);
+    let contract_id = env.register(SeasonalRewardsContract, (&admin,));
+    let client = SeasonalRewardsContractClient::new(&env, &contract_id);
     (env, client, admin)
 }
 

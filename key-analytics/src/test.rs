@@ -70,10 +70,8 @@ fn setup_test<'a>(env: &'a Env) -> TestSetup<'a> {
     let mock_keys_id = env.register(MockCreatorKeys, ());
     let mock_client = MockCreatorKeysClient::new(env, &mock_keys_id);
 
-    let contract_id = env.register(KeyAnalyticsContract, ());
+    let contract_id = env.register(KeyAnalyticsContract, (&mock_keys_id,));
     let client = KeyAnalyticsContractClient::new(env, &contract_id);
-
-    client.initialize(&mock_keys_id);
 
     TestSetup {
         env: env.clone(),
@@ -91,18 +89,21 @@ fn test_single_use_initialize() {
     env.mock_all_auths();
 
     let keys = Address::generate(&env);
-    let contract_id = env.register(KeyAnalyticsContract, ());
+    let contract_id = env.register(KeyAnalyticsContract, (&keys,));
     let client = KeyAnalyticsContractClient::new(&env, &contract_id);
 
-    // Initial setup succeeds
-    assert_eq!(client.get_creator_keys(), None);
-    client.initialize(&keys);
+    // Configuration is applied atomically by the constructor.
     assert_eq!(client.get_creator_keys(), Some(keys.clone()));
 
-    // Cannot initialize a second time
+    // A second party has no post-deployment entrypoint to call.
     let second_keys = Address::generate(&env);
-    let res = client.try_initialize(&second_keys);
-    assert_eq!(res, Err(Ok(AnalyticsSnapshotError::AlreadyInitialized)));
+    let res = env.try_invoke_contract::<soroban_sdk::Val, soroban_sdk::Val>(
+        &contract_id,
+        &soroban_sdk::Symbol::new(&env, "initialize"),
+        soroban_sdk::Vec::new(&env),
+    );
+    assert!(res.is_err(), "initialize must not exist after deployment");
+    let _ = second_keys;
     assert_eq!(client.get_creator_keys(), Some(keys));
 }
 
@@ -412,11 +413,8 @@ fn test_metric_source_failure_and_unconfigured() {
         Err(Ok(AnalyticsSnapshotError::MetricFetchFailed))
     );
 
-    // 3. Metric source unconfigured contract
-    let uninit_id = env.register(KeyAnalyticsContract, ());
-    let uninit_client = KeyAnalyticsContractClient::new(&env, &uninit_id);
-    let res_uninit = uninit_client.try_take_daily_snapshot(&key_id);
-    assert_eq!(res_uninit, Err(Ok(AnalyticsSnapshotError::NotInitialized)));
+    // 3. The metric source address is now fixed by the constructor, so a
+    // deployed contract can no longer be left unconfigured.
 }
 
 #[test]

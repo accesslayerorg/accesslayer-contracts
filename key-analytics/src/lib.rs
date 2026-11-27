@@ -216,7 +216,7 @@ impl KeyAnalyticsContract {
     ///
     /// # Errors
     /// - [`AnalyticsSnapshotError::AlreadyInitialized`] if already initialized.
-    pub fn initialize(env: Env, creator_keys: Address) -> Result<(), AnalyticsSnapshotError> {
+    pub fn __constructor(env: Env, creator_keys: Address) -> Result<(), AnalyticsSnapshotError> {
         if env.storage().instance().has(&DataKey::CreatorKeys) {
             return Err(AnalyticsSnapshotError::AlreadyInitialized);
         }
