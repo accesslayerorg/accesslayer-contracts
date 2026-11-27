@@ -15,13 +15,19 @@ mod tests {
 
     use crate::{
         badge_access_control, creator_allocation, english_auction, holder_enumeration,
-        CreatorKeysContract,
+        ContractError, CreatorKeysContract,
     };
 
-    fn in_contract(test: impl FnOnce(Env)) {
+    fn setup() -> (Env, Address) {
         let env = Env::default();
         let contract = env.register(CreatorKeysContract, ());
         env.mock_all_auths();
+        (env, contract)
+    }
+
+    // Use separate frames for operations that require authorization from the same address.
+    fn in_contract(test: impl FnOnce(Env)) {
+        let (env, contract) = setup();
         env.as_contract(&contract, || test(env.clone()));
     }
 
@@ -100,16 +106,18 @@ mod tests {
 
     #[test]
     fn test_creator_allocation_claim() {
-        in_contract(|env| {
-            env.ledger().set_sequence_number(0);
+        let (env, contract) = setup();
+        env.ledger().set_sequence_number(0);
 
-            let creator = Address::generate(&env);
-            let key_id = Address::generate(&env);
+        let creator = Address::generate(&env);
+        let key_id = Address::generate(&env);
 
-            let amount = 1000;
-            let vesting_ledgers = 1000;
-            let cliff_ledgers = 100;
+        let amount = 1000;
+        let vesting_ledgers = 1000;
+        let cliff_ledgers = 100;
 
+        // Use a separate invocation frame for each authenticated operation.
+        env.as_contract(&contract, || {
             creator_allocation::set_creator_allocation(
                 &env,
                 creator.clone(),
@@ -118,23 +126,34 @@ mod tests {
                 vesting_ledgers,
                 cliff_ledgers,
             )
+        })
+        .unwrap();
+
+        // Try to claim before cliff - should fail
+        assert_eq!(
+            env.as_contract(&contract, || {
+                creator_allocation::claim_vested(&env, creator.clone(), key_id.clone())
+            }),
+            Err(ContractError::NoDividendClaimable)
+        );
+
+        // After cliff, claim partial
+        env.ledger().set_sequence_number(550);
+        let claimed = env
+            .as_contract(&contract, || {
+                creator_allocation::claim_vested(&env, creator, key_id.clone())
+            })
             .unwrap();
+        assert!(claimed > 0);
+        assert!(claimed < amount);
 
-            // Try to claim before cliff - should fail
-            let result = creator_allocation::claim_vested(&env, creator.clone(), key_id.clone());
-            assert!(result.is_err());
-
-            // After cliff, claim partial
-            env.ledger().set_sequence_number(550);
-            let claimed =
-                creator_allocation::claim_vested(&env, creator.clone(), key_id.clone()).unwrap();
-            assert!(claimed > 0);
-            assert!(claimed < amount);
-
-            // Check status after claim
-            let status = creator_allocation::vesting_status(&env, key_id.clone()).unwrap();
-            assert_eq!(status.claimed_amount, claimed);
-        });
+        // Check status after claim
+        let status = env
+            .as_contract(&contract, || {
+                creator_allocation::vesting_status(&env, key_id)
+            })
+            .unwrap();
+        assert_eq!(status.claimed_amount, claimed);
     }
 
     #[test]
@@ -208,47 +227,57 @@ mod tests {
 
     #[test]
     fn test_english_auction_bidding() {
-        in_contract(|env| {
-            env.ledger().set_sequence_number(0);
+        let (env, contract) = setup();
+        env.ledger().set_sequence_number(0);
 
-            let seller = Address::generate(&env);
-            let key_id = Address::generate(&env);
-            let bidder1 = Address::generate(&env);
-            let bidder2 = Address::generate(&env);
+        let seller = Address::generate(&env);
+        let key_id = Address::generate(&env);
+        let bidder1 = Address::generate(&env);
+        let bidder2 = Address::generate(&env);
 
-            let reserve_price = 1000;
-            let min_increment_bps = 500; // 5%
+        let reserve_price = 1000;
+        let min_increment_bps = 500; // 5%
 
-            let auction_id = english_auction::start_english_auction(
-                &env,
-                seller.clone(),
-                key_id.clone(),
-                100,
-                reserve_price,
-                1000,
-                min_increment_bps,
-            )
+        let auction_id = env
+            .as_contract(&contract, || {
+                english_auction::start_english_auction(
+                    &env,
+                    seller,
+                    key_id,
+                    100,
+                    reserve_price,
+                    1000,
+                    min_increment_bps,
+                )
+            })
             .unwrap();
 
-            // First bid at reserve price
-            let result =
-                english_auction::place_bid(&env, bidder1.clone(), auction_id, reserve_price);
-            assert!(result.is_ok());
+        // First bid at reserve price
+        env.as_contract(&contract, || {
+            english_auction::place_bid(&env, bidder1, auction_id, reserve_price)
+        })
+        .unwrap();
 
-            // Second bid below minimum increment - should fail
-            let result =
-                english_auction::place_bid(&env, bidder2.clone(), auction_id, reserve_price + 10);
-            assert!(result.is_err());
+        // Second bid below minimum increment - should fail
+        assert_eq!(
+            env.as_contract(&contract, || {
+                english_auction::place_bid(&env, bidder2.clone(), auction_id, reserve_price + 10)
+            }),
+            Err(ContractError::InsufficientPayment)
+        );
 
-            // Second bid at proper increment
-            let min_bid = reserve_price + (reserve_price * 500 / 10000);
-            let result = english_auction::place_bid(&env, bidder2.clone(), auction_id, min_bid);
-            assert!(result.is_ok());
+        // Second bid at proper increment
+        let min_bid = reserve_price + (reserve_price * i128::from(min_increment_bps) / 10_000);
+        env.as_contract(&contract, || {
+            english_auction::place_bid(&env, bidder2.clone(), auction_id, min_bid)
+        })
+        .unwrap();
 
-            let auction = english_auction::get_auction(&env, auction_id).unwrap();
-            assert_eq!(auction.highest_bid, min_bid);
-            assert_eq!(auction.highest_bidder.unwrap(), bidder2);
-        });
+        let auction = env
+            .as_contract(&contract, || english_auction::get_auction(&env, auction_id))
+            .unwrap();
+        assert_eq!(auction.highest_bid, min_bid);
+        assert_eq!(auction.highest_bidder.unwrap(), bidder2);
     }
 
     #[test]
@@ -310,29 +339,33 @@ mod tests {
 
     #[test]
     fn test_english_auction_cancel() {
-        in_contract(|env| {
-            let seller = Address::generate(&env);
-            let key_id = Address::generate(&env);
+        let (env, contract) = setup();
+        let seller = Address::generate(&env);
+        let key_id = Address::generate(&env);
 
-            let auction_id = english_auction::start_english_auction(
-                &env,
-                seller.clone(),
-                key_id,
-                100,
-                1000,
-                1000,
-                500,
-            )
+        let auction_id = env
+            .as_contract(&contract, || {
+                english_auction::start_english_auction(
+                    &env,
+                    seller.clone(),
+                    key_id,
+                    100,
+                    1000,
+                    1000,
+                    500,
+                )
+            })
             .unwrap();
 
-            // Cancel before any bids
-            let result = english_auction::cancel_auction(&env, seller, auction_id);
-            assert!(result.is_ok());
+        // Cancel before any bids
+        env.as_contract(&contract, || {
+            english_auction::cancel_auction(&env, seller, auction_id)
+        })
+        .unwrap();
 
-            // Auction should be removed
-            let auction = english_auction::get_auction(&env, auction_id);
-            assert!(auction.is_none());
-        });
+        // Auction should be removed
+        let auction = env.as_contract(&contract, || english_auction::get_auction(&env, auction_id));
+        assert!(auction.is_none());
     }
 
     // ============================================================================
@@ -512,90 +545,81 @@ mod tests {
 
     #[test]
     fn test_badge_requirement_clear() {
-        in_contract(|env| {
-            let creator = Address::generate(&env);
-            let key_id = Address::generate(&env);
-            let badge_contract = Address::generate(&env);
+        let (env, contract) = setup();
+        let creator = Address::generate(&env);
+        let key_id = Address::generate(&env);
+        let badge_contract = Address::generate(&env);
+        let action = badge_access_control::BadgeGatedAction::Claim;
 
-            // Set requirement
+        // Set requirement
+        env.as_contract(&contract, || {
             badge_access_control::set_badge_requirement(
                 &env,
                 creator.clone(),
                 key_id.clone(),
-                badge_access_control::BadgeGatedAction::Claim,
+                action,
                 badge_contract,
             )
-            .unwrap();
+        })
+        .unwrap();
 
-            // Clear requirement
-            let result = badge_access_control::clear_badge_requirement(
-                &env,
-                creator,
-                key_id.clone(),
-                badge_access_control::BadgeGatedAction::Claim,
-            );
-            assert!(result.is_ok());
+        // Clear requirement
+        env.as_contract(&contract, || {
+            badge_access_control::clear_badge_requirement(&env, creator, key_id.clone(), action)
+        })
+        .unwrap();
 
-            // Should have no requirements
-            let requirements = badge_access_control::badge_requirement_of(
-                &env,
-                key_id.clone(),
-                badge_access_control::BadgeGatedAction::Claim,
-            );
-            assert_eq!(requirements.len(), 0);
-
+        // Should have no requirements
+        env.as_contract(&contract, || {
+            let requirements =
+                badge_access_control::badge_requirement_of(&env, key_id.clone(), action);
+            assert!(requirements.is_empty());
             assert!(!badge_access_control::has_badge_requirement(
-                &env,
-                key_id,
-                badge_access_control::BadgeGatedAction::Claim
+                &env, key_id, action
             ));
         });
     }
 
     #[test]
     fn test_badge_requirement_remove_specific() {
-        in_contract(|env| {
-            let creator = Address::generate(&env);
-            let key_id = Address::generate(&env);
-            let badge1 = Address::generate(&env);
-            let badge2 = Address::generate(&env);
+        let (env, contract) = setup();
+        let creator = Address::generate(&env);
+        let key_id = Address::generate(&env);
+        let badge1 = Address::generate(&env);
+        let badge2 = Address::generate(&env);
+        let action = badge_access_control::BadgeGatedAction::Buy;
 
-            // Add two badges
-            badge_access_control::set_badge_requirement(
-                &env,
-                creator.clone(),
-                key_id.clone(),
-                badge_access_control::BadgeGatedAction::Buy,
-                badge1.clone(),
-            )
+        // Add two badges
+        for badge in [&badge1, &badge2] {
+            env.as_contract(&contract, || {
+                badge_access_control::set_badge_requirement(
+                    &env,
+                    creator.clone(),
+                    key_id.clone(),
+                    action,
+                    badge.clone(),
+                )
+            })
             .unwrap();
-            badge_access_control::set_badge_requirement(
-                &env,
-                creator.clone(),
-                key_id.clone(),
-                badge_access_control::BadgeGatedAction::Buy,
-                badge2.clone(),
-            )
-            .unwrap();
+        }
 
-            // Remove one badge
+        // Remove one badge
+        env.as_contract(&contract, || {
             badge_access_control::remove_badge_contract(
                 &env,
                 creator,
                 key_id.clone(),
-                badge_access_control::BadgeGatedAction::Buy,
+                action,
                 badge1,
             )
-            .unwrap();
+        })
+        .unwrap();
 
-            // Should have only one badge remaining
-            let requirements = badge_access_control::badge_requirement_of(
-                &env,
-                key_id,
-                badge_access_control::BadgeGatedAction::Buy,
-            );
-            assert_eq!(requirements.len(), 1);
-            assert_eq!(requirements.get(0).unwrap(), badge2);
+        // Should have only one badge remaining
+        let requirements = env.as_contract(&contract, || {
+            badge_access_control::badge_requirement_of(&env, key_id, action)
         });
+        assert_eq!(requirements.len(), 1);
+        assert_eq!(requirements.get(0).unwrap(), badge2);
     }
 }
