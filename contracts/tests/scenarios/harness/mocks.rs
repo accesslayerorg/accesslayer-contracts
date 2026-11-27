@@ -100,7 +100,7 @@ pub struct MockEscrowContract;
 
 #[contractimpl]
 impl MockEscrowContract {
-    pub fn initialize(env: Env, arbitrator: Address, token: Address) {
+    pub fn setup(env: Env, arbitrator: Address, token: Address) {
         env.storage()
             .instance()
             .set(&EscrowDataKey::Arbitrator, &arbitrator);

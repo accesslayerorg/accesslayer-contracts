@@ -166,7 +166,7 @@ impl Harness {
 
         let escrow_id = env.register(MockEscrowContract, ());
         let escrow = MockEscrowContractClient::new(env, &escrow_id);
-        escrow.initialize(&arbitrator, &token_id);
+        escrow.setup(&arbitrator, &token_id);
 
         let multisig_id = env.register(MultisigAdminContract, ());
         let multisig = MultisigAdminContractClient::new(env, &multisig_id);
