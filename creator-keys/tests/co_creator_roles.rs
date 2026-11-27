@@ -102,13 +102,15 @@ fn content_role_can_announce_but_not_handle_revenue() {
     assert!(client.can_co_creator_perform(&creator, &content, &CreatorAction::Announcement));
     assert!(!client.can_co_creator_perform(&creator, &content, &CreatorAction::Revenue));
 
-    let id = client.post_announcement_as_co_creator(
-        &creator,
-        &content,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "hash"),
-        &creator_keys::AnnouncementCategory::Update,
-    );
+    let id = client
+        .post_announcement_as_co_creator(
+            &creator,
+            &content,
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "hash"),
+            &creator_keys::AnnouncementCategory::Update,
+        )
+        .unwrap();
     assert_eq!(id, 0);
     let announcements = client.get_announcements(&creator, &0, &10);
     assert_eq!(announcements.len(), 1);
@@ -162,12 +164,17 @@ fn admin_role_can_perform_every_creator_action() {
     ] {
         assert!(client.can_co_creator_perform(&creator, &admin, &action));
     }
-    client.post_announcement_as_co_creator(
-        &creator,
-        &admin,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "hash"),
-        &creator_keys::AnnouncementCategory::Update,
+    client
+        .post_announcement_as_co_creator(
+            &creator,
+            &admin,
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "hash"),
+            &creator_keys::AnnouncementCategory::Update,
+        )
+        .unwrap();
+    assert_eq!(
+        client.get_announcements(&creator, &0, &10).unwrap().len(),
+        1
     );
-    assert_eq!(client.get_announcements(&creator, &0, &10).len(), 1);
 }
