@@ -10,11 +10,14 @@
 mod tests {
     use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, Vec};
 
-    use crate::{badge_access_control, creator_allocation, english_auction, holder_enumeration};
+    use crate::{
+        badge_access_control, creator_allocation, english_auction, holder_enumeration,
+        CreatorKeysContract,
+    };
 
     fn in_contract<T>(env: &Env, f: impl FnOnce() -> T) -> T {
         env.mock_all_auths();
-        let contract = Address::generate(env);
+        let contract = env.register(CreatorKeysContract, ());
         env.as_contract(&contract, f)
     }
 

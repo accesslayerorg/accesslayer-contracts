@@ -94,7 +94,7 @@ def parse_report(path, marker, fields):
         return values
     for raw_line in file_path.read_text(encoding="utf-8", errors="replace").splitlines():
         parts = raw_line.strip().split("\t")
-        if len(parts) != len(fields) + 1 or parts[0] != marker:
+        if len(parts) != len(fields) + 2 or parts[0] != marker:
             continue
         name = parts[1]
         values[name] = dict(zip(fields, (int(part) for part in parts[2:])))

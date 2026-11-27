@@ -70,14 +70,6 @@ jobs:
             (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo test -p creator-keys --test resource_budget_benchmarks -- --nocapture) > base-resource-budget-report.txt 2>&1 || true
           fi
 
-      - name: Show budget reports
-        if: always()
-        run: |
-          for f in wasm-budget-report.txt resource-budget-report.txt base-wasm-budget-report.txt base-resource-budget-report.txt; do
-            echo "--- $f ---"
-            tail -n 80 "$f" 2>/dev/null || true
-          done
-
       - name: Report budget changes
         run: |
           python3 scripts/budgets.py report \
