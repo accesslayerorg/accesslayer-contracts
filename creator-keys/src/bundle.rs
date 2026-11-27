@@ -15,6 +15,16 @@
 //! item's `amount` keys. Because the bundle is atomic, one item exceeding its
 //! ceiling reverts the entire bundle, so the per-item ceilings act as a single
 //! guard over the whole bundle.
+//!
+//! ### Archival / TTL
+//!
+//! Persistent entries read by bundle operations (key price, creator profile,
+//! auction config) are accessed through the same code paths as `buy_keys`,
+//! which extend their TTL on every access. Archived entries are never treated
+//! as zero: missing data surfaces as an error (`KeyPriceNotSet`,
+//! `CreatorNotRegistered`) rather than a default value. Restoration of
+//! archived entries is documented in the crate-level storage docs and
+//! performed before retrying a bundle.
 
 use crate::{
     compute_bonding_curve_price, constants, events, read_registered_creator_profile, AuctionConfig,
@@ -146,6 +156,7 @@ impl CreatorKeysContract {
     ) -> Result<BundleQuote, ContractError> {
         validate_bundle(&items)?;
 
+        // A missing (or archived) price is an error, never a zero price.
         let base_price: i128 = env
             .storage()
             .persistent()

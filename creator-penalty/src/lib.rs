@@ -1,6 +1,10 @@
 #![no_std]
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
 
+// TTL policy constants (in ledgers) for persistent storage entries.
+pub const VIOLATION_TTL_THRESHOLD: u32 = 17_280;
+pub const VIOLATION_TTL_EXTEND_TO: u32 = 518_400;
+
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -30,6 +34,14 @@ enum Key {
 #[contract]
 pub struct CreatorPenaltyContract;
 
+fn extend_violation_ttl(e: &Env, creator: &Address) {
+    e.storage().persistent().extend_ttl(
+        &Key::Violation(creator.clone()),
+        VIOLATION_TTL_THRESHOLD,
+        VIOLATION_TTL_EXTEND_TO,
+    );
+}
+
 #[contractimpl]
 impl CreatorPenaltyContract {
     pub fn initialize(e: Env, admin: Address) -> Result<(), Error> {
@@ -40,6 +52,7 @@ impl CreatorPenaltyContract {
         e.storage().instance().set(&Key::Admin, &admin);
         Ok(())
     }
+
     pub fn slash(e: Env, creator: Address, amount: i128, reason: String) -> Result<(), Error> {
         let admin: Address = e
             .storage()
@@ -65,10 +78,12 @@ impl CreatorPenaltyContract {
         e.storage()
             .persistent()
             .set(&Key::Violation(creator.clone()), &v);
+        extend_violation_ttl(&e, &creator);
         e.events()
             .publish((soroban_sdk::symbol_short!("slash"), creator), v.clone());
         Ok(())
     }
+
     pub fn resolve(e: Env, creator: Address) -> Result<(), Error> {
         let admin: Address = e
             .storage()
@@ -85,12 +100,17 @@ impl CreatorPenaltyContract {
         e.storage()
             .persistent()
             .set(&Key::Violation(v.creator.clone()), &v);
+        extend_violation_ttl(&e, &v.creator);
         Ok(())
     }
+
     pub fn get_violation(e: Env, creator: Address) -> Result<Violation, Error> {
-        e.storage()
+        let v: Violation = e
+            .storage()
             .persistent()
-            .get(&Key::Violation(creator))
-            .ok_or(Error::NotFound)
+            .get(&Key::Violation(creator.clone()))
+            .ok_or(Error::NotFound)?;
+        extend_violation_ttl(&e, &creator);
+        Ok(v)
     }
 }

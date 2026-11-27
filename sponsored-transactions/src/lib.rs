@@ -11,6 +11,7 @@ pub enum Error {
     Expired = 4,
     InvalidFee = 5,
 }
+
 #[contracttype]
 enum Key {
     Admin,
@@ -19,6 +20,7 @@ enum Key {
 
 #[contract]
 pub struct SponsoredTransactions;
+
 #[contractimpl]
 impl SponsoredTransactions {
     pub fn initialize(e: Env, admin: Address) -> Result<(), Error> {
@@ -29,6 +31,7 @@ impl SponsoredTransactions {
         e.storage().instance().set(&Key::Admin, &admin);
         Ok(())
     }
+
     /// Records a relayed invocation after the user has authenticated its nonce and expiry.
     /// Execution of the target call remains atomic in the caller; this contract prevents replay.
     pub fn authorize(
@@ -61,6 +64,7 @@ impl SponsoredTransactions {
         );
         Ok(())
     }
+
     pub fn is_used(e: Env, user: Address, nonce: u64) -> bool {
         e.storage().persistent().has(&Key::Nonce(user, nonce))
     }

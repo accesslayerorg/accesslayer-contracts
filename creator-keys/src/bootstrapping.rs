@@ -3,6 +3,12 @@ use crate::events::{
 };
 use soroban_sdk::{contracttype, Address, Env};
 
+/// TTL policy for bootstrap configuration entries (persistent storage).
+/// `BOOTSTRAP_TTL_THRESHOLD`: extend when remaining ledgers fall below this.
+/// `BOOTSTRAP_TTL_EXTEND_TO`: extend the entry's lifetime to this many ledgers.
+pub const BOOTSTRAP_TTL_THRESHOLD: u32 = 17_280;
+pub const BOOTSTRAP_TTL_EXTEND_TO: u32 = 518_400;
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BootstrapConfig {
@@ -33,9 +39,13 @@ pub fn set_bootstrap_config(
         duration_seconds,
     };
 
-    env.storage()
-        .persistent()
-        .set(&BootstrapDataKey::Config(key_id.clone()), &config);
+    let storage_key = BootstrapDataKey::Config(key_id.clone());
+    env.storage().persistent().set(&storage_key, &config);
+    env.storage().persistent().extend_ttl(
+        &storage_key,
+        BOOTSTRAP_TTL_THRESHOLD,
+        BOOTSTRAP_TTL_EXTEND_TO,
+    );
 
     env.events().publish(
         bootstrap_started_topics(key_id),
@@ -75,6 +85,13 @@ pub fn get_bootstrap_price_internal(env: &Env, key_id: &Address) -> Option<i128>
 
         return None;
     }
+
+    // Extend TTL on every access so an active bootstrap is never archived mid-window.
+    env.storage().persistent().extend_ttl(
+        &storage_key,
+        BOOTSTRAP_TTL_THRESHOLD,
+        BOOTSTRAP_TTL_EXTEND_TO,
+    );
 
     let elapsed = current_time - config.start_time;
     let total_duration = config.duration_seconds;

@@ -32,6 +32,9 @@ pub struct VestingInfo {
 
 /// Computes total unlocked so far (ignoring what's already claimed).
 ///
+/// Note: TTL/archival policy for persisted vesting entries lives in the storage
+/// policy module; this pure calculation module does not touch storage.
+///
 /// - `0` before `cliff_timestamp`.
 /// - Linear from `start_timestamp` once past the cliff.
 /// - Full allocation once `elapsed >= duration_secs`.
