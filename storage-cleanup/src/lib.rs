@@ -269,13 +269,11 @@ impl StorageCleanupContract {
     pub fn cleanable(env: Env, kind: RecordKind, holder: Address, id: u64) -> CleanableStatus {
         match kind {
             RecordKind::Balance => {
-                // `Address::generate` is a testutils-only API and does not exist
-                // in contract builds. It produced a fresh, never-stored address,
-                // so this lookup always read 0. `cleanable` has no `key_id`
-                // argument to look up the real balance; keep the same effective
-                // result here and rely on `cleanup_balance`, which checks the
-                // actual (holder, key_id) balance before removing anything.
-                let balance: i128 = 0;
+                let balance: i128 = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::Balance(holder.clone(), holder.clone()))
+                    .unwrap_or(0);
                 if balance != 0 {
                     CleanableStatus {
                         can_remove: false,

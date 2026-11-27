@@ -431,24 +431,24 @@ pub enum ContractError {
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
     /// A multi-buy was called without any legs.
-    LegsEmpty = 179,
+    LegsEmpty = 161,
     /// A multi-buy contained more than ten legs.
-    TooManyLegs = 180,
+    TooManyLegs = 162,
     /// The same creator appeared in more than one multi-buy leg.
-    DuplicateCreator = 181,
+    DuplicateCreator = 163,
     /// The buyer cannot cover the worst-case cost of a multi-buy.
-    InsufficientFunds = 182,
+    InsufficientFunds = 164,
     /// A sell was attempted at or below its configured price floor.
-    PriceFloorBreached = 183,
+    PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 161,
+    BadgeRequired = 179,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 162,
+    StalePrice = 180,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 163,
-    QuorumNotMet = 164,
-    InvalidOracleSet = 165,
+    PriceDeviation = 181,
+    QuorumNotMet = 182,
+    InvalidOracleSet = 183,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,
@@ -23928,7 +23928,6 @@ impl CreatorKeysContract {
                 ledger: env.ledger().sequence(),
             },
         );
-
         Ok(())
     }
 

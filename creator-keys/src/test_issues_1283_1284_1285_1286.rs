@@ -22,9 +22,7 @@ mod tests {
     #[test]
     fn test_creator_allocation_basic() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -61,11 +59,9 @@ mod tests {
     #[test]
     fn test_creator_allocation_cliff() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
-        let contract_id = env.register(crate::CreatorKeysContract, ());
+        env.mock_all_auths();
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -83,8 +79,8 @@ mod tests {
                 vesting_ledgers,
                 cliff_ledgers,
             )
-        })
-        .unwrap();
+            .unwrap();
+        });
 
         // Before cliff - nothing vested
         let status = env
@@ -117,11 +113,9 @@ mod tests {
     #[test]
     fn test_creator_allocation_claim() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
-        let contract_id = env.register(crate::CreatorKeysContract, ());
+        env.mock_all_auths();
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -139,8 +133,8 @@ mod tests {
                 vesting_ledgers,
                 cliff_ledgers,
             )
-        })
-        .unwrap();
+            .unwrap();
+        });
 
         // Try to claim before cliff - should fail
         let result = env.as_contract(&contract_id, || {
@@ -170,9 +164,7 @@ mod tests {
     #[test]
     fn test_creator_allocation_extend_vesting() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let creator = Address::generate(&env);
         let admin = Address::generate(&env);
@@ -191,8 +183,8 @@ mod tests {
                 vesting_ledgers,
                 cliff_ledgers,
             )
-        })
-        .unwrap();
+            .unwrap();
+        });
 
         // Extend vesting
         let additional_ledgers = 500;
@@ -217,9 +209,7 @@ mod tests {
     #[test]
     fn test_english_auction_start() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -259,11 +249,9 @@ mod tests {
     #[test]
     fn test_english_auction_bidding() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
-        let contract_id = env.register(crate::CreatorKeysContract, ());
+        env.mock_all_auths();
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -318,11 +306,9 @@ mod tests {
     #[test]
     fn test_english_auction_extension() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
-        let contract_id = env.register(crate::CreatorKeysContract, ());
+        env.mock_all_auths();
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -340,9 +326,8 @@ mod tests {
         // Bid near the end (within extension window)
         env.ledger().set_sequence_number(150);
         env.as_contract(&contract_id, || {
-            english_auction::place_bid(&env, bidder, auction_id, 1000)
-        })
-        .unwrap();
+            english_auction::place_bid(&env, bidder, auction_id, 1000).unwrap();
+        });
 
         let auction = env
             .as_contract(&contract_id, || {
@@ -356,11 +341,9 @@ mod tests {
     #[test]
     fn test_english_auction_finalize_success() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
-        let contract_id = env.register(crate::CreatorKeysContract, ());
+        env.mock_all_auths();
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -374,9 +357,8 @@ mod tests {
 
         // Place bid
         env.as_contract(&contract_id, || {
-            english_auction::place_bid(&env, bidder, auction_id, 1000)
-        })
-        .unwrap();
+            english_auction::place_bid(&env, bidder, auction_id, 1000).unwrap();
+        });
 
         // Try to finalize before end - should fail
         let result = env.as_contract(&contract_id, || {
@@ -384,15 +366,8 @@ mod tests {
         });
         assert!(result.is_err());
 
-        // Finalize after end. A bid inside the final window extends the
-        // auction, so wait for the current (possibly extended) end ledger.
-        let end_ledger = env
-            .as_contract(&contract_id, || {
-                english_auction::get_auction(&env, auction_id)
-            })
-            .unwrap()
-            .current_end_ledger;
-        env.ledger().set_sequence_number(end_ledger);
+        // Finalize after end (bid at ledger 0 triggers anti-snipe extension, so end > 100)
+        env.ledger().set_sequence_number(200);
         let result = env.as_contract(&contract_id, || {
             english_auction::finalize_auction(&env, auction_id)
         });
@@ -409,9 +384,7 @@ mod tests {
     #[test]
     fn test_english_auction_cancel() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -450,69 +423,50 @@ mod tests {
     #[test]
     fn test_holder_enumeration_add_remove() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let key_id = Address::generate(&env);
         let holder1 = Address::generate(&env);
         let holder2 = Address::generate(&env);
 
         // Initially no holders
-        assert_eq!(
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(
-                &env,
-                key_id.clone()
-            )),
-            0
-        );
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
+        assert_eq!(count, 0);
 
         // Add first holder
         env.as_contract(&contract_id, || {
-            holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone())
-        })
-        .unwrap();
-        assert_eq!(
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(
-                &env,
-                key_id.clone()
-            )),
-            1
-        );
+            holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone()).unwrap();
+        });
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
+        assert_eq!(count, 1);
 
         // Add second holder
         env.as_contract(&contract_id, || {
-            holder_enumeration::add_holder(&env, key_id.clone(), holder2.clone())
-        })
-        .unwrap();
-        assert_eq!(
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(
-                &env,
-                key_id.clone()
-            )),
-            2
-        );
+            holder_enumeration::add_holder(&env, key_id.clone(), holder2.clone()).unwrap();
+        });
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
+        assert_eq!(count, 2);
 
         // Remove first holder
         env.as_contract(&contract_id, || {
-            holder_enumeration::remove_holder(&env, key_id.clone(), holder1)
-        })
-        .unwrap();
-        assert_eq!(
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(
-                &env,
-                key_id.clone()
-            )),
-            1
-        );
+            holder_enumeration::remove_holder(&env, key_id.clone(), holder1).unwrap();
+        });
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
+        assert_eq!(count, 1);
     }
 
     #[test]
     fn test_holder_enumeration_pagination() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let key_id = Address::generate(&env);
 
@@ -522,9 +476,8 @@ mod tests {
             let holder = Address::generate(&env);
             holders.push_back(holder.clone());
             env.as_contract(&contract_id, || {
-                holder_enumeration::add_holder(&env, key_id.clone(), holder)
-            })
-            .unwrap();
+                holder_enumeration::add_holder(&env, key_id.clone(), holder).unwrap();
+            });
         }
 
         // Get first page
@@ -553,9 +506,7 @@ mod tests {
     #[test]
     fn test_holder_enumeration_top_holders() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let key_id = Address::generate(&env);
         let holder1 = Address::generate(&env);
@@ -564,31 +515,22 @@ mod tests {
 
         // Add holders and update their balances
         env.as_contract(&contract_id, || {
-            holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone())
-        })
-        .unwrap();
-        env.as_contract(&contract_id, || {
+            holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone()).unwrap();
             holder_enumeration::update_top_holders(&env, key_id.clone(), holder1.clone(), 1000)
-        })
-        .unwrap();
+                .unwrap();
+        });
 
         env.as_contract(&contract_id, || {
-            holder_enumeration::add_holder(&env, key_id.clone(), holder2.clone())
-        })
-        .unwrap();
-        env.as_contract(&contract_id, || {
+            holder_enumeration::add_holder(&env, key_id.clone(), holder2.clone()).unwrap();
             holder_enumeration::update_top_holders(&env, key_id.clone(), holder2.clone(), 2000)
-        })
-        .unwrap();
+                .unwrap();
+        });
 
         env.as_contract(&contract_id, || {
-            holder_enumeration::add_holder(&env, key_id.clone(), holder3.clone())
-        })
-        .unwrap();
-        env.as_contract(&contract_id, || {
+            holder_enumeration::add_holder(&env, key_id.clone(), holder3.clone()).unwrap();
             holder_enumeration::update_top_holders(&env, key_id.clone(), holder3.clone(), 500)
-        })
-        .unwrap();
+                .unwrap();
+        });
 
         // Get top 2 holders
         let top = env
@@ -610,9 +552,7 @@ mod tests {
     #[test]
     fn test_holder_enumeration_top_holders_limit() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let key_id = Address::generate(&env);
 
@@ -636,9 +576,7 @@ mod tests {
     #[test]
     fn test_badge_requirement_set_and_get() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -668,22 +606,20 @@ mod tests {
         assert_eq!(requirements.get(0).unwrap(), badge_contract);
 
         // Check has requirement
-        assert!(env.as_contract(
-            &contract_id,
-            || badge_access_control::has_badge_requirement(
+        let has_req = env.as_contract(&contract_id, || {
+            badge_access_control::has_badge_requirement(
                 &env,
                 key_id,
-                badge_access_control::BadgeGatedAction::Buy
+                badge_access_control::BadgeGatedAction::Buy,
             )
-        ));
+        });
+        assert!(has_req);
     }
 
     #[test]
     fn test_badge_requirement_multiple_badges() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -719,9 +655,7 @@ mod tests {
     #[test]
     fn test_badge_requirement_clear() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -736,8 +670,8 @@ mod tests {
                 badge_access_control::BadgeGatedAction::Claim,
                 badge_contract,
             )
-        })
-        .unwrap();
+            .unwrap();
+        });
 
         // Clear requirement
         let result = env.as_contract(&contract_id, || {
@@ -760,29 +694,27 @@ mod tests {
         });
         assert_eq!(requirements.len(), 0);
 
-        assert!(!env.as_contract(
-            &contract_id,
-            || badge_access_control::has_badge_requirement(
+        let has_req = env.as_contract(&contract_id, || {
+            badge_access_control::has_badge_requirement(
                 &env,
                 key_id,
-                badge_access_control::BadgeGatedAction::Claim
+                badge_access_control::BadgeGatedAction::Claim,
             )
-        ));
+        });
+        assert!(!has_req);
     }
 
     #[test]
     fn test_badge_requirement_remove_specific() {
         let env = Env::default();
-        // Module functions touch contract storage and require_auth, so each
-        // call runs in its own registered-contract frame.
-        env.mock_all_auths_allowing_non_root_auth();
+        env.mock_all_auths();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
         let badge1 = Address::generate(&env);
         let badge2 = Address::generate(&env);
 
-        // Add two badges
+        // Add two badges (separate as_contract calls to avoid duplicate auth frame)
         env.as_contract(&contract_id, || {
             badge_access_control::set_badge_requirement(
                 &env,
@@ -791,8 +723,8 @@ mod tests {
                 badge_access_control::BadgeGatedAction::Buy,
                 badge1.clone(),
             )
-        })
-        .unwrap();
+            .unwrap();
+        });
         env.as_contract(&contract_id, || {
             badge_access_control::set_badge_requirement(
                 &env,
@@ -801,8 +733,8 @@ mod tests {
                 badge_access_control::BadgeGatedAction::Buy,
                 badge2.clone(),
             )
-        })
-        .unwrap();
+            .unwrap();
+        });
 
         // Remove one badge
         env.as_contract(&contract_id, || {
@@ -813,8 +745,8 @@ mod tests {
                 badge_access_control::BadgeGatedAction::Buy,
                 badge1,
             )
-        })
-        .unwrap();
+            .unwrap();
+        });
 
         // Should have only one badge remaining
         let requirements = env.as_contract(&contract_id, || {
