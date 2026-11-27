@@ -262,6 +262,7 @@ pub fn finalize_auction(env: &Env, auction_id: u64) -> Result<(), ContractError>
         .filter(|_| auction.highest_bid >= auction.reserve_price)
     {
         // Successful sale
+
         // Note: In real implementation would:
         // 1. Transfer keys to winner
         // 2. Calculate and deduct protocol fee and royalty

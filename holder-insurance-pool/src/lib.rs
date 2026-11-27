@@ -25,7 +25,7 @@ pub struct Cover {
     pub claimed: bool,
 }
 #[contracttype]
-#[allow(clippy::enum_variant_names)] // `KeyTotal` is part of the persisted storage-key schema.
+#[allow(clippy::enum_variant_names)]
 enum Key {
     Admin,
     Pool,
