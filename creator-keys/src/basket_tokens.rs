@@ -34,7 +34,7 @@ pub fn create_basket(
     weights_bps: Vec<u32>,
 ) -> Result<u32, ContractError> {
     manager.require_auth();
-    if keys.len() == 0 || keys.len() > MAX_CONSTITUENTS || keys.len() != weights_bps.len() {
+    if keys.is_empty() || keys.len() > MAX_CONSTITUENTS || keys.len() != weights_bps.len() {
         return Err(ContractError::InvalidBasket);
     }
     let mut sum = 0i128;

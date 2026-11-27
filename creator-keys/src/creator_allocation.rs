@@ -108,7 +108,7 @@ pub fn set_creator_allocation(
     }
 
     // Get max allocation BPS (default to constant if not set)
-    let max_bps = env
+    let _max_bps = env
         .storage()
         .persistent()
         .get::<CreatorAllocationKey, u32>(&CreatorAllocationKey::MaxCreatorAllocationBps)

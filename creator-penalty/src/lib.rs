@@ -32,7 +32,7 @@ pub struct CreatorPenaltyContract;
 
 #[contractimpl]
 impl CreatorPenaltyContract {
-    pub fn __constructor(e: Env, admin: Address) -> Result<(), Error> {
+    pub fn initialize(e: Env, admin: Address) -> Result<(), Error> {
         if e.storage().instance().has(&Key::Admin) {
             return Err(Error::AlreadyInitialized);
         }
@@ -66,7 +66,7 @@ impl CreatorPenaltyContract {
             .persistent()
             .set(&Key::Violation(creator.clone()), &v);
         e.events()
-            .publish((soroban_sdk::symbol_short!("slash"), creator), v);
+            .publish((soroban_sdk::symbol_short!("slash"), creator), v.clone());
         Ok(())
     }
     pub fn resolve(e: Env, creator: Address) -> Result<(), Error> {
