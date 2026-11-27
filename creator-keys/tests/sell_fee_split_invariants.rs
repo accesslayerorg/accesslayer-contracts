@@ -53,7 +53,7 @@ fn assert_sell_fee_split_invariant(
 
     // Verify fee calculation matches expected split
     let (expected_creator, expected_protocol) =
-        fee::compute_fee_split(key_price, creator_bps, protocol_bps);
+        fee::compute_fee_split(key_price, creator_bps, protocol_bps).unwrap();
     assert_eq!(
         quote.creator_fee, expected_creator,
         "creator_fee should match expected calculation"

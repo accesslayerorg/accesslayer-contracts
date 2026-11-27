@@ -1,5 +1,10 @@
 #![no_std]
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
 
+use common::math::{checked_mul_div, MathError, RoundingDirection};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
 };
@@ -110,6 +115,7 @@ pub enum DataKey {
 pub struct VestingContract;
 
 fn calculate_unlocked_amount(
+    env: &Env,
     schedule: &VestSchedule,
     current_timestamp: u64,
 ) -> Result<i128, ContractError> {
@@ -131,12 +137,19 @@ fn calculate_unlocked_amount(
         return Ok(schedule.amount);
     }
 
-    let elapsed = current_timestamp.saturating_sub(schedule.start_timestamp);
-    let unlocked = (schedule
-        .amount
-        .checked_mul(elapsed as i128)
-        .ok_or(ContractError::ArithmeticOverflow)?)
-        / (schedule.duration_seconds as i128);
+    let elapsed = current_timestamp
+        .checked_sub(schedule.start_timestamp)
+        .ok_or(ContractError::ArithmeticOverflow)?;
+    let unlocked = checked_mul_div(
+        env,
+        schedule.amount,
+        i128::from(elapsed),
+        i128::from(schedule.duration_seconds),
+        RoundingDirection::Down,
+    )
+    .map_err(|error| match error {
+        MathError::DivisionByZero | MathError::Overflow => ContractError::ArithmeticOverflow,
+    })?;
 
     Ok(unlocked)
 }
@@ -179,7 +192,11 @@ impl VestingContract {
     /// Proposes `new_admin` as the next admin. The current admin keeps full
     /// rights until `new_admin` calls `accept_admin` before the expiry ledger.
     /// A new proposal replaces any earlier pending one.
-    pub fn propose_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), ContractError> {
+    pub fn propose_admin(
+        env: Env,
+        admin: Address,
+        new_admin: Address,
+    ) -> Result<(), ContractError> {
         Self::require_admin(&env, &admin)?;
 
         if new_admin == admin
@@ -239,10 +256,8 @@ impl VestingContract {
             .instance()
             .extend_ttl(VEST_TTL_THRESHOLD, VEST_TTL_EXTEND_TO);
 
-        env.events().publish(
-            (Symbol::new(&env, "admin_accepted"), new_admin),
-            old_admin,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "admin_accepted"), new_admin), old_admin);
         Ok(())
     }
 
@@ -364,8 +379,11 @@ impl VestingContract {
     pub fn get_vested_amount(env: Env, vest_id: u64) -> Result<VestedAmount, ContractError> {
         let schedule = Self::get_vest(env.clone(), vest_id)?;
         let now = env.ledger().timestamp();
-        let unlocked = calculate_unlocked_amount(&schedule, now)?;
-        let claimable = unlocked.saturating_sub(schedule.claimed_amount);
+        let unlocked = calculate_unlocked_amount(&env, &schedule, now)?;
+        let claimable = unlocked
+            .checked_sub(schedule.claimed_amount)
+            .ok_or(ContractError::ArithmeticOverflow)?
+            .max(0);
 
         Ok(VestedAmount {
             total: schedule.amount,
@@ -395,8 +413,11 @@ impl VestingContract {
             return Err(ContractError::CliffNotReached);
         }
 
-        let unlocked = calculate_unlocked_amount(&schedule, now)?;
-        let claimable = unlocked.saturating_sub(schedule.claimed_amount);
+        let unlocked = calculate_unlocked_amount(&env, &schedule, now)?;
+        let claimable = unlocked
+            .checked_sub(schedule.claimed_amount)
+            .ok_or(ContractError::ArithmeticOverflow)?
+            .max(0);
 
         if claimable <= 0 {
             return Err(ContractError::NoVestedTokens);
@@ -407,7 +428,10 @@ impl VestingContract {
             .checked_add(claimable)
             .ok_or(ContractError::ArithmeticOverflow)?;
 
-        let remaining_locked = schedule.amount.saturating_sub(schedule.claimed_amount);
+        let remaining_locked = schedule
+            .amount
+            .checked_sub(schedule.claimed_amount)
+            .ok_or(ContractError::ArithmeticOverflow)?;
 
         env.storage().persistent().set(&key, &schedule);
         env.storage()

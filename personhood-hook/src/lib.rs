@@ -169,13 +169,17 @@ impl PersonhoodHookContract {
             .instance()
             .get(&DataKey::UnlinkCooldown)
             .unwrap_or(0);
-        let now = env.ledger().timestamp();
-        if let Some(last_unlink) = env
+        let last_unlink: Option<u64> = env
             .storage()
             .persistent()
-            .get::<_, u64>(&DataKey::LastUnlink(wallet.clone()))
-        {
-            if now < last_unlink.saturating_add(cooldown) {
+            .get(&DataKey::LastUnlink(wallet.clone()));
+        let now = env.ledger().timestamp();
+
+        if let Some(last_unlink) = last_unlink {
+            let cooldown_ends_at = last_unlink
+                .checked_add(cooldown)
+                .ok_or(PersonhoodError::ArithmeticOverflow)?;
+            if now < cooldown_ends_at {
                 return Err(PersonhoodError::CooldownActive);
             }
         }
@@ -459,7 +463,7 @@ mod test {
         let (env, client, _admin) = setup();
         let wallet = Address::generate(&env);
         let person_id = BytesN::from_array(&env, &[1u8; 32]);
-        let valid_until = 0u64; // Expired: timestamp 0 is never in the future
+        let valid_until = 0; // Expired at the default ledger timestamp.
         let signature = Bytes::from_array(&env, &[1, 2, 3, 4]);
 
         assert_eq!(

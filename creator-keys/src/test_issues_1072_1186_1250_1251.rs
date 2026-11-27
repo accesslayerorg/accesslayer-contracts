@@ -3,6 +3,7 @@
 
 use crate::p2p_swap_dividend_stream_oracle::*;
 use crate::ContractError;
+use key_dividend_contract::{KeyDividendContract, KeyDividendContractClient, KeyDividendError};
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Events, Ledger},
@@ -201,29 +202,84 @@ fn dividend_pro_rata_claim_expiry_and_reclaim() {
     assert_eq!(pay.balance(&h2), 300);
     assert_eq!(
         div.try_claim_dividend(&h2, &key_id, &id),
-        Err(Ok(ContractError::AlreadyClaimed))
+        Err(Ok(KeyDividendError::AlreadyClaimed))
     );
     assert_eq!(
         div.try_claim_dividend(&nobody, &key_id, &id),
-        Err(Ok(ContractError::NoDividendClaimable))
+        Err(Ok(KeyDividendError::NoDividendClaimable))
     );
     assert_eq!(
         div.try_reclaim_expired_dividend(&key_id, &id),
-        Err(Ok(ContractError::TimelockNotElapsed))
+        Err(Ok(KeyDividendError::TimelockNotElapsed))
     );
 
     env.ledger().with_mut(|l| l.sequence_number = expiry + 1);
     assert_eq!(div.get_dividend_claimable(&key_id, &id, &h1), 0);
     assert_eq!(
         div.try_claim_dividend(&h1, &key_id, &id),
-        Err(Ok(ContractError::DeadlinePassed))
+        Err(Ok(KeyDividendError::DeadlinePassed))
     );
     assert_eq!(div.reclaim_expired_dividend(&key_id, &id), 700);
     assert_eq!(pay.balance(&creator), 700);
     assert_eq!(pay.balance(&div.address), 0);
     assert_eq!(
         div.try_reclaim_expired_dividend(&key_id, &id),
-        Err(Ok(ContractError::AlreadyClaimed))
+        Err(Ok(KeyDividendError::AlreadyClaimed))
+    );
+}
+
+#[test]
+fn dividend_claim_uses_wide_intermediate_for_maximum_amount() {
+    let env = setup();
+    let div = KeyDividendContractClient::new(&env, &env.register(KeyDividendContract, ()));
+    let (key_id, key_admin, _) = new_token(&env);
+    let (pay_id, pay_admin, _) = new_token(&env);
+    let creator = Address::generate(&env);
+    let (larger_holder, smaller_holder) = (Address::generate(&env), Address::generate(&env));
+    key_admin.mint(&larger_holder, &2);
+    key_admin.mint(&smaller_holder, &1);
+    pay_admin.mint(&creator, &i128::MAX);
+
+    let expiry = env.ledger().sequence() + 100;
+    let id = div.declare_dividend(
+        &creator,
+        &key_id,
+        &pay_id,
+        &i128::MAX,
+        &vec![&env, larger_holder.clone(), smaller_holder],
+        &expiry,
+    );
+    let expected = (i128::MAX / 3) * 2;
+
+    assert_eq!(
+        div.get_dividend_claimable(&key_id, &id, &larger_holder),
+        expected
+    );
+    assert_eq!(div.claim_dividend(&larger_holder, &key_id, &id), expected);
+}
+
+#[test]
+fn dividend_snapshot_rejects_total_supply_overflow() {
+    let env = setup();
+    let div = KeyDividendContractClient::new(&env, &env.register(KeyDividendContract, ()));
+    let (key_id, key_admin, _) = new_token(&env);
+    let (pay_id, _, _) = new_token(&env);
+    let creator = Address::generate(&env);
+    let (holder_a, holder_b) = (Address::generate(&env), Address::generate(&env));
+    key_admin.mint(&holder_a, &i128::MAX);
+    key_admin.mint(&holder_b, &i128::MAX);
+    let expiry = env.ledger().sequence() + 100;
+
+    assert_eq!(
+        div.try_declare_dividend(
+            &creator,
+            &key_id,
+            &pay_id,
+            &1,
+            &vec![&env, holder_a, holder_b],
+            &expiry,
+        ),
+        Err(Ok(KeyDividendError::Overflow))
     );
 }
 

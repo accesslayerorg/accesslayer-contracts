@@ -256,41 +256,39 @@ pub fn finalize_auction(env: &Env, auction_id: u64) -> Result<(), ContractError>
     auction.finalized = true;
 
     // Check if reserve was met
-    if let Some(winner) = auction
-        .highest_bidder
-        .as_ref()
-        .filter(|_| auction.highest_bid >= auction.reserve_price)
-    {
-        // Successful sale
+    match auction.highest_bidder.as_ref() {
+        Some(winner) if auction.highest_bid >= auction.reserve_price => {
+            // Successful sale
+            // Note: In real implementation would:
+            // 1. Transfer keys to winner
+            // 2. Calculate and deduct protocol fee and royalty
+            // 3. Transfer proceeds to seller
 
-        // Note: In real implementation would:
-        // 1. Transfer keys to winner
-        // 2. Calculate and deduct protocol fee and royalty
-        // 3. Transfer proceeds to seller
-
-        env.events().publish(
-            (soroban_sdk::symbol_short!("auct_sccs"),),
-            (
-                auction_id,
-                winner.clone(),
-                auction.highest_bid,
-                auction.quantity,
-            ),
-        );
-    } else {
-        // Reserve not met - return keys to seller and refund bidder if exists
-        if let Some(ref bidder) = auction.highest_bidder {
-            // Refund the bidder
             env.events().publish(
-                (soroban_sdk::symbol_short!("bid_refnd"),),
-                (auction_id, bidder.clone(), auction.highest_bid),
+                (soroban_sdk::symbol_short!("auct_sccs"),),
+                (
+                    auction_id,
+                    winner.clone(),
+                    auction.highest_bid,
+                    auction.quantity,
+                ),
             );
         }
+        _ => {
+            // Reserve not met - return keys to seller and refund bidder if exists
+            if let Some(ref bidder) = auction.highest_bidder {
+                // Refund the bidder
+                env.events().publish(
+                    (soroban_sdk::symbol_short!("bid_refnd"),),
+                    (auction_id, bidder.clone(), auction.highest_bid),
+                );
+            }
 
-        env.events().publish(
-            (soroban_sdk::symbol_short!("auct_fail"),),
-            (auction_id, auction.seller.clone()),
-        );
+            env.events().publish(
+                (soroban_sdk::symbol_short!("auct_fail"),),
+                (auction_id, auction.seller.clone()),
+            );
+        }
     }
 
     // Save finalized auction

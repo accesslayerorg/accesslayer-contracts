@@ -1,3 +1,8 @@
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
+
 use crate::{events, read_registered_creator_profile, ContractError};
 use soroban_sdk::{contracttype, vec, Address, Env, Vec};
 
@@ -121,7 +126,7 @@ pub fn rolling_volume(env: &Env, key_id: &Address) -> Result<i128, ContractError
 }
 
 /// Resolves the `(tier_index, fee_bps)` whose bracket contains `volume`.
-pub fn tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
+pub fn tier_for_volume(env: &Env, volume: i128) -> Result<(u32, u32), ContractError> {
     let brackets = read_volume_brackets(env);
     let mut tier = (
         0,
@@ -134,23 +139,30 @@ pub fn tier_for_volume(env: &Env, volume: i128) -> (u32, u32) {
         if volume < bracket.min_volume {
             break;
         }
-        tier = (index as u32, bracket.fee_bps);
+        tier = (
+            u32::try_from(index).map_err(|_| ContractError::Overflow)?,
+            bracket.fee_bps,
+        );
     }
-    tier
+    Ok(tier)
 }
 
-pub fn fee_for_volume(env: &Env, volume: i128) -> u32 {
-    tier_for_volume(env, volume).1
+pub fn fee_for_volume(env: &Env, volume: i128) -> Result<u32, ContractError> {
+    Ok(tier_for_volume(env, volume)?.1)
 }
 
 pub fn active_fee_tier(env: &Env, key_id: &Address) -> Result<ActiveFeeTier, ContractError> {
     read_registered_creator_profile(env, key_id)?;
     let rolling_volume = rolling_volume(env, key_id)?;
-    let (tier_index, fee_bps) = tier_for_volume(env, rolling_volume);
-    let volume_to_next_tier = read_volume_brackets(env)
-        .get(tier_index + 1)
-        .map(|next| next.min_volume - rolling_volume)
-        .unwrap_or(0);
+    let (tier_index, fee_bps) = tier_for_volume(env, rolling_volume)?;
+    let next_tier = tier_index.checked_add(1).ok_or(ContractError::Overflow)?;
+    let volume_to_next_tier = if let Some(next) = read_volume_brackets(env).get(next_tier) {
+        next.min_volume
+            .checked_sub(rolling_volume)
+            .ok_or(ContractError::Overflow)?
+    } else {
+        0
+    };
     Ok(ActiveFeeTier {
         tier_index,
         fee_bps,
@@ -161,7 +173,7 @@ pub fn active_fee_tier(env: &Env, key_id: &Address) -> Result<ActiveFeeTier, Con
 
 pub fn current_fee_bps(env: &Env, key_id: &Address) -> Result<u32, ContractError> {
     read_registered_creator_profile(env, key_id)?;
-    Ok(fee_for_volume(env, rolling_volume(env, key_id)?))
+    fee_for_volume(env, rolling_volume(env, key_id)?)
 }
 
 fn emit_fee_adjusted(
@@ -170,7 +182,7 @@ fn emit_fee_adjusted(
     previous_fee_bps: u32,
     new_fee_bps: u32,
     volume: i128,
-) {
+) -> Result<(), ContractError> {
     env.events().publish(
         (events::FEE_ADJUSTED_EVENT_NAME, key_id.clone()),
         events::FeeAdjustedEvent {
@@ -185,13 +197,14 @@ fn emit_fee_adjusted(
         (events::KEY_FEE_TIER_CHANGED_EVENT_NAME, key_id.clone()),
         events::KeyFeeTierChangedEvent {
             key_id: key_id.clone(),
-            new_tier_index: tier_for_volume(env, volume).0,
+            new_tier_index: tier_for_volume(env, volume)?.0,
             previous_fee_bps,
             new_fee_bps,
             rolling_volume: volume,
             timestamp: env.ledger().timestamp(),
         },
     );
+    Ok(())
 }
 
 /// Records a completed trade and synchronizes any fee changes observable now.
@@ -202,7 +215,7 @@ pub fn record_trade(env: &Env, key_id: &Address, volume: i128) -> Result<(), Con
     }
     let buckets = read_volume_buckets(env, key_id);
     let current_volume = rolling_volume_from(env, &buckets)?;
-    let current_fee = fee_for_volume(env, current_volume);
+    let current_fee = fee_for_volume(env, current_volume)?;
 
     if let Some(previous_fee) = env
         .storage()
@@ -210,13 +223,18 @@ pub fn record_trade(env: &Env, key_id: &Address, volume: i128) -> Result<(), Con
         .get::<DataKey, u32>(&DataKey::LastFeeBps(key_id.clone()))
     {
         if previous_fee != current_fee {
-            emit_fee_adjusted(env, key_id, previous_fee, current_fee, current_volume);
+            emit_fee_adjusted(env, key_id, previous_fee, current_fee, current_volume)?;
         }
     }
 
     let now = env.ledger().timestamp();
     let cutoff = now.saturating_sub(ROLLING_WINDOW_SECS);
-    let bucket_start = now - (now % VOLUME_BUCKET_SECS);
+    let bucket_start = now
+        .checked_sub(
+            now.checked_rem(VOLUME_BUCKET_SECS)
+                .ok_or(ContractError::Overflow)?,
+        )
+        .ok_or(ContractError::Overflow)?;
     let mut updated = Vec::new(env);
     let mut bucket_found = false;
     for bucket in buckets.iter() {
@@ -251,9 +269,9 @@ pub fn record_trade(env: &Env, key_id: &Address, volume: i128) -> Result<(), Con
     crate::extend_key_ttl_to_full_window(env, &bucket_key);
 
     let new_volume = rolling_volume_from(env, &updated)?;
-    let new_fee = fee_for_volume(env, new_volume);
+    let new_fee = fee_for_volume(env, new_volume)?;
     if current_fee != new_fee {
-        emit_fee_adjusted(env, key_id, current_fee, new_fee, new_volume);
+        emit_fee_adjusted(env, key_id, current_fee, new_fee, new_volume)?;
     }
 
     let last_fee_key = DataKey::LastFeeBps(key_id.clone());

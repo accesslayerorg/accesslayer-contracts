@@ -188,6 +188,19 @@ fn test_linear_release_and_partial_claims() {
 }
 
 #[test]
+fn test_maximum_allocation_uses_wide_intermediate() {
+    let (env, client, _) = setup_test();
+    let wallet = Address::generate(&env);
+    let key_id = Address::generate(&env);
+
+    env.ledger().set_timestamp(0);
+    let vest_id = client.create_vest(&wallet, &key_id, &i128::MAX, &0, &4);
+    env.ledger().set_timestamp(2);
+
+    assert_eq!(client.get_vested_amount(&vest_id).claimable, i128::MAX / 2);
+}
+
+#[test]
 fn test_vest_claimed_event_emission() {
     let (env, client, _admin) = setup_test();
     let wallet = Address::generate(&env);
@@ -511,7 +524,10 @@ fn test_admin_transfer_events() {
     assert_eq!(topic0(&env, 0), Symbol::new(&env, "admin_proposed"));
 
     client.cancel_admin_transfer(&admin);
-    assert_eq!(topic0(&env, 0), Symbol::new(&env, "admin_transfer_cancelled"));
+    assert_eq!(
+        topic0(&env, 0),
+        Symbol::new(&env, "admin_transfer_cancelled")
+    );
 
     client.propose_admin(&admin, &new_admin);
     client.accept_admin(&new_admin);

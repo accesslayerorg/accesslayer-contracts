@@ -31,7 +31,7 @@ const PROTOCOL_BPS_70_30_SPLIT: u32 = 7_000;
 fn test_split_70_30_even_amount_is_exact() {
     // 1000 stroops split 70% protocol / 30% creator.
     let (creator, protocol) =
-        fee::compute_fee_split(1000, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT);
+        fee::compute_fee_split(1000, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT).unwrap();
     assert_eq!(protocol, 700, "protocol must receive exactly 700 stroops");
     assert_eq!(creator, 300, "creator must receive exactly 300 stroops");
     assert_eq!(creator + protocol, 1000);
@@ -41,7 +41,8 @@ fn test_split_70_30_even_amount_is_exact() {
 fn test_split_70_30_even_amount_scales_across_totals() {
     for total in [10i128, 1_000, 7_300, 100_000] {
         let (creator, protocol) =
-            fee::compute_fee_split(total, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT);
+            fee::compute_fee_split(total, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT)
+                .unwrap();
         assert_eq!(
             protocol,
             total * 7 / 10,
@@ -65,7 +66,7 @@ fn test_split_70_30_odd_amount_conserves_total() {
     // 1001 * 7000 / 10000 = 700.7 -> floor gives protocol 700; the remainder
     // stroop is assigned to the creator so no stroop is lost.
     let (creator, protocol) =
-        fee::compute_fee_split(1001, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT);
+        fee::compute_fee_split(1001, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT).unwrap();
     assert_eq!(
         protocol, 700,
         "protocol share must be floored to 700 stroops"
@@ -85,7 +86,8 @@ fn test_split_70_30_odd_amount_conserves_total() {
 fn test_split_odd_amounts_never_lose_stroops() {
     for total in [999i128, 1001, 1234, 4321, 9_876_543_210] {
         let (creator, protocol) =
-            fee::compute_fee_split(total, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT);
+            fee::compute_fee_split(total, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT)
+                .unwrap();
         assert_eq!(
             creator + protocol,
             total,
@@ -102,7 +104,7 @@ fn test_split_odd_amounts_never_lose_stroops() {
 #[test]
 fn test_split_100_protocol_assigns_full_fee_to_protocol() {
     for total in [1i128, 999, 1000, 100_001] {
-        let (creator, protocol) = fee::compute_fee_split(total, 0, 10_000);
+        let (creator, protocol) = fee::compute_fee_split(total, 0, 10_000).unwrap();
         assert_eq!(
             protocol, total,
             "full fee must go to protocol for total={total}"
@@ -114,7 +116,7 @@ fn test_split_100_protocol_assigns_full_fee_to_protocol() {
 #[test]
 fn test_split_100_creator_assigns_full_fee_to_creator() {
     for total in [1i128, 999, 1000, 100_001] {
-        let (creator, protocol) = fee::compute_fee_split(total, 10_000, 0);
+        let (creator, protocol) = fee::compute_fee_split(total, 10_000, 0).unwrap();
         assert_eq!(
             creator, total,
             "full fee must go to creator for total={total}"
@@ -155,7 +157,8 @@ fn test_complete_splits_always_sum_to_total() {
             65_535,
             i128::MAX / 10_000,
         ] {
-            let (creator, protocol) = fee::compute_fee_split(total, creator_bps, protocol_bps);
+            let (creator, protocol) =
+                fee::compute_fee_split(total, creator_bps, protocol_bps).unwrap();
             assert_eq!(
                 creator + protocol,
                 total,
@@ -169,7 +172,7 @@ fn test_complete_splits_always_sum_to_total() {
 fn test_partial_split_floors_each_side_independently() {
     // Configurations where bps sum to less than BPS_MAX leave the dust with the
     // trader by design: each side is floored independently.
-    let (creator, protocol) = fee::compute_fee_split(1001, 4_000, 4_000);
+    let (creator, protocol) = fee::compute_fee_split(1001, 4_000, 4_000).unwrap();
     assert_eq!(protocol, 400, "4000 bps of 1001 floors to 400");
     assert_eq!(creator, 400, "4000 bps of 1001 floors to 400");
     assert!(
@@ -183,10 +186,11 @@ fn test_partial_split_floors_each_side_independently() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_checked_compute_fee_split_matches_unchecked_results() {
+fn test_checked_compute_fee_split_matches_results() {
     for total in [0i128, 1, 999, 1000, 1001, 1_000_007] {
-        let unchecked =
-            fee::compute_fee_split(total, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT);
+        let checked_api =
+            fee::compute_fee_split(total, CREATOR_BPS_70_30_SPLIT, PROTOCOL_BPS_70_30_SPLIT)
+                .unwrap();
         let checked = fee::checked_compute_fee_split(
             total,
             CREATOR_BPS_70_30_SPLIT,
@@ -194,8 +198,8 @@ fn test_checked_compute_fee_split_matches_unchecked_results() {
         );
         assert_eq!(
             checked,
-            Some(unchecked),
-            "checked and unchecked splits must agree for total={total}"
+            Some(checked_api),
+            "checked split helpers must agree for total={total}"
         );
     }
 }
@@ -225,4 +229,12 @@ fn test_contract_entrypoint_distributes_via_same_split_math() {
     assert_eq!(creator, 301);
     assert_eq!(protocol, 700);
     assert_eq!(creator + protocol, 1001);
+
+    let (creator, protocol) = client.compute_fees_for_payment(&i128::MAX);
+    assert_eq!(
+        protocol,
+        fee::apply_percentage_fee(i128::MAX, PROTOCOL_BPS_70_30_SPLIT).unwrap()
+    );
+    assert_eq!(creator, i128::MAX - protocol);
+    assert_eq!(creator + protocol, i128::MAX);
 }

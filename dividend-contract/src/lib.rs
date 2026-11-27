@@ -37,7 +37,12 @@
 //! sub-unit remainder ("dust") stays unallocated in the funded pool.
 
 #![no_std]
+#![cfg_attr(
+    not(test),
+    deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+)]
 
+use common::math::{checked_add, checked_mul_div, MathError, RoundingDirection};
 use creator_keys::CREATOR_TTL_LEDGERS;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
@@ -289,13 +294,15 @@ impl DividendDistributionContract {
         extend_ttl(&env, &latest_key);
 
         let next_id_key = DataKey::NextSnapshotId;
-        env.storage().persistent().set(&next_id_key, &(next_id + 1));
+        let created_snapshot_id = next_id;
+        let next_id = next_id.checked_add(1).ok_or(DividendError::Overflow)?;
+        env.storage().persistent().set(&next_id_key, &next_id);
         extend_ttl(&env, &next_id_key);
 
         env.events().publish(
             (DIVIDEND_SNAPSHOT_CREATED_EVENT, key_id.clone()),
             DividendSnapshotCreatedEvent {
-                snapshot_id: next_id,
+                snapshot_id: created_snapshot_id,
                 key_id,
                 creator,
                 total_supply,
@@ -304,7 +311,7 @@ impl DividendDistributionContract {
             },
         );
 
-        Ok(next_id)
+        Ok(created_snapshot_id)
     }
 
     /// Funds the most recent snapshot of `key_id` with `amount` (#1073).
@@ -346,16 +353,14 @@ impl DividendDistributionContract {
             return Err(DividendError::Unauthorized);
         }
 
-        let funded = snapshot
-            .funded_amount
-            .checked_add(amount)
-            .ok_or(DividendError::Overflow)?;
+        let funded =
+            checked_add(snapshot.funded_amount, amount).map_err(|_| DividendError::Overflow)?;
         snapshot.funded_amount = funded;
         write_snapshot(&env, &snapshot);
 
         let total_key = DataKey::TotalFunded;
         let total: i128 = env.storage().persistent().get(&total_key).unwrap_or(0);
-        let new_total = total.checked_add(amount).ok_or(DividendError::Overflow)?;
+        let new_total = checked_add(total, amount).map_err(|_| DividendError::Overflow)?;
         env.storage().persistent().set(&total_key, &new_total);
         extend_ttl(&env, &total_key);
 
@@ -413,11 +418,16 @@ impl DividendDistributionContract {
             return Err(DividendError::NothingToClaim);
         }
 
-        let share = snapshot
-            .funded_amount
-            .checked_mul(holder_balance as i128)
-            .ok_or(DividendError::Overflow)?
-            / snapshot.total_supply as i128;
+        let share = checked_mul_div(
+            &env,
+            snapshot.funded_amount,
+            i128::from(holder_balance),
+            i128::from(snapshot.total_supply),
+            RoundingDirection::Down,
+        )
+        .map_err(|error| match error {
+            MathError::DivisionByZero | MathError::Overflow => DividendError::Overflow,
+        })?;
         if share == 0 {
             return Err(DividendError::NothingToClaim);
         }
@@ -429,15 +439,13 @@ impl DividendDistributionContract {
         env.storage().persistent().set(&paid_key, &share);
         extend_ttl(&env, &paid_key);
 
-        snapshot.total_claimed = snapshot
-            .total_claimed
-            .checked_add(share)
-            .ok_or(DividendError::Overflow)?;
+        snapshot.total_claimed =
+            checked_add(snapshot.total_claimed, share).map_err(|_| DividendError::Overflow)?;
         write_snapshot(&env, &snapshot);
 
         let total_key = DataKey::TotalClaimed;
         let total: i128 = env.storage().persistent().get(&total_key).unwrap_or(0);
-        let new_total = total.checked_add(share).ok_or(DividendError::Overflow)?;
+        let new_total = checked_add(total, share).map_err(|_| DividendError::Overflow)?;
         env.storage().persistent().set(&total_key, &new_total);
         extend_ttl(&env, &total_key);
 
@@ -459,14 +467,18 @@ impl DividendDistributionContract {
     /// Returns `0` when the snapshot does not exist, the wallet holds no keys
     /// in the snapshot, the snapshot is unfunded, or the wallet has already
     /// claimed.
-    pub fn get_unclaimed_dividend(env: Env, wallet: Address, snapshot_id: u32) -> i128 {
+    pub fn get_unclaimed_dividend(
+        env: Env,
+        wallet: Address,
+        snapshot_id: u32,
+    ) -> Result<i128, DividendError> {
         let snapshot: DividendSnapshot = match env
             .storage()
             .persistent()
             .get(&DataKey::Snapshot(snapshot_id))
         {
             Some(snapshot) => snapshot,
-            None => return 0,
+            None => return Ok(0),
         };
 
         let claimed_key = DataKey::Claimed(snapshot_id, wallet.clone());
@@ -476,16 +488,25 @@ impl DividendDistributionContract {
             .get(&claimed_key)
             .unwrap_or(false);
         if already_claimed {
-            return 0;
+            return Ok(0);
         }
 
         let balance_key = DataKey::HolderBalance(snapshot_id, wallet);
         let holder_balance: u32 = env.storage().persistent().get(&balance_key).unwrap_or(0);
         if holder_balance == 0 || snapshot.total_supply == 0 {
-            return 0;
+            return Ok(0);
         }
 
-        snapshot.funded_amount * holder_balance as i128 / snapshot.total_supply as i128
+        checked_mul_div(
+            &env,
+            snapshot.funded_amount,
+            i128::from(holder_balance),
+            i128::from(snapshot.total_supply),
+            RoundingDirection::Down,
+        )
+        .map_err(|error| match error {
+            MathError::DivisionByZero | MathError::Overflow => DividendError::Overflow,
+        })
     }
 
     /// Read-only view: the snapshot record for `snapshot_id`.

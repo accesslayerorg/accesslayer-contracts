@@ -107,17 +107,9 @@ pub fn set_creator_allocation(
         return Err(ContractError::Unauthorized);
     }
 
-    // Get max allocation BPS (default to constant if not set)
-    let _max_bps = env
-        .storage()
-        .persistent()
-        .get::<CreatorAllocationKey, u32>(&CreatorAllocationKey::MaxCreatorAllocationBps)
-        .unwrap_or(MAX_CREATOR_ALLOCATION_BPS);
-
     // Get initial supply target for this key
     // Note: This would need to be fetched from the actual key's configuration
     // For now, we'll validate against the amount directly
-    // In a real implementation, this would check: amount <= (initial_supply * max_bps / 10000)
 
     // Validate cliff <= vesting
     if cliff_ledgers > vesting_ledgers {

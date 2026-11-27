@@ -442,13 +442,13 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 179,
+    BadgeRequired = 181,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 180,
+    StalePrice = 182,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 181,
-    QuorumNotMet = 182,
-    InvalidOracleSet = 183,
+    PriceDeviation = 183,
+    QuorumNotMet = 184,
+    InvalidOracleSet = 185,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,
@@ -458,9 +458,9 @@ pub enum ContractError {
     JointProposalNotFound = 173,
     ProposalActive = 174,
     ThresholdNotMet = 175,
-    InvalidWeights = 176,
-    NoticePeriodActive = 177,
-    CyclicReferral = 178,
+    InvalidWeights = 186,
+    NoticePeriodActive = 187,
+    CyclicReferral = 188,
 }
 
 impl ContractError {
@@ -709,15 +709,17 @@ pub enum CurveConfigError {
 }
 
 pub mod fee {
+    #![cfg_attr(
+        not(test),
+        deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation)
+    )]
+
     use crate::ContractError;
 
     use soroban_sdk::contracttype;
 
     /// Basis points per 100% (10000 = 100%).
     pub const BPS_MAX: u32 = 10_000;
-
-    /// Maximum safe amount to prevent overflow in fee calculations.
-    pub const MAX_SAFE_AMOUNT: i128 = i128::MAX / BPS_MAX as i128;
 
     /// Maximum protocol share when configuring fees via [`assert_valid_fee_bps`].
     ///
@@ -762,28 +764,31 @@ pub mod fee {
     /// Returns `(creator_amount, protocol_amount)`. When creator_bps + protocol_bps == BPS_MAX,
     /// remainder from integer division is assigned to the creator so creator_amount + protocol_amount == total.
     /// Otherwise, each fee is computed independently via basis points.
-    pub fn compute_fee_split(total: i128, creator_bps: u32, protocol_bps: u32) -> (i128, i128) {
-        if total <= 0 {
-            return (0, 0);
-        }
-        let protocol_amount = (total * protocol_bps as i128) / BPS_MAX as i128;
-        let creator_amount = if creator_bps.saturating_add(protocol_bps) == BPS_MAX {
-            total - protocol_amount
-        } else {
-            (total * creator_bps as i128) / BPS_MAX as i128
-        };
-        (creator_amount, protocol_amount)
+    pub fn compute_fee_split(
+        total: i128,
+        creator_bps: u32,
+        protocol_bps: u32,
+    ) -> Result<(i128, i128), ContractError> {
+        checked_compute_fee_split(total, creator_bps, protocol_bps).ok_or(ContractError::Overflow)
     }
 
     /// Safely applies a percentage-based fee to an amount.
     ///
-    /// Returns `None` if the multiplication overflows. Rounding is performed via
-    /// floor division towards zero.
+    /// Returns `None` if the exact result cannot fit in `i128`. Division-first
+    /// decomposition avoids overflowing the intermediate product. Positive
+    /// amounts are rounded down.
     pub fn apply_percentage_fee(amount: i128, bps: u32) -> Option<i128> {
         if amount <= 0 {
             return Some(0);
         }
-        checked_div_i128(amount.checked_mul(bps as i128)?, BPS_MAX as i128)
+        let amount = u128::try_from(amount).ok()?;
+        let divisor = u128::from(BPS_MAX);
+        let bps = u128::from(bps);
+        let whole = amount.checked_div(divisor)?;
+        let remainder = amount.checked_rem(divisor)?;
+        let major = whole.checked_mul(bps)?;
+        let minor = remainder.checked_mul(bps)?.checked_div(divisor)?;
+        i128::try_from(major.checked_add(minor)?).ok()
     }
 
     /// Computes the net buyback cost after deducting the protocol fee.
@@ -813,7 +818,7 @@ pub mod fee {
     ///
     /// Returns `None` if the fee computation or subtraction would underflow.
     ///
-    /// Computes the fee split safely, returning `None` if multiplication or subtraction overflows.
+    /// Computes the fee split safely, returning `None` if a result is out of range.
     pub fn checked_compute_fee_split(
         total: i128,
         creator_bps: u32,
@@ -5229,7 +5234,6 @@ fn resolve_buy_quote_price(env: &Env, creator: &Address) -> Result<Option<i128>,
 ///
 /// Zero-value quote requests are treated as no-op quotes and return `None`.
 /// Negative quote amounts are rejected consistently across buy and sell paths.
-/// Amounts exceeding MAX_SAFE_AMOUNT are rejected to prevent overflow in fee calculations.
 fn normalize_quote_amount(amount: i128) -> Result<Option<i128>, ContractError> {
     if amount < 0 {
         return Err(ContractError::NotPositiveAmount);
@@ -5237,10 +5241,6 @@ fn normalize_quote_amount(amount: i128) -> Result<Option<i128>, ContractError> {
 
     if amount == 0 {
         return Ok(None);
-    }
-
-    if amount > fee::MAX_SAFE_AMOUNT {
-        return Err(ContractError::Overflow);
     }
 
     Ok(Some(amount))
@@ -9352,8 +9352,8 @@ impl CreatorKeysContract {
                     .unwrap_or(crate::DEFAULT_LAUNCH_PENALTY_BPS);
                 let capped_bps = penalty_bps.min(crate::MAX_LAUNCH_PENALTY_BPS);
                 if capped_bps > 0 {
-                    let penalty_amount =
-                        crate::fee::apply_percentage_fee(proceeds, capped_bps).unwrap_or(0);
+                    let penalty_amount = crate::fee::apply_percentage_fee(proceeds, capped_bps)
+                        .ok_or(ContractError::Overflow)?;
                     if penalty_amount > 0 {
                         credit_creator_fee_balance(&env, &creator, penalty_amount)?;
                         env.events().publish(
@@ -14861,7 +14861,7 @@ impl CreatorKeysContract {
 
         let config = read_required_effective_fee_config(&env)?;
         let (net_amount, protocol_amount) =
-            fee::compute_fee_split(amount, config.creator_bps, config.protocol_bps);
+            fee::compute_fee_split(amount, config.creator_bps, config.protocol_bps)?;
 
         credit_protocol_fee_recipient_balance(&env, protocol_amount)?;
 
@@ -14960,7 +14960,7 @@ impl CreatorKeysContract {
 
         let config = read_required_protocol_fee_config(&env)?;
         let (net_amount, protocol_amount) =
-            fee::compute_fee_split(total_amount, config.creator_bps, config.protocol_bps);
+            fee::compute_fee_split(total_amount, config.creator_bps, config.protocol_bps)?;
 
         credit_protocol_fee_recipient_balance(&env, protocol_amount)?;
 
@@ -18054,7 +18054,8 @@ impl CreatorKeysContract {
             .get(&key)
             .ok_or(ContractError::NotRegistered)?;
         let now = env.ledger().timestamp();
-        let claimable = vesting::claimable_amount(&config, now);
+        let claimable =
+            vesting::claimable_amount(&env, &config, now).map_err(|_| ContractError::Overflow)?;
         if claimable == 0 {
             return Err(ContractError::NoDividendClaimable);
         }
@@ -18108,7 +18109,7 @@ impl CreatorKeysContract {
             .get(&key)
             .ok_or(ContractError::NotRegistered)?;
         let now = env.ledger().timestamp();
-        Ok(vesting::get_vesting_info(&config, now))
+        vesting::get_vesting_info(&env, &config, now).map_err(|_| ContractError::Overflow)
     }
 
     pub fn set_circuit_breaker_threshold(
@@ -19453,7 +19454,8 @@ impl CreatorKeysContract {
                         let capped_bps = penalty_bps.min(crate::MAX_LAUNCH_PENALTY_BPS);
                         if capped_bps > 0 {
                             let penalty_amount =
-                                crate::fee::apply_percentage_fee(proceeds, capped_bps).unwrap_or(0);
+                                crate::fee::apply_percentage_fee(proceeds, capped_bps)
+                                    .ok_or(ContractError::Overflow)?;
                             if penalty_amount > 0 {
                                 credit_creator_fee_balance(&env, &creator, penalty_amount)?;
                                 env.events().publish(
@@ -19676,7 +19678,8 @@ impl CreatorKeysContract {
                         let capped_bps = penalty_bps.min(crate::MAX_LAUNCH_PENALTY_BPS);
                         if capped_bps > 0 {
                             let penalty_amount =
-                                crate::fee::apply_percentage_fee(proceeds, capped_bps).unwrap_or(0);
+                                crate::fee::apply_percentage_fee(proceeds, capped_bps)
+                                    .ok_or(ContractError::Overflow)?;
                             if penalty_amount > 0 {
                                 credit_creator_fee_balance(&env, &creator, penalty_amount)?;
                                 env.events().publish(
@@ -21045,7 +21048,10 @@ impl CreatorKeysContract {
             };
 
             let (creator_fee, protocol_fee) =
-                fee::compute_fee_split(price, config.creator_bps, config.protocol_bps);
+                match fee::compute_fee_split(price, config.creator_bps, config.protocol_bps) {
+                    Ok(split) => split,
+                    Err(_) => soroban_sdk::panic_with_error!(&env, ContractError::Overflow),
+                };
 
             total_cost = total_cost
                 .checked_add(price)
@@ -21122,7 +21128,10 @@ impl CreatorKeysContract {
                 .expect("bonding curve price overflow");
 
             let (creator_fee, protocol_fee) =
-                fee::compute_fee_split(price, config.creator_bps, config.protocol_bps);
+                match fee::compute_fee_split(price, config.creator_bps, config.protocol_bps) {
+                    Ok(split) => split,
+                    Err(_) => soroban_sdk::panic_with_error!(&env, ContractError::Overflow),
+                };
 
             let net_price = price
                 .checked_sub(creator_fee)
@@ -25969,7 +25978,7 @@ mod tests {
 
     #[test]
     fn test_fee_split_90_10_1000() {
-        let (creator, protocol) = fee::compute_fee_split(1000, 9000, 1000);
+        let (creator, protocol) = fee::compute_fee_split(1000, 9000, 1000).unwrap();
         assert_eq!(creator, 900);
         assert_eq!(protocol, 100);
         assert_eq!(creator + protocol, 1000);
@@ -25977,7 +25986,7 @@ mod tests {
 
     #[test]
     fn test_fee_split_100_creator() {
-        let (creator, protocol) = fee::compute_fee_split(1000, 10000, 0);
+        let (creator, protocol) = fee::compute_fee_split(1000, 10000, 0).unwrap();
         assert_eq!(creator, 1000);
         assert_eq!(protocol, 0);
         assert_eq!(creator + protocol, 1000);
@@ -25985,7 +25994,7 @@ mod tests {
 
     #[test]
     fn test_fee_split_100_protocol() {
-        let (creator, protocol) = fee::compute_fee_split(1000, 0, 10000);
+        let (creator, protocol) = fee::compute_fee_split(1000, 0, 10000).unwrap();
         assert_eq!(creator, 0);
         assert_eq!(protocol, 1000);
         assert_eq!(creator + protocol, 1000);
@@ -25994,7 +26003,7 @@ mod tests {
     #[test]
     fn test_fee_split_remainder_to_creator() {
         // 999 * 1000 / 10000 = 99 (protocol floor), creator gets remainder
-        let (creator, protocol) = fee::compute_fee_split(999, 9000, 1000);
+        let (creator, protocol) = fee::compute_fee_split(999, 9000, 1000).unwrap();
         assert_eq!(creator, 900);
         assert_eq!(protocol, 99);
         assert_eq!(creator + protocol, 999);
@@ -26002,7 +26011,7 @@ mod tests {
 
     #[test]
     fn test_fee_split_zero_total() {
-        let (creator, protocol) = fee::compute_fee_split(0, 9000, 1000);
+        let (creator, protocol) = fee::compute_fee_split(0, 9000, 1000).unwrap();
         assert_eq!(creator, 0);
         assert_eq!(protocol, 0);
     }
@@ -26010,7 +26019,7 @@ mod tests {
     #[test]
     fn test_fee_split_dust_total_one() {
         // 1 * 1000 / 10000 = 0 protocol, creator gets full amount
-        let (creator, protocol) = fee::compute_fee_split(1, 9000, 1000);
+        let (creator, protocol) = fee::compute_fee_split(1, 9000, 1000).unwrap();
         assert_eq!(creator, 1);
         assert_eq!(protocol, 0);
         assert_eq!(creator + protocol, 1);
@@ -26019,7 +26028,7 @@ mod tests {
     #[test]
     fn test_fee_split_balance_conservation() {
         for total in [100_i128, 1, 999, 10000, 1234567] {
-            let (creator, protocol) = fee::compute_fee_split(total, 9000, 1000);
+            let (creator, protocol) = fee::compute_fee_split(total, 9000, 1000).unwrap();
             assert_eq!(creator + protocol, total, "total={}", total);
         }
     }
@@ -26138,11 +26147,10 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_quote_amount_rejects_large_amount() {
-        let large = super::fee::MAX_SAFE_AMOUNT + 1;
+    fn test_normalize_quote_amount_accepts_maximum_amount() {
         assert_eq!(
-            super::normalize_quote_amount(large),
-            Err(super::ContractError::Overflow)
+            super::normalize_quote_amount(i128::MAX),
+            Ok(Some(i128::MAX))
         );
     }
 
@@ -26208,7 +26216,10 @@ mod tests {
     #[test]
     fn test_apply_percentage_fee_overflow() {
         // Multiplication overflows before division
-        assert_eq!(fee::apply_percentage_fee(i128::MAX, 2), None);
+        assert_eq!(
+            fee::apply_percentage_fee(i128::MAX, 2),
+            Some(i128::MAX / 5_000)
+        );
     }
 
     #[test]
@@ -26323,7 +26334,7 @@ mod tests {
     fn test_fee_split_truncation_1_stroop() {
         // 1 * 1000 / 10_000 = 0 protocol, 1 creator (remainder to creator)
         // Truncation causes the full amount to go to creator.
-        let (creator, protocol) = fee::compute_fee_split(1, 9000, 1000);
+        let (creator, protocol) = fee::compute_fee_split(1, 9000, 1000).unwrap();
         assert_eq!(protocol, 0, "1 stroop: protocol fee truncated to 0");
         assert_eq!(creator, 1, "1 stroop: creator gets full amount");
         assert_eq!(creator + protocol, 1, "conservation holds");
@@ -26332,7 +26343,7 @@ mod tests {
     #[test]
     fn test_fee_split_truncation_10_stroops() {
         // 10 * 1000 / 10_000 = 1 protocol, 9 creator
-        let (creator, protocol) = fee::compute_fee_split(10, 9000, 1000);
+        let (creator, protocol) = fee::compute_fee_split(10, 9000, 1000).unwrap();
         assert_eq!(protocol, 1, "10 stroops: protocol fee is 1");
         assert_eq!(creator, 9, "10 stroops: creator gets 9");
         assert_eq!(creator + protocol, 10, "conservation holds");
@@ -26341,7 +26352,7 @@ mod tests {
     #[test]
     fn test_fee_split_truncation_100_stroops() {
         // 100 * 1000 / 10_000 = 10 protocol, 90 creator
-        let (creator, protocol) = fee::compute_fee_split(100, 9000, 1000);
+        let (creator, protocol) = fee::compute_fee_split(100, 9000, 1000).unwrap();
         assert_eq!(protocol, 10, "100 stroops: protocol fee is 10");
         assert_eq!(creator, 90, "100 stroops: creator gets 90");
         assert_eq!(creator + protocol, 100, "conservation holds");

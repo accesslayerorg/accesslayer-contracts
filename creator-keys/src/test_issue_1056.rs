@@ -107,7 +107,7 @@ fn defaults_cover_all_fee_boundaries() {
     env.as_contract(&contract_id, || {
         let brackets = dynamic_fees::default_volume_brackets(&env);
         for (volume, expected_fee) in [(0, 150), (99, 150), (100, 100), (1_000, 100), (1_001, 75)] {
-            assert_eq!(dynamic_fees::fee_for_volume(&env, volume), expected_fee);
+            assert_eq!(dynamic_fees::fee_for_volume(&env, volume), Ok(expected_fee));
         }
         assert_eq!(brackets.len(), dynamic_fees::DEFAULT_VOLUME_BRACKETS);
     });
