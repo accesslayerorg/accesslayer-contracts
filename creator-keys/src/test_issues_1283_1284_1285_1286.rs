@@ -317,7 +317,9 @@ mod tests {
         let duration = 200;
         let auction_id = env
             .as_contract(&contract_id, || {
-                english_auction::start_english_auction(&env, seller, key_id, 100, 1000, duration, 500)
+                english_auction::start_english_auction(
+                    &env, seller, key_id, 100, 1000, duration, 500,
+                )
             })
             .unwrap();
 
@@ -428,32 +430,36 @@ mod tests {
         let holder2 = Address::generate(&env);
 
         // Initially no holders
-        let count =
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(&env, key_id.clone()));
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
         assert_eq!(count, 0);
 
         // Add first holder
         env.as_contract(&contract_id, || {
             holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone()).unwrap();
         });
-        let count =
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(&env, key_id.clone()));
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
         assert_eq!(count, 1);
 
         // Add second holder
         env.as_contract(&contract_id, || {
             holder_enumeration::add_holder(&env, key_id.clone(), holder2.clone()).unwrap();
         });
-        let count =
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(&env, key_id.clone()));
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
         assert_eq!(count, 2);
 
         // Remove first holder
         env.as_contract(&contract_id, || {
             holder_enumeration::remove_holder(&env, key_id.clone(), holder1).unwrap();
         });
-        let count =
-            env.as_contract(&contract_id, || holder_enumeration::holder_count(&env, key_id.clone()));
+        let count = env.as_contract(&contract_id, || {
+            holder_enumeration::holder_count(&env, key_id.clone())
+        });
         assert_eq!(count, 1);
     }
 
