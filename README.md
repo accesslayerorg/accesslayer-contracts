@@ -1,3 +1,4 @@
+
 # Access Layer Contracts
 
 This repository contains the on-chain smart contracts for Access Layer on Stellar using Soroban.
@@ -123,4 +124,5 @@ For referral-chain registration and multi-tier swap-fee reward accounting, see [
 * Read [CONTRIBUTING.md](./CONTRIBUTING.md) before starting work.
 * Browse the maintainer issue inventory in [docs/open-source/issue-backlog.md](./docs/open-source/issue-backlog.md).
 * Review [SECURITY.md](./SECURITY.md) before reporting vulnerabilities.
+* See [docs/security-ci.md](./docs/security-ci.md) for the static analysis, dependency policy and suppression process that runs in CI.
 * Use the issue templates in [`.github/ISSUE_TEMPLATE`](./.github/ISSUE_TEMPLATE) for new scoped work.

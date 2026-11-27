@@ -1,0 +1,225 @@
+name: Security CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scout:
+    name: Scout for Soroban (static analysis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca  # stable
+        with:
+          toolchain: stable
+
+      - name: Cache Scout installation
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-scout-audit
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: scout-0.3.17-${{ runner.os }}
+          restore-keys: |
+            scout-0.3.17-
+
+      - name: Install Scout
+        run: |
+          if ! command -v cargo-scout-audit >/dev/null 2>&1; then
+            cargo install cargo-scout-audit --locked --version 0.3.17
+          fi
+          cargo scout-audit --version
+
+      # `cargo install` normally provisions this in build.rs. Restoring the
+      # cached binary skips build.rs, and ~/.rustup is not cached, so the
+      # detector build failed with "toolchain is not installed" — and Scout
+      # discards cargo's stderr unless it is verbose.
+      - name: Install Scout detector toolchain
+        run: |
+          rustup toolchain install nightly-2025-09-18 --profile minimal \
+            --component rust-src,llvm-tools,rustc-dev \
+            --target wasm32v1-none \
+            --no-self-update
+          rustup run nightly-2025-09-18 cargo install --force dylint-link
+
+      - name: Work around Scout's stale rust-clippy branch reference
+        run: |
+          clippy_mirror="$RUNNER_TEMP/rust-clippy"
+          git clone --bare https://github.com/rust-lang/rust-clippy.git "$clippy_mirror"
+          git -C "$clippy_mirror" update-ref refs/heads/master HEAD
+          git -C "$clippy_mirror" symbolic-ref HEAD refs/heads/master
+          git config --file "$RUNNER_TEMP/scout-gitconfig" --add \
+            url."file://$clippy_mirror".insteadOf \
+            https://github.com/rust-lang/rust-clippy
+
+      - name: Run Scout
+        id: scout
+        continue-on-error: true
+        env:
+          # Disable Scout telemetry and its release-update check in CI.
+          SCOUT_OFFLINE: "1"
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/scout-gitconfig
+        run: |
+          mkdir -p security-reports
+          cargo scout-audit \
+            --verbose \
+            --output-format json \
+            --output-path security-reports/scout-report.json
+
+      - name: Enforce reviewed baseline and severity threshold
+        run: |
+          python3 scripts/security/check_suppressions.py
+          python3 scripts/security/check_scout.py \
+            --report security-reports/scout-report.json \
+            --fail-on critical
+
+      - name: Upload Scout reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: scout-report
+          path: security-reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+  dependency-policy:
+    name: Dependency policy (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@18101caa61cb89118e2ee749786f33c6d1f8a8cb  # v2.90.9
+        with:
+          tool: cargo-deny@0.22.1
+
+      - name: Validate suppression policy
+        run: python3 scripts/security/check_suppressions.py
+
+      - name: Render reviewed suppressions into the deny config
+        run: |
+          python3 scripts/security/render_deny_config.py \
+            --output target/security/deny.toml
+
+      - name: cargo deny
+        run: |
+          set -o pipefail
+          mkdir -p security-reports
+          cargo deny --config target/security/deny.toml check \
+            advisories bans licenses sources 2>&1 \
+            | tee security-reports/cargo-deny.txt
+
+      - name: cargo deny (JSON report)
+        if: always()
+        run: |
+          mkdir -p security-reports
+          cargo deny --config target/security/deny.toml --format json check \
+            advisories bans licenses sources \
+            > security-reports/cargo-deny.json || true
+
+      - name: Upload cargo-deny reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: cargo-deny-report
+          path: security-reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@18101caa61cb89118e2ee749786f33c6d1f8a8cb  # v2.90.9
+        with:
+          tool: cargo-audit@0.23.0
+
+      - name: Run cargo-audit
+        id: audit
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p security-reports
+          audit_args=()
+          while IFS= read -r advisory_id; do
+            if [[ -n "$advisory_id" ]]; then
+              audit_args+=(--ignore "$advisory_id")
+            fi
+          done < <(python3 scripts/security/check_suppressions.py --audit-ignore-ids)
+          status=0
+          cargo audit "${audit_args[@]}" --color never 2>&1 \
+            | tee security-reports/cargo-audit.txt || status=$?
+          cargo audit "${audit_args[@]}" --json \
+            > security-reports/cargo-audit.json || true
+          exit "$status"
+
+      - name: Upload cargo-audit reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: cargo-audit-report
+          path: security-reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail when unsuppressed advisories are present
+        if: steps.audit.outcome == 'failure'
+        run: |
+          echo "::error title=cargo-audit::cargo-audit reported vulnerable dependencies. See the cargo-audit-report artifact and docs/security-ci.md."
+          exit 1
+
+  actions-pinned:
+    name: Actions pinned to commit SHAs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Detect unpinned action references
+        run: python3 scripts/security/check_pinned_actions.py
+
+  policy-scripts:
+    name: Security policy script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s scripts/security/tests -v

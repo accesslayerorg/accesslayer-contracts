@@ -430,16 +430,6 @@ pub enum ContractError {
     NoGuardians = 159,
     /// Emergency reserve escape is not enabled yet.
     EscapeNotEnabled = 160,
-    /// A multi-buy was called without any legs.
-    LegsEmpty = 161,
-    /// A multi-buy contained more than ten legs.
-    TooManyLegs = 162,
-    /// The same creator appeared in more than one multi-buy leg.
-    DuplicateCreator = 163,
-    /// The buyer cannot cover the worst-case cost of a multi-buy.
-    InsufficientFunds = 164,
-    /// A sell was attempted at or below its configured price floor.
-    PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
     BadgeRequired = 179,
@@ -461,6 +451,16 @@ pub enum ContractError {
     InvalidWeights = 176,
     NoticePeriodActive = 177,
     CyclicReferral = 178,
+    /// A multi-buy was called without any legs.
+    LegsEmpty = 179,
+    /// A multi-buy contained more than ten legs.
+    TooManyLegs = 180,
+    /// The same creator appeared in more than one multi-buy leg.
+    DuplicateCreator = 181,
+    /// The buyer cannot cover the worst-case cost of a multi-buy.
+    InsufficientFunds = 182,
+    /// A sell was attempted at or below its configured price floor.
+    PriceFloorBreached = 183,
 }
 
 impl ContractError {
@@ -926,11 +926,11 @@ pub mod staking {
 }
 
 pub mod constants {
-    use super::DataKey;
+    use super::{DataKey, EventStorageKey};
     use soroban_sdk::Address;
 
     pub mod storage {
-        use super::{creator_key, key_balance_key, DataKey};
+        use super::{creator_key, key_balance_key, DataKey, EventStorageKey};
         use crate::StakingKey;
         use soroban_sdk::Address;
 
@@ -1103,23 +1103,27 @@ pub mod constants {
         }
 
         /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
-        pub fn event_config(key_id: &Address, event_id: &u32) -> DataKey {
-            DataKey::EventConfig(key_id.clone(), *event_id)
+        pub fn event_config(key_id: &Address, event_id: &u32) -> EventStorageKey {
+            EventStorageKey::EventConfig(key_id.clone(), *event_id)
         }
 
         /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
-        pub fn event_redemption(key_id: &Address, event_id: &u32, holder: &Address) -> DataKey {
-            DataKey::EventRedeemed(key_id.clone(), *event_id, holder.clone())
+        pub fn event_redemption(
+            key_id: &Address,
+            event_id: &u32,
+            holder: &Address,
+        ) -> EventStorageKey {
+            EventStorageKey::EventRedeemed(key_id.clone(), *event_id, holder.clone())
         }
 
         /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
-        pub fn event_redeemed_count(key_id: &Address, event_id: &u32) -> DataKey {
-            DataKey::EventRedeemedCount(key_id.clone(), *event_id)
+        pub fn event_redeemed_count(key_id: &Address, event_id: &u32) -> EventStorageKey {
+            EventStorageKey::EventRedeemedCount(key_id.clone(), *event_id)
         }
 
         /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
-        pub fn event_lock_until(key_id: &Address, holder: &Address) -> DataKey {
-            DataKey::EventLockUntil(key_id.clone(), holder.clone())
+        pub fn event_lock_until(key_id: &Address, holder: &Address) -> EventStorageKey {
+            EventStorageKey::EventLockUntil(key_id.clone(), holder.clone())
         }
 
         pub fn snapshot_meta(creator: &Address, snapshot_id: u32) -> DataKey {
@@ -2479,6 +2483,23 @@ pub enum DataKey {
     /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
     EventRedeemedCount(Address, u32),
     /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
+    EventLockUntil(Address, Address),
+}
+
+/// Storage keys for redeemable event passes.
+///
+/// Kept separate from [`DataKey`] to stay within Soroban's 50-variant
+/// `#[contracttype]` cap.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum EventStorageKey {
+    /// (key_id, event_id) -> redeemable event pass configuration.
+    EventConfig(Address, u32),
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event.
+    EventRedeemed(Address, u32, Address),
+    /// (key_id, event_id) -> number of redemptions recorded.
+    EventRedeemedCount(Address, u32),
+    /// (key_id, holder) -> ledger until which redeemed keys are locked.
     EventLockUntil(Address, Address),
 }
 

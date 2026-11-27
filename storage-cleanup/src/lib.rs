@@ -430,6 +430,16 @@ mod test {
     }
 
     #[test]
+    fn cleanable_does_not_claim_balance_is_safe_without_key_id() {
+        let (env, client, _admin) = setup();
+        let holder = Address::generate(&env);
+        let status = client.cleanable(&RecordKind::Balance, &holder, &0);
+
+        assert!(!status.can_remove);
+        assert_eq!(status.reason, String::from_str(&env, "unsupported"));
+    }
+
+    #[test]
     fn test_cleanup_checkpoint_respects_retention_window() {
         let (env, client, _admin) = setup();
         let holder = Address::generate(&env);
