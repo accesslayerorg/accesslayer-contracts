@@ -16,14 +16,14 @@ fn test_proxy_initialization_and_access_control() {
     let proxy_id = env.register(BondingCurveProxy, ());
     let client = BondingCurveProxyClient::new(&env, &proxy_id);
 
-    client.initialize(&admin, &impl_id);
+    client.initialize_proxy(&admin, &impl_id);
 
-    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_proxy_admin(), admin);
     assert_eq!(client.get_implementation(), impl_id);
-    assert!(!client.is_paused());
+    assert!(!client.is_proxy_paused());
 
     // Already initialized rejection
-    let res = client.try_initialize(&admin, &impl_id);
+    let res = client.try_initialize_proxy(&admin, &impl_id);
     assert_eq!(res, Err(Ok(ProxyError::AlreadyInitialized)));
 }
 
@@ -39,7 +39,7 @@ fn test_proxy_upgrade_restricted_to_admin_with_interface_validation() {
 
     let proxy_id = env.register(BondingCurveProxy, ());
     let client = BondingCurveProxyClient::new(&env, &proxy_id);
-    client.initialize(&admin, &impl_1);
+    client.initialize_proxy(&admin, &impl_1);
 
     // Non-admin upgrade fails with Unauthorized
     let res = client.try_upgrade_implementation(&non_admin, &impl_2);
@@ -68,7 +68,7 @@ fn test_proxy_pause_and_unpause() {
 
     let proxy_id = env.register(BondingCurveProxy, ());
     let client = BondingCurveProxyClient::new(&env, &proxy_id);
-    client.initialize(&admin, &impl_id);
+    client.initialize_proxy(&admin, &impl_id);
 
     // Non-admin cannot pause
     let pause_res = client.try_set_paused(&non_admin, &true);
@@ -76,11 +76,11 @@ fn test_proxy_pause_and_unpause() {
 
     // Admin can pause
     client.set_paused(&admin, &true);
-    assert!(client.is_paused());
+    assert!(client.is_proxy_paused());
 
     // Admin can unpause
     client.set_paused(&admin, &false);
-    assert!(!client.is_paused());
+    assert!(!client.is_proxy_paused());
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn test_proxy_delegation_dispatch() {
 
     let proxy_id = env.register(BondingCurveProxy, ());
     let client = BondingCurveProxyClient::new(&env, &proxy_id);
-    client.initialize(&admin, &impl_id);
+    client.initialize_proxy(&admin, &impl_id);
 
     // Call get_timelock_delay via proxy dispatch
     let delay_res = client.dispatch(&Symbol::new(&env, "get_timelock_delay"), &Vec::new(&env));

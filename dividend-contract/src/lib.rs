@@ -38,10 +38,12 @@
 
 #![no_std]
 
-use creator_keys::CREATOR_TTL_LEDGERS;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, IntoVal,
+    Symbol, Vec,
 };
+
+const CREATOR_TTL_LEDGERS: u32 = 6_311_520;
 
 #[cfg(test)]
 mod test;
@@ -231,11 +233,14 @@ impl DividendDistributionContract {
         creator.require_auth();
 
         let creator_keys_address = read_creator_keys_contract(&env)?;
-        let keys_client = creator_keys::CreatorKeysContractClient::new(&env, &creator_keys_address);
 
         // The registry is the canonical holder set maintained by `creator-keys`
         // (every wallet that has ever held keys for this creator).
-        let holders: Vec<Address> = keys_client.get_holder_registry(&key_id);
+        let holders: Vec<Address> = env.invoke_contract(
+            &creator_keys_address,
+            &Symbol::new(&env, "get_holder_registry"),
+            soroban_sdk::vec![&env, key_id.clone().into_val(&env)],
+        );
         if holders.is_empty() {
             return Err(DividendError::NoKeyHolders);
         }
@@ -252,7 +257,15 @@ impl DividendDistributionContract {
         let snapshot_ledger = env.ledger().sequence();
         let mut total_supply: u32 = 0;
         for holder in holders.iter() {
-            let balance: u32 = keys_client.get_balance(&key_id, &holder);
+            let balance: u32 = env.invoke_contract(
+                &creator_keys_address,
+                &Symbol::new(&env, "get_balance"),
+                soroban_sdk::vec![
+                    &env,
+                    key_id.clone().into_val(&env),
+                    holder.clone().into_val(&env)
+                ],
+            );
             total_supply = total_supply
                 .checked_add(balance)
                 .ok_or(DividendError::Overflow)?;

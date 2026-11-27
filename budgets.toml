@@ -1,0 +1,56 @@
+version = 1
+
+[wasm]
+target = "wasm32v1-none"
+
+[wasm.contracts]
+creator-keys = 1_310_720
+creator-keys-factory = 1_310_720
+referral-contract = 262144
+lp-reward-contract = 262144
+key-staking-contract = 262144
+multisig-admin = 262144
+nonce-registry = 262144
+session-nonce = 262144
+launch-auction = 262144
+key-liquidity-depth = 262144
+seasonal-rewards = 262144
+auto-invest-registry = 262144
+key-analytics = 262144
+dividend-contract = 262144
+subscription-contract = 262144
+fee-discount-contract = 262144
+batch-trade-contract = 262144
+social-metadata-contract = 262144
+treasury-diversification = 262144
+storage-cleanup = 262144
+key-health-score = 262144
+personhood-hook = 262144
+creator-penalty = 262144
+sponsored-transactions = 262144
+vote-escrow-contract = 262144
+safe-mode-contract = 262144
+holder-insurance-pool = 262144
+sealed-launch-auction = 262144
+
+[resources.state]
+holders = 100
+keys_per_holder = 4
+governance_actions = 20
+distributions = 5
+
+[resources.limits.buy]
+cpu_insns = 25_000_000
+mem_bytes = 16_777_216
+
+[resources.limits.sell]
+cpu_insns = 25_000_000
+mem_bytes = 16_777_216
+
+[resources.limits.claim]
+cpu_insns = 25_000_000
+mem_bytes = 16_777_216
+
+[resources.limits.governance]
+cpu_insns = 25_000_000
+mem_bytes = 16_777_216

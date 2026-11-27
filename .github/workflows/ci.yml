@@ -33,3 +33,48 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  budgets:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Fetch base commit
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "$BASE_SHA"
+
+      - name: Check size and resource budgets
+        run: |
+          set -o pipefail
+          ./scripts/check-wasm-size.sh > wasm-budget-report.txt 2>&1 || true
+          cargo test -p creator-keys --test resource_budget_benchmarks -- --nocapture > resource-budget-report.txt 2>&1 || true
+
+      - name: Check base branch budgets
+        continue-on-error: true
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          if [ -x "$RUNNER_TEMP/base/scripts/check-wasm-size.sh" ]; then
+            (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" ./scripts/check-wasm-size.sh) > base-wasm-budget-report.txt 2>&1 || true
+          fi
+          if [ -f "$RUNNER_TEMP/base/creator-keys/tests/resource_budget_benchmarks.rs" ]; then
+            (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo test -p creator-keys --test resource_budget_benchmarks -- --nocapture) > base-resource-budget-report.txt 2>&1 || true
+          fi
+
+      - name: Report budget changes
+        run: |
+          python3 scripts/budgets.py report \
+            --wasm-report wasm-budget-report.txt \
+            --resource-report resource-budget-report.txt \
+            --base-wasm-report base-wasm-budget-report.txt \
+            --base-resource-report base-resource-budget-report.txt \
+            --base-sha "$BASE_SHA"
