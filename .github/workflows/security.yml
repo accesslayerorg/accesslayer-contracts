@@ -49,6 +49,18 @@ jobs:
           fi
           cargo scout-audit --version
 
+      # `cargo install` normally provisions this in build.rs. Restoring the
+      # cached binary skips build.rs, and ~/.rustup is not cached, so the
+      # detector build failed with "toolchain is not installed" — and Scout
+      # discards cargo's stderr unless it is verbose.
+      - name: Install Scout detector toolchain
+        run: |
+          rustup toolchain install nightly-2025-09-18 --profile minimal \
+            --component rust-src,llvm-tools,rustc-dev \
+            --target wasm32v1-none \
+            --no-self-update
+          rustup run nightly-2025-09-18 cargo install --force dylint-link
+
       - name: Work around Scout's stale rust-clippy branch reference
         run: |
           clippy_mirror="$RUNNER_TEMP/rust-clippy"
@@ -69,6 +81,7 @@ jobs:
         run: |
           mkdir -p security-reports
           cargo scout-audit \
+            --verbose \
             --output-format json \
             --output-path security-reports/scout-report.json
 
