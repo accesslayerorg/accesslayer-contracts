@@ -105,6 +105,7 @@ fn deposit_governance_slash_and_deprecation_release_move_xlm() {
     let token = env
         .register_stellar_asset_contract_v2(Address::generate(&env))
         .address();
+    client.allowlist_token(&admin, &token);
     client.set_xlm_token_address(&admin, &token);
     client.set_min_performance_bond(&admin, &1_000);
 
@@ -186,6 +187,7 @@ fn token_callback_cannot_reenter_governance_and_transfer_rolls_back() {
     client.set_treasury_address(&admin, &treasury);
 
     let token = env.register(ReentrantToken, ());
+    client.allowlist_token(&admin, &token);
     client.set_xlm_token_address(&admin, &token);
     client.set_min_performance_bond(&admin, &1_000);
 
@@ -238,6 +240,7 @@ fn configured_minimum_blocks_trades_until_bond_is_escrowed() {
     let token = env
         .register_stellar_asset_contract_v2(Address::generate(&env))
         .address();
+    client.allowlist_token(&admin, &token);
     client.set_xlm_token_address(&admin, &token);
     client.set_min_performance_bond(&admin, &1_000);
     let creator = register_test_creator(&env, &client, "unbondedcreator");

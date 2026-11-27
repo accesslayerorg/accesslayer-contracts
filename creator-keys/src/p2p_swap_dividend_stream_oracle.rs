@@ -71,11 +71,14 @@ pub mod swap_contract {
                 return Err(ContractError::SelfTransfer);
             }
 
-            token::Client::new(&env, &offered_key).transfer(
+            common::transfer_exact(
+                &env,
+                &offered_key,
                 &proposer,
                 &env.current_contract_address(),
-                &offered_amount,
-            );
+                offered_amount,
+            )
+            .map_err(|_| ContractError::UnsupportedToken)?;
 
             let id: u32 = env.storage().instance().get(&SwapKey::NextId).unwrap_or(0) + 1;
             env.storage().instance().set(&SwapKey::NextId, &id);
@@ -127,11 +130,14 @@ pub mod swap_contract {
             env.storage()
                 .persistent()
                 .remove(&SwapKey::Proposal(proposal_id));
-            token::Client::new(&env, &p.requested_key).transfer(
+            common::transfer_exact(
+                &env,
+                &p.requested_key,
                 &p.counterparty,
                 &p.proposer,
-                &p.requested_amount,
-            );
+                p.requested_amount,
+            )
+            .map_err(|_| ContractError::UnsupportedToken)?;
             token::Client::new(&env, &p.offered_key).transfer(
                 &env.current_contract_address(),
                 &p.counterparty,
@@ -273,11 +279,14 @@ pub mod key_dividend_contract {
                 return Err(ContractError::NoKeyHolders);
             }
 
-            token::Client::new(&env, &token).transfer(
+            common::transfer_exact(
+                &env,
+                &token,
                 &creator,
                 &env.current_contract_address(),
-                &total_amount,
-            );
+                total_amount,
+            )
+            .map_err(|_| ContractError::UnsupportedToken)?;
 
             store.set(&KeyDividendKey::NextId(key_id.clone()), &id);
             store.set(
@@ -546,11 +555,14 @@ pub mod stream_contract {
             }
             let mut s = Self::stream_info(env.clone(), stream_id)?;
             let token: Address = env.storage().instance().get(&StreamKey::Token).unwrap();
-            token::Client::new(&env, &token).transfer(
+            common::transfer_exact(
+                &env,
+                &token,
                 &payer,
                 &env.current_contract_address(),
-                &amount,
-            );
+                amount,
+            )
+            .map_err(|_| ContractError::UnsupportedToken)?;
             s.funded += amount;
             s.cap = s.cap.max(s.funded);
             env.storage()

@@ -86,6 +86,18 @@ fn setup_token(env: &Env, funder: &Address, mint_amount: i128) -> Address {
     token_addr
 }
 
+fn setup_allowed_token(
+    env: &Env,
+    client: &HolderRewardsContractClient,
+    admin: &Address,
+    funder: &Address,
+    mint_amount: i128,
+) -> Address {
+    let token_addr = setup_token(env, funder, mint_amount);
+    client.allowlist_token(admin, &token_addr);
+    token_addr
+}
+
 /// Register `key_id` with holders `[(wallet, balance), ...]` in the mock.
 fn setup_holders(
     env: &Env,
@@ -137,7 +149,7 @@ fn test_pro_rata_allocation_computed_from_snapshot_balances() {
     );
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     // Alice holds 30/100 keys → 30% of 1_000; Bob holds 70/100 → 70%.
@@ -176,7 +188,7 @@ fn test_claim_transfers_pro_rata_share() {
     );
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     let claimed = client.claim_airdrop(&airdrop_id, &alice);
@@ -205,7 +217,7 @@ fn test_double_claim_reverts_with_already_claimed() {
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     assert_eq!(client.claim_airdrop(&airdrop_id, &alice), 1_000);
@@ -237,7 +249,7 @@ fn test_post_snapshot_balance_changes_do_not_affect_allocation() {
     );
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     // After the snapshot: Alice dumps all her keys, Bob doubles his, and a
@@ -296,7 +308,7 @@ fn test_get_airdrop_allocation_tracks_claimed_amount() {
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     // Before claiming: full allocation claimable, nothing claimed.
@@ -331,7 +343,7 @@ fn test_get_airdrop_allocation_returns_zero_for_unknown_wallet() {
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     let stranger = Address::generate(&env);
@@ -378,7 +390,7 @@ fn test_airdrop_created_event_emitted_with_correct_data() {
     );
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     let events: Vec<AirdropCreatedEvent> = get_events(&env, AIRDROP_CREATED_EVENT_NAME);
@@ -410,7 +422,7 @@ fn test_airdrop_claimed_event_emitted_with_correct_data() {
     );
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     client.claim_airdrop(&airdrop_id, &alice);
@@ -437,7 +449,7 @@ fn test_create_airdrop_reverts_for_unauthorized_caller() {
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let rando = Address::generate(&env);
     let result = client.try_create_airdrop(&key_id, &rando, &token, &REWARD_TOTAL);
     let err = result.unwrap_err().unwrap();
@@ -457,7 +469,7 @@ fn test_admin_can_create_airdrop_for_any_key() {
     let alice = Address::generate(&env);
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
-    let token = setup_token(&env, &admin, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &admin, REWARD_TOTAL);
     let airdrop_id = client.create_airdrop(&key_id, &admin, &token, &REWARD_TOTAL);
     assert_eq!(
         client.get_airdrop_allocation(&airdrop_id, &alice),
@@ -479,7 +491,7 @@ fn test_create_airdrop_reverts_on_non_positive_amount() {
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let result = client.try_create_airdrop(&key_id, &funder, &token, &0i128);
     let err = result.unwrap_err().unwrap();
     assert!(
@@ -500,7 +512,7 @@ fn test_create_airdrop_reverts_when_key_has_no_holders() {
     setup_holders(&env, &mock, &key_id, &[(ghost, 0)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let result = client.try_create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
     let err = result.unwrap_err().unwrap();
     assert!(
@@ -525,7 +537,7 @@ fn test_create_airdrop_reverts_when_holder_limit_exceeded() {
     mock.set_holder_registry(&key_id, &registry);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     let result = client.try_create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
     let err = result.unwrap_err().unwrap();
     assert!(
@@ -547,7 +559,7 @@ fn test_create_airdrop_escrows_funder_tokens() {
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, REWARD_TOTAL);
     client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
 
     let token_client = TokenClient::new(&env, &token);
@@ -566,7 +578,7 @@ fn test_multiple_airdrops_get_distinct_ids_and_independent_snapshots() {
     setup_holders(&env, &mock, &key_id, &[(alice.clone(), 100)]);
 
     let funder = key_id.clone(); // the key creator funds the airdrop
-    let token = setup_token(&env, &funder, 2 * REWARD_TOTAL);
+    let token = setup_allowed_token(&env, &client, &admin, &funder, 2 * REWARD_TOTAL);
     let first = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
     let second = client.create_airdrop(&key_id, &funder, &token, &REWARD_TOTAL);
     assert_eq!(first, 1);

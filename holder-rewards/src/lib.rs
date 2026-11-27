@@ -50,6 +50,8 @@ pub enum ContractError {
     Overflow = 9,
     /// The key had no holders with a non-zero balance at the snapshot block.
     NoHolders = 10,
+    /// Token transfer received an unexpected amount or token is not allowlisted.
+    UnsupportedToken = 11,
 }
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -69,6 +71,8 @@ pub enum DataKey {
     SnapshotBalance(u64, Address),
     /// Whether a wallet has claimed an airdrop: `DataKey::Claimed(airdrop_id, wallet)`.
     Claimed(u64, Address),
+    /// Admin-vetted reward token allowlist: `DataKey::TokenAllowlist(token)`.
+    TokenAllowlist(Address),
 }
 
 // ── Data types ────────────────────────────────────────────────────────────────
@@ -229,6 +233,56 @@ impl HolderRewardsContract {
 
     // ── Airdrop lifecycle ─────────────────────────────────────────────────────
 
+    /// Adds a reward token to the admin allowlist so it can be used for airdrops.
+    pub fn allowlist_token(
+        env: Env,
+        admin: Address,
+        token: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::NotInitialized)?;
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenAllowlist(token), &true);
+        Ok(())
+    }
+
+    /// Removes a reward token from the admin allowlist.
+    pub fn remove_allowlisted_token(
+        env: Env,
+        admin: Address,
+        token: Address,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::NotInitialized)?;
+        if admin != stored_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        env.storage()
+            .persistent()
+            .remove(&DataKey::TokenAllowlist(token));
+        Ok(())
+    }
+
+    /// Returns `true` if `token` is on the admin allowlist.
+    pub fn is_token_allowlisted(env: Env, token: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TokenAllowlist(token))
+            .unwrap_or(false)
+    }
+
     /// Creates an airdrop for `key_id` funded by `caller`, snapshotting every
     /// current holder's key balance at the creation ledger.
     ///
@@ -264,6 +318,14 @@ impl HolderRewardsContract {
         }
         if total_amount <= 0 {
             return Err(ContractError::NotPositiveAmount);
+        }
+        if !env
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenAllowlist(reward_token.clone()))
+            .unwrap_or(false)
+        {
+            return Err(ContractError::UnsupportedToken);
         }
 
         let creator_keys_addr = read_creator_keys(&env).ok_or(ContractError::NotInitialized)?;
@@ -303,11 +365,14 @@ impl HolderRewardsContract {
 
         // Fund the airdrop: pull the reward tokens from the funder into this
         // contract so claims can be paid out from the escrowed balance.
-        TokenClient::new(&env, &reward_token).transfer(
+        common::transfer_exact(
+            &env,
+            &reward_token,
             &caller,
             &env.current_contract_address(),
-            &total_amount,
-        );
+            total_amount,
+        )
+        .map_err(|_| ContractError::UnsupportedToken)?;
 
         let next_id = airdrop_id.checked_add(1).ok_or(ContractError::Overflow)?;
         env.storage()

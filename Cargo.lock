@@ -303,6 +303,7 @@ dependencies = [
  "common",
  "ed25519-dalek",
  "soroban-sdk",
+ "test-utils",
 ]
 
 [[package]]
