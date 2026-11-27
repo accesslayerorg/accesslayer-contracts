@@ -187,6 +187,7 @@ fn insufficient_worst_case_balance_is_rejected_before_any_purchase() {
     let token = env
         .register_stellar_asset_contract_v2(Address::generate(&env))
         .address();
+    client.allowlist_token(&_admin, &token);
     client.set_xlm_token_address(&_admin, &token);
     token::StellarAssetClient::new(&env, &token).mint(&buyer, &1_000);
 

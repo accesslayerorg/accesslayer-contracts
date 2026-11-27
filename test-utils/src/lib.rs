@@ -3,6 +3,9 @@
 
 #![allow(dead_code)]
 
+pub mod non_standard_tokens;
+pub use non_standard_tokens::*;
+
 use soroban_sdk::{
     contract, contractimpl, contracttype,
     testutils::{Address as _, Events as _, Ledger as _},

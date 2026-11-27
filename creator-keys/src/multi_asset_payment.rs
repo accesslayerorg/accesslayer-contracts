@@ -44,6 +44,53 @@ pub enum MultiAssetDataKey {
     AssetStalenessThreshold(Address),
     AssetReserve(Address),
     BaseReserve,
+    TokenAllowlist(Address),
+}
+
+/// Adds `token` to the admin-vetted token allowlist so it can be configured.
+pub fn allowlist_token(env: &Env, admin: &Address, token: &Address) -> Result<(), ContractError> {
+    admin.require_auth();
+    let configured_admin: Address = env
+        .storage()
+        .persistent()
+        .get(&crate::constants::storage::ADMIN_ADDRESS)
+        .ok_or(ContractError::Unauthorized)?;
+    if *admin != configured_admin {
+        return Err(ContractError::Unauthorized);
+    }
+    env.storage()
+        .persistent()
+        .set(&MultiAssetDataKey::TokenAllowlist(token.clone()), &true);
+    Ok(())
+}
+
+/// Removes `token` from the admin-vetted token allowlist.
+pub fn remove_allowlisted_token(
+    env: &Env,
+    admin: &Address,
+    token: &Address,
+) -> Result<(), ContractError> {
+    admin.require_auth();
+    let configured_admin: Address = env
+        .storage()
+        .persistent()
+        .get(&crate::constants::storage::ADMIN_ADDRESS)
+        .ok_or(ContractError::Unauthorized)?;
+    if *admin != configured_admin {
+        return Err(ContractError::Unauthorized);
+    }
+    env.storage()
+        .persistent()
+        .remove(&MultiAssetDataKey::TokenAllowlist(token.clone()));
+    Ok(())
+}
+
+/// Returns `true` if `token` is on the admin-vetted token allowlist.
+pub fn is_token_allowlisted(env: &Env, token: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .get(&MultiAssetDataKey::TokenAllowlist(token.clone()))
+        .unwrap_or(false)
 }
 
 pub const PAYMENT_ASSET_ADDED_EVENT: &str = "payment_asset_added";
@@ -138,8 +185,12 @@ pub fn add_payment_asset(
         return Err(ContractError::Unauthorized);
     }
 
-    if decimals == 0 || decimals > 24 {
-        return Err(ContractError::InvalidVaultInput);
+    if !is_token_allowlisted(env, token) {
+        return Err(ContractError::UnsupportedToken);
+    }
+
+    if decimals == 0 || decimals > 18 {
+        return Err(ContractError::UnsupportedToken);
     }
 
     let config = PaymentAssetConfig {
@@ -437,6 +488,15 @@ pub fn buy_with(
         return Err(ContractError::SlippageExceeded);
     }
 
+    common::transfer_exact(
+        env,
+        token,
+        buyer,
+        &env.current_contract_address(),
+        token_amount,
+    )
+    .map_err(|_| ContractError::UnsupportedToken)?;
+
     let outcome = CreatorKeysContract::buy_keys_core(
         env.clone(),
         key_id.clone(),
@@ -517,7 +577,100 @@ pub fn redeem_payment_asset(
     let new_res = current_asset_res - amount;
     env.storage().persistent().set(&reserve_key, &new_res);
 
+    common::transfer_exact(env, token, &env.current_contract_address(), admin, amount)
+        .map_err(|_| ContractError::UnsupportedToken)?;
+
     Ok(amount)
+}
+
+/// Sells `amount` keys and pays out proceeds in an allowlisted payment token.
+pub fn sell_with(
+    env: &Env,
+    seller: &Address,
+    key_id: &Address,
+    amount: u32,
+    token: &Address,
+    min_receive: i128,
+) -> Result<u32, ContractError> {
+    seller.require_auth();
+
+    if amount == 0 || min_receive < 0 {
+        return Err(ContractError::NotPositiveAmount);
+    }
+
+    let config: PaymentAssetConfig = env
+        .storage()
+        .persistent()
+        .get(&MultiAssetDataKey::AssetConfig(token.clone()))
+        .ok_or(ContractError::Unauthorized)?;
+    if !config.is_active {
+        return Err(ContractError::Unauthorized);
+    }
+
+    let rate_view = get_asset_rate(env, token)?;
+    if rate_view.is_stale {
+        return Err(ContractError::OraclePriceNotSet);
+    }
+    let rate = rate_view.rate;
+
+    let sim = CreatorKeysContract::simulate_sell(env.clone(), key_id.clone(), amount);
+    let base_proceeds = sim.total_cost;
+    if base_proceeds <= 0 {
+        return Err(ContractError::NotPositiveAmount);
+    }
+
+    let numerator = base_proceeds
+        .checked_mul(10_000_000)
+        .ok_or(ContractError::Overflow)?;
+    let token_internal = numerator.checked_div(rate).ok_or(ContractError::Overflow)?;
+    let token_amount = from_internal(token_internal, config.decimals)?;
+
+    if token_amount < min_receive {
+        return Err(ContractError::SlippageExceeded);
+    }
+
+    let reserve_key = MultiAssetDataKey::AssetReserve(token.clone());
+    let current_asset_res: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+    if token_amount > current_asset_res {
+        return Err(ContractError::InsufficientBalance);
+    }
+
+    let mut new_supply = 0u32;
+    for _ in 0..amount {
+        new_supply = CreatorKeysContract::sell_key_core(
+            env.clone(),
+            key_id.clone(),
+            seller.clone(),
+            None,
+            None,
+        )?;
+    }
+
+    env.storage()
+        .persistent()
+        .set(&reserve_key, &(current_asset_res - token_amount));
+
+    let base_reserve_key = MultiAssetDataKey::BaseReserve;
+    let current_base_res: i128 = env
+        .storage()
+        .persistent()
+        .get(&base_reserve_key)
+        .unwrap_or(0);
+    let new_base_res = current_base_res.saturating_sub(base_proceeds);
+    env.storage()
+        .persistent()
+        .set(&base_reserve_key, &new_base_res);
+
+    common::transfer_exact(
+        env,
+        token,
+        &env.current_contract_address(),
+        seller,
+        token_amount,
+    )
+    .map_err(|_| ContractError::UnsupportedToken)?;
+
+    Ok(new_supply)
 }
 
 /// Retrieves the recorded reserve balance for a payment asset.

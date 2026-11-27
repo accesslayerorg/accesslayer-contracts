@@ -461,6 +461,9 @@ pub enum ContractError {
     InvalidWeights = 176,
     NoticePeriodActive = 177,
     CyclicReferral = 178,
+    /// Token transfer received less/more than expected, decimals are unsupported,
+    /// or the token is not on the admin allowlist (Issue #1327).
+    UnsupportedToken = 184,
 }
 
 impl ContractError {
@@ -7334,6 +7337,8 @@ pub enum BondError {
     TreasuryNotConfigured = 12,
     /// A key has already traded and can no longer make its initial bond deposit.
     AlreadyTrading = 13,
+    /// Token transfer received an unexpected amount or token is not allowlisted.
+    UnsupportedToken = 14,
 }
 
 /// Errors raised by [`CreatorKeysContract::atomic_swap`].
@@ -9117,8 +9122,18 @@ impl CreatorKeysContract {
         min_proceeds: Option<i128>,
         max_slippage_bps: Option<u32>,
     ) -> Result<u32, ContractError> {
-        let _guard = ReentrancyGuard::enter(&env);
         seller.require_auth();
+        Self::sell_key_core(env, creator, seller, min_proceeds, max_slippage_bps)
+    }
+
+    pub(crate) fn sell_key_core(
+        env: Env,
+        creator: Address,
+        seller: Address,
+        min_proceeds: Option<i128>,
+        max_slippage_bps: Option<u32>,
+    ) -> Result<u32, ContractError> {
+        let _guard = ReentrancyGuard::enter(&env);
         emergency_pause::assert_trading_allowed(&env, &creator)?;
         assert_global_trading_not_halted(&env)?;
         assert_key_trading_not_paused(&env, &creator)?;
@@ -24026,6 +24041,22 @@ impl CreatorKeysContract {
     }
 
     // --- Multi-asset payment support (Issue #1259) ---
+    pub fn allowlist_token(env: Env, admin: Address, token: Address) -> Result<(), ContractError> {
+        multi_asset_payment::allowlist_token(&env, &admin, &token)
+    }
+
+    pub fn remove_allowlisted_token(
+        env: Env,
+        admin: Address,
+        token: Address,
+    ) -> Result<(), ContractError> {
+        multi_asset_payment::remove_allowlisted_token(&env, &admin, &token)
+    }
+
+    pub fn is_token_allowlisted(env: Env, token: Address) -> bool {
+        multi_asset_payment::is_token_allowlisted(&env, &token)
+    }
+
     pub fn add_payment_asset(
         env: Env,
         admin: Address,
@@ -24061,6 +24092,17 @@ impl CreatorKeysContract {
         max_pay: i128,
     ) -> Result<u32, ContractError> {
         multi_asset_payment::buy_with(&env, &buyer, &key_id, amount, &token, max_pay)
+    }
+
+    pub fn sell_with(
+        env: Env,
+        seller: Address,
+        key_id: Address,
+        amount: u32,
+        token: Address,
+        min_receive: i128,
+    ) -> Result<u32, ContractError> {
+        multi_asset_payment::sell_with(&env, &seller, &key_id, amount, &token, min_receive)
     }
 
     pub fn payment_assets(env: Env) -> Vec<multi_asset_payment::PaymentAssetInfo> {

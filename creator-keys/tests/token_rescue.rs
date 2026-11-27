@@ -34,6 +34,7 @@ fn setup(env: &Env) -> Setup<'_> {
     let token = env
         .register_stellar_asset_contract_v2(Address::generate(env))
         .address();
+    client.allowlist_token(&admin, &token);
     client.set_xlm_token_address(&admin, &token);
     client.set_min_performance_bond(&admin, &1_000);
 

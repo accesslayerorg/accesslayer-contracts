@@ -5,6 +5,7 @@ use crate::multi_asset_payment::{self, PaymentAssetInfo};
 use crate::{ContractError, CreatorKeysContract, CreatorKeysContractClient, RegisterCreatorParams};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
+    token::StellarAssetClient,
     Address, Env, String,
 };
 
@@ -110,6 +111,7 @@ fn test_allowlist_management_and_views() {
     assert_eq!(res, Err(Ok(ContractError::Unauthorized)));
 
     // Admin adds payment asset
+    ctx.client.allowlist_token(&ctx.admin, &token_usdc);
     ctx.client
         .add_payment_asset(&ctx.admin, &token_usdc, &6, &oracle);
 
@@ -150,9 +152,26 @@ fn test_buy_with_6_7_and_18_decimal_tokens() {
     let ctx = setup_test();
     let oracle = Address::generate(&ctx.env);
 
-    let token_6 = Address::generate(&ctx.env); // 6 decimals (USDC)
-    let token_7 = Address::generate(&ctx.env); // 7 decimals (EURC)
-    let token_18 = Address::generate(&ctx.env); // 18 decimals (DAI)
+    let token_6 = ctx
+        .env
+        .register_stellar_asset_contract_v2(Address::generate(&ctx.env))
+        .address();
+    let token_7 = ctx
+        .env
+        .register_stellar_asset_contract_v2(Address::generate(&ctx.env))
+        .address();
+    let token_18 = ctx
+        .env
+        .register_stellar_asset_contract_v2(Address::generate(&ctx.env))
+        .address();
+
+    StellarAssetClient::new(&ctx.env, &token_6).mint(&ctx.buyer, &100_000_000i128);
+    StellarAssetClient::new(&ctx.env, &token_7).mint(&ctx.buyer, &100_000_000i128);
+    StellarAssetClient::new(&ctx.env, &token_18).mint(&ctx.buyer, &100_000_000_000_000_000_000i128);
+
+    ctx.client.allowlist_token(&ctx.admin, &token_6);
+    ctx.client.allowlist_token(&ctx.admin, &token_7);
+    ctx.client.allowlist_token(&ctx.admin, &token_18);
 
     ctx.client
         .add_payment_asset(&ctx.admin, &token_6, &6, &oracle);
@@ -205,6 +224,7 @@ fn test_max_pay_protection_reverts_on_rate_movement() {
     let oracle = Address::generate(&ctx.env);
     let token = Address::generate(&ctx.env);
 
+    ctx.client.allowlist_token(&ctx.admin, &token);
     ctx.client
         .add_payment_asset(&ctx.admin, &token, &6, &oracle);
 
@@ -223,8 +243,13 @@ fn test_max_pay_protection_reverts_on_rate_movement() {
 fn test_oracle_staleness_guard() {
     let ctx = setup_test();
     let oracle = Address::generate(&ctx.env);
-    let token = Address::generate(&ctx.env);
+    let token = ctx
+        .env
+        .register_stellar_asset_contract_v2(Address::generate(&ctx.env))
+        .address();
+    StellarAssetClient::new(&ctx.env, &token).mint(&ctx.buyer, &100_000_000i128);
 
+    ctx.client.allowlist_token(&ctx.admin, &token);
     ctx.client
         .add_payment_asset(&ctx.admin, &token, &6, &oracle);
 
@@ -253,8 +278,13 @@ fn test_oracle_staleness_guard() {
 fn test_removing_asset_blocks_new_buys_but_allows_reserve_redemption() {
     let ctx = setup_test();
     let oracle = Address::generate(&ctx.env);
-    let token = Address::generate(&ctx.env);
+    let token = ctx
+        .env
+        .register_stellar_asset_contract_v2(Address::generate(&ctx.env))
+        .address();
+    StellarAssetClient::new(&ctx.env, &token).mint(&ctx.buyer, &100_000_000i128);
 
+    ctx.client.allowlist_token(&ctx.admin, &token);
     ctx.client
         .add_payment_asset(&ctx.admin, &token, &6, &oracle);
     ctx.client

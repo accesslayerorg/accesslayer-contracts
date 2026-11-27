@@ -73,6 +73,9 @@ pub fn set_xlm_token_address(
 ) -> Result<(), BondError> {
     admin.require_auth();
     assert_is_admin(env, admin).map_err(|_| BondError::Unauthorized)?;
+    if !crate::multi_asset_payment::is_token_allowlisted(env, token_address) {
+        return Err(BondError::UnsupportedToken);
+    }
     let key = FeatureKey::XlmTokenAddress;
     if env.storage().persistent().has(&key) {
         return Err(BondError::TokenAlreadyConfigured);
@@ -121,7 +124,8 @@ pub fn deposit(env: &Env, key_id: &Address, amount: i128) -> Result<(), BondErro
         return Err(BondError::BelowMinimumBond);
     }
     let token = xlm_token(env)?;
-    TokenClient::new(env, &token).transfer(key_id, &env.current_contract_address(), &amount);
+    common::transfer_exact(env, &token, key_id, &env.current_contract_address(), amount)
+        .map_err(|_| BondError::UnsupportedToken)?;
     save_bond_value(env, bond_key, amount);
     token_rescue::track_credit(env, &token, TrackedBucket::Escrow, amount)
         .map_err(|_| BondError::Overflow)?;
