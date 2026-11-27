@@ -7,6 +7,10 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[[test]]
+name = "scenarios"
+path = "tests/scenarios/main.rs"
+
 [dev-dependencies]
 creator-keys = { path = "../creator-keys" }
 multisig-admin = { path = "../multisig-admin" }
