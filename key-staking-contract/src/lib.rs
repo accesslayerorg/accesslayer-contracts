@@ -124,17 +124,7 @@ pub struct EpochRewardDistributed {
     pub total_distributed: i128,
 }
 
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    Treasury,
-    Genesis,
-    EpochDuration,
-    NextStakeId,
-    Stake(u64),
-    Unbonding(u64),
-    Epoch(u32),
-}
+pub use common::keys::key_staking_contract::DataKey;
 
 #[contract]
 pub struct KeyStakingContract;

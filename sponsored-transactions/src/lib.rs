@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, Address, Env};
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,11 +11,7 @@ pub enum Error {
     Expired = 4,
     InvalidFee = 5,
 }
-#[contracttype]
-enum Key {
-    Admin,
-    Nonce(Address, u64),
-}
+use common::keys::sponsored_transactions::Key;
 
 #[contract]
 pub struct SponsoredTransactions;

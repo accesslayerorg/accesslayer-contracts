@@ -19,12 +19,7 @@ pub struct SocialMetadata {
     pub website: String,
     pub discord: String,
 }
-#[contracttype]
-enum Key {
-    Admin,
-    Creator(Address),
-    Metadata(Address),
-}
+use common::keys::social_metadata_contract::Key;
 #[contract]
 pub struct SocialMetadataContract;
 #[contractimpl]

@@ -68,11 +68,7 @@ pub struct SubscriptionInfo {
     pub days_remaining: u64,
 }
 
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    Subscription(Address, u64),
-}
+pub use common::keys::subscription_contract::DataKey;
 
 #[contract]
 pub struct SubscriptionContract;

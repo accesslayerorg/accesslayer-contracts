@@ -25,13 +25,7 @@ pub enum NonceRegistryError {
     NonceAlreadyUsed = 1,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    /// Marks `(wallet, nonce)` as consumed. Nonces carry no ordering, so each
-    /// pair is tracked independently.
-    UsedNonce(Address, u64),
-}
+pub use common::keys::nonce_registry::DataKey;
 
 /// Payload of the `NonceConsumed` event.
 #[contracttype]

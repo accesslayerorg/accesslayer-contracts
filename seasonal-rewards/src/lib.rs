@@ -94,15 +94,7 @@ pub enum SeasonalError {
     ArithmeticOverflow = 10,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    Admin,
-    NextCampaignId,
-    Campaign(u64),
-    Qualification(u64, Address),
-    Claimed(u64, Address),
-}
+pub use common::keys::seasonal_rewards::DataKey;
 
 const SECONDS_PER_DAY: i128 = 86_400;
 

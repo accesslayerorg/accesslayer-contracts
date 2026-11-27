@@ -1,16 +1,12 @@
-use soroban_sdk::{contracterror, contracttype, panic_with_error, Env};
+use soroban_sdk::{contracterror, panic_with_error, Env};
+
+use crate::keys::guard::DataKey;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
     Reentrant = 1,
-}
-
-#[contracttype]
-#[derive(Clone)]
-enum DataKey {
-    Locked,
 }
 
 /// Shared temporary-storage reentrancy guard.

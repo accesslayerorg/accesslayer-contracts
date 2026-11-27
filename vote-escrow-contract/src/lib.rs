@@ -28,13 +28,7 @@ pub struct Lock {
     pub unlock_ledger: u64,
 }
 
-#[contracttype]
-#[derive(Clone)]
-enum Key {
-    NextId,
-    Lock(u64),
-    HolderLock(Address, u64),
-}
+use common::keys::vote_escrow_contract::Key;
 
 #[contract]
 pub struct VoteEscrowContract;

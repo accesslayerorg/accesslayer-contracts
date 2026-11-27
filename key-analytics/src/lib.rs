@@ -140,15 +140,7 @@ pub trait CreatorKeysInterface {
     fn get_key_market_stats(env: Env, creator: Address) -> KeyMarketStatsView;
 }
 
-/// Storage keys used by the key analytics contract.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    /// Configured creator-keys contract address stored in instance storage.
-    CreatorKeys,
-    /// Historical snapshot entry in persistent storage: `(key_id, date)`.
-    Snapshot(Address, u64),
-}
+pub use common::keys::key_analytics::DataKey;
 
 fn snapshot_key(key_id: &Address, date: u64) -> DataKey {
     DataKey::Snapshot(key_id.clone(), date)

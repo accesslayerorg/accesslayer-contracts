@@ -90,14 +90,7 @@ pub struct LPRemoved {
     pub total_returned: i128,
 }
 
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    NextLpId,
-    Position(u64),
-    Pool(Address),
-    TotalPositions,
-}
+pub use common::keys::lp_reward_contract::DataKey;
 
 #[contract]
 pub struct LpRewardContract;

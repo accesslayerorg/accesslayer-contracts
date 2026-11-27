@@ -8,6 +8,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+common = { path = "../common" }
 soroban-sdk = { workspace = true }
 
 [dev-dependencies]

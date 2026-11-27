@@ -58,17 +58,7 @@ pub struct Proposal {
     pub executed: bool,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum DataKey {
-    Signers,
-    Threshold,
-    NextProposalId,
-    Proposal(u32),
-    Approval(u32, Address),
-    Rejection(u32, Address),
-    Pending,
-}
+use common::keys::multisig_admin::DataKey;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

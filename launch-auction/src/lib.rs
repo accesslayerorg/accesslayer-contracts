@@ -46,24 +46,7 @@ pub enum AuctionError {
     InvalidMinBid = 9,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DataKey {
-    /// Total count of auctions created.
-    AuctionCount,
-    /// Auction metadata record by auction ID.
-    Auction(u32),
-    /// List of bids submitted for an auction ID.
-    AuctionBids(u32),
-    /// Escrow balance locked per bidder for an auction ID.
-    Escrow(u32, Address),
-    /// Allocated key count won by a bidder.
-    Allocation(u32, Address),
-    /// Market clearing price established upon settlement.
-    ClearingPrice(u32),
-    /// Flag indicating whether the bonding curve has been opened.
-    BondingCurveOpen(u32),
-}
+pub use common::keys::launch_auction::DataKey;
 
 /// Metadata and state for a key launch auction.
 #[contracttype]

@@ -33,13 +33,7 @@ pub struct Auction {
     pub clearing_price: i128,
     pub filled: u32,
 }
-#[contracttype]
-enum Key {
-    Admin,
-    Next,
-    Auction(u32),
-    Bids(u32),
-}
+use common::keys::sealed_launch_auction::Key;
 #[contract]
 pub struct SealedLaunchAuction;
 #[contractimpl]
