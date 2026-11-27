@@ -66,7 +66,6 @@ impl CreatorPenaltyContract {
             .persistent()
             .set(&Key::Violation(creator.clone()), &v);
         e.events()
-            .publish((soroban_sdk::symbol_short!("slash"), creator), &v);
             .publish((soroban_sdk::symbol_short!("slash"), creator), v.clone());
         Ok(())
     }

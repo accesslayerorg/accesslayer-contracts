@@ -256,10 +256,6 @@ pub fn finalize_auction(env: &Env, auction_id: u64) -> Result<(), ContractError>
     auction.finalized = true;
 
     // Check if reserve was met
-    if let (true, Some(winner)) = (
-        auction.highest_bid >= auction.reserve_price,
-        auction.highest_bidder.as_ref(),
-    ) {
     if let Some(winner) = auction
         .highest_bidder
         .as_ref()
