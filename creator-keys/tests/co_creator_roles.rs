@@ -40,10 +40,10 @@ fn only_primary_creator_can_add_and_remove_co_creators() {
     assert_eq!(client.get_co_creators(&creator).len(), 1);
 
     assert_eq!(
-        client.try_add_co_creator(&creator, &attacker, &attacker, &CoCreatorRole::Admin),
+        client.try_remove_co_creator_role(&creator, &attacker, &content),
         Err(Ok(FeatureError::Unauthorized))
     );
-    client.remove_co_creator(&creator, &content);
+    client.remove_co_creator_role(&creator, &creator, &content);
     assert_eq!(client.get_co_creator_role(&creator, &content), None);
     assert_eq!(client.get_co_creators(&creator).len(), 0);
 }
@@ -68,12 +68,12 @@ fn add_and_remove_emit_events_with_wallet_and_role() {
         })
         .collect();
     assert_eq!(added.len(), 1);
-    let payload: events::CoCreatorAddedEvent = added[0].2.clone().into_val(&env);
+    let payload: events::CoCreatorAddedEvent = added[0].2.into_val(&env);
     assert_eq!(payload.key_id, creator);
     assert_eq!(payload.wallet, admin);
     assert_eq!(payload.role, CoCreatorRole::Admin);
 
-    client.remove_co_creator(&creator, &admin);
+    client.remove_co_creator_role(&creator, &creator, &admin);
     let removed: std::vec::Vec<_> = env
         .events()
         .all()
@@ -87,7 +87,7 @@ fn add_and_remove_emit_events_with_wallet_and_role() {
         })
         .collect();
     assert_eq!(removed.len(), 1);
-    let payload: events::CoCreatorRoleRemovedEvent = removed[0].2.clone().into_val(&env);
+    let payload: events::CoCreatorRoleRemovedEvent = removed[0].2.into_val(&env);
     assert_eq!(payload.wallet, admin);
     assert_eq!(payload.role, CoCreatorRole::Admin);
 }

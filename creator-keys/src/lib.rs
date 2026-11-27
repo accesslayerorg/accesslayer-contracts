@@ -95,6 +95,7 @@ pub mod key_freeze;
 pub mod key_ownership_transfer;
 pub mod launch_window;
 pub mod lp_reward;
+pub mod math;
 pub mod multi_buy;
 pub mod p2p_swap_dividend_stream_oracle;
 pub mod price_alerts;
@@ -473,7 +474,7 @@ impl ContractError {
 }
 
 /// Errors raised by the redeemable event-pass key entrypoints
-/// ([`CreatorKeysContract::create_event`], [`CreatorKeysContract::redeem`],
+/// ([`CreatorKeysContract::create_event`], [`CreatorKeysContract::redeem_event`],
 /// [`CreatorKeysContract::close_event`]).
 ///
 /// Kept separate from [`ContractError`] because Soroban caps `#[contracterror]`
@@ -714,10 +715,10 @@ pub mod fee {
     use soroban_sdk::contracttype;
 
     /// Basis points per 100% (10000 = 100%).
-    pub const BPS_MAX: u32 = 10_000;
+    pub const BPS_MAX: u32 = crate::math::BPS_MAX;
 
     /// Maximum safe amount to prevent overflow in fee calculations.
-    pub const MAX_SAFE_AMOUNT: i128 = i128::MAX / BPS_MAX as i128;
+    pub const MAX_SAFE_AMOUNT: i128 = crate::math::MAX_SAFE_AMOUNT;
 
     /// Maximum protocol share when configuring fees via [`assert_valid_fee_bps`].
     ///
@@ -763,16 +764,7 @@ pub mod fee {
     /// remainder from integer division is assigned to the creator so creator_amount + protocol_amount == total.
     /// Otherwise, each fee is computed independently via basis points.
     pub fn compute_fee_split(total: i128, creator_bps: u32, protocol_bps: u32) -> (i128, i128) {
-        if total <= 0 {
-            return (0, 0);
-        }
-        let protocol_amount = (total * protocol_bps as i128) / BPS_MAX as i128;
-        let creator_amount = if creator_bps.saturating_add(protocol_bps) == BPS_MAX {
-            total - protocol_amount
-        } else {
-            (total * creator_bps as i128) / BPS_MAX as i128
-        };
-        (creator_amount, protocol_amount)
+        crate::math::compute_fee_split(total, creator_bps, protocol_bps)
     }
 
     /// Safely applies a percentage-based fee to an amount.
@@ -780,10 +772,7 @@ pub mod fee {
     /// Returns `None` if the multiplication overflows. Rounding is performed via
     /// floor division towards zero.
     pub fn apply_percentage_fee(amount: i128, bps: u32) -> Option<i128> {
-        if amount <= 0 {
-            return Some(0);
-        }
-        checked_div_i128(amount.checked_mul(bps as i128)?, BPS_MAX as i128)
+        crate::math::apply_percentage_fee(amount, bps)
     }
 
     /// Computes the net buyback cost after deducting the protocol fee.
@@ -792,16 +781,14 @@ pub mod fee {
     /// The result is `gross_price - protocol_fee` where `protocol_fee` is calculated
     /// via `apply_percentage_fee`. This mirrors the fee logic used for regular buys.
     pub fn compute_net_buyback_cost(gross_price: i128, protocol_fee_bps: u32) -> Option<i128> {
-        let protocol_fee = apply_percentage_fee(gross_price, protocol_fee_bps)?;
-        gross_price.checked_sub(protocol_fee)
+        crate::math::compute_net_buyback_cost(gross_price, protocol_fee_bps)
     }
     ///
     /// Returns `None` if the fee computation or addition overflows. This helper
     /// exists so the buyback path shares the same bps math used in regular buys
     /// instead of reimplementing the protocol fee arithmetic inline.
     pub fn compute_buyback_cost(gross_price: i128, protocol_fee_bps: u32) -> Option<i128> {
-        let protocol_fee = apply_percentage_fee(gross_price, protocol_fee_bps)?;
-        gross_price.checked_add(protocol_fee)
+        crate::math::compute_buyback_cost(gross_price, protocol_fee_bps)
     }
 
     /// Computes the net buyback cost after deducting the protocol fee.
@@ -819,16 +806,7 @@ pub mod fee {
         creator_bps: u32,
         protocol_bps: u32,
     ) -> Option<(i128, i128)> {
-        if total <= 0 {
-            return Some((0, 0));
-        }
-        let protocol_amount = apply_percentage_fee(total, protocol_bps)?;
-        let creator_amount = if creator_bps.checked_add(protocol_bps) == Some(BPS_MAX) {
-            checked_sub_i128(total, protocol_amount)?
-        } else {
-            apply_percentage_fee(total, creator_bps)?
-        };
-        Some((creator_amount, protocol_amount))
+        crate::math::checked_compute_fee_split(total, creator_bps, protocol_bps)
     }
 
     /// Splits `total` into `(remainder, shared_amount)` by basis points.
@@ -836,35 +814,27 @@ pub mod fee {
     /// Remainder from integer division stays with the primary recipient so the
     /// two outputs always sum to `total`.
     pub fn checked_split_bps_amount(total: i128, share_bps: u32) -> Option<(i128, i128)> {
-        if total <= 0 {
-            return Some((0, 0));
-        }
-        let shared_amount = apply_percentage_fee(total, share_bps)?;
-        let remainder = checked_sub_i128(total, shared_amount)?;
-        Some((remainder, shared_amount))
+        crate::math::checked_split_bps_amount(total, share_bps)
     }
 
     /// Performs checked integer multiplication for quote math helpers.
     pub fn checked_mul_i128(a: i128, b: i128) -> Option<i128> {
-        a.checked_mul(b)
+        crate::math::checked_mul_i128(a, b)
     }
 
     /// Performs checked integer division for quote math helpers.
     pub fn checked_div_i128(dividend: i128, divisor: i128) -> Option<i128> {
-        if divisor == 0 {
-            return None;
-        }
-        dividend.checked_div(divisor)
+        crate::math::checked_div_i128(dividend, divisor)
     }
 
     /// Performs checked integer subtraction for quote math helpers.
     pub fn checked_sub_i128(left: i128, right: i128) -> Option<i128> {
-        left.checked_sub(right)
+        crate::math::checked_sub_i128(left, right)
     }
 
     /// Performs checked integer addition for quote math helpers.
     pub fn checked_add_i128(left: i128, right: i128) -> Option<i128> {
-        left.checked_add(right)
+        crate::math::checked_add_i128(left, right)
     }
 
     /// Computes the checked sum of creator and protocol fee components.
@@ -885,7 +855,7 @@ pub mod fee {
     /// helper for summing two fee components before they are used in total-amount
     /// arithmetic, replacing ad-hoc inline `checked_add` calls at each call site.
     pub fn checked_fee_sum(creator_fee: i128, protocol_fee: i128) -> Option<i128> {
-        creator_fee.checked_add(protocol_fee)
+        crate::math::checked_fee_sum(creator_fee, protocol_fee)
     }
 
     /// Safely accumulates a value into an accumulator, returning an error on overflow.
@@ -5442,13 +5412,7 @@ fn compute_bonding_curve_price(
 }
 
 fn checked_pow_i128(base: i128, exp: u32) -> Result<i128, ContractError> {
-    let mut result: i128 = 1;
-    let mut _exp = exp;
-    while _exp > 0 {
-        result = result.checked_mul(base).ok_or(ContractError::Overflow)?;
-        _exp -= 1;
-    }
-    Ok(result)
+    math::checked_pow_i128(base, exp).ok_or(ContractError::Overflow)
 }
 
 /// Prices `amount` keys bought back-to-back starting at `supply` under `preset`.
@@ -5464,33 +5428,12 @@ pub fn compute_price(
     amount: u32,
     preset: CurvePreset,
 ) -> Result<i128, ContractError> {
-    let mut total = 0i128;
-
-    for offset in 0..amount {
-        let step_supply = supply.checked_add(offset).ok_or(ContractError::Overflow)?;
-        let component = match preset {
-            CurvePreset::Flat => 0,
-            CurvePreset::Linear => slope
-                .checked_mul(i128::from(step_supply))
-                .ok_or(ContractError::Overflow)?,
-            CurvePreset::Quadratic => {
-                let supply_sq = (step_supply as i128)
-                    .checked_mul(step_supply as i128)
-                    .ok_or(ContractError::Overflow)?;
-                slope
-                    .checked_mul(supply_sq)
-                    .ok_or(ContractError::Overflow)?
-            }
-        };
-        let key_price = base_price
-            .checked_add(component)
-            .ok_or(ContractError::Overflow)?;
-        total = total
-            .checked_add(key_price)
-            .ok_or(ContractError::Overflow)?;
-    }
-
-    Ok(total)
+    let curve = match preset {
+        CurvePreset::Linear => math::CurveKind::Linear,
+        CurvePreset::Quadratic => math::CurveKind::Quadratic,
+        CurvePreset::Flat => math::CurveKind::Flat,
+    };
+    math::compute_price(base_price, slope, supply, amount, curve).ok_or(ContractError::Overflow)
 }
 
 fn zero_quote_response() -> QuoteResponse {
@@ -5511,12 +5454,12 @@ fn checked_format_quote_response(
     protocol_fee: i128,
     is_buy: bool,
 ) -> QuoteViewResult {
-    let fees = fee::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
+    let fees = math::checked_fee_sum(creator_fee, protocol_fee).ok_or(ContractError::Overflow)?;
 
     let total_amount = if is_buy {
-        price.checked_add(fees).ok_or(ContractError::Overflow)?
+        math::checked_add_i128(price, fees).ok_or(ContractError::Overflow)?
     } else {
-        fee::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?
+        math::checked_sub_i128(price, fees).ok_or(ContractError::SellUnderflow)?
     };
 
     Ok(QuoteResponse {
@@ -24114,7 +24057,7 @@ impl CreatorKeysContract {
     /// Checks that the holder's available balance is at least `min_balance`,
     /// the current ledger is within the event window, capacity remains, and
     /// the holder has not already redeemed. Records the redemption and emits
-    /// [`RedeemedEvent`]. When `lock_on_redeem` is set, the holder's redeemed
+    /// [`events::RedeemedEvent`]. When `lock_on_redeem` is set, the holder's redeemed
     /// keys are locked until `end_ledger`.
     ///
     /// # Errors

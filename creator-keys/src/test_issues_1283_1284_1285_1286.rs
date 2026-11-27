@@ -13,7 +13,10 @@ mod tests {
         Address, Env, Vec,
     };
 
-    use crate::{badge_access_control, creator_allocation, english_auction, holder_enumeration};
+    use crate::{
+        badge_access_control, creator_allocation, english_auction, holder_enumeration,
+        ContractError,
+    };
 
     // ============================================================================
     // Issue #1283: Creator allocation with vesting
@@ -140,7 +143,7 @@ mod tests {
         let result = env.as_contract(&contract_id, || {
             creator_allocation::claim_vested(&env, creator.clone(), key_id.clone())
         });
-        assert!(result.is_err());
+        assert_eq!(result, Err(ContractError::NoDividendClaimable));
 
         // After cliff, claim partial
         env.ledger().set_sequence_number(550);
@@ -285,10 +288,10 @@ mod tests {
         let result = env.as_contract(&contract_id, || {
             english_auction::place_bid(&env, bidder2.clone(), auction_id, reserve_price + 10)
         });
-        assert!(result.is_err());
+        assert_eq!(result, Err(ContractError::InsufficientPayment));
 
         // Second bid at proper increment
-        let min_bid = reserve_price + (reserve_price * 500 / 10000);
+        let min_bid = reserve_price + (reserve_price * i128::from(min_increment_bps) / 10_000);
         let result = env.as_contract(&contract_id, || {
             english_auction::place_bid(&env, bidder2.clone(), auction_id, min_bid)
         });
@@ -349,9 +352,13 @@ mod tests {
         let key_id = Address::generate(&env);
         let bidder = Address::generate(&env);
 
+        // Start outside the anti-sniping window so the first bid doesn't extend the deadline.
+        let duration = english_auction::EXTENSION_WINDOW_LEDGERS + 1;
         let auction_id = env
             .as_contract(&contract_id, || {
-                english_auction::start_english_auction(&env, seller, key_id, 100, 1000, 100, 500)
+                english_auction::start_english_auction(
+                    &env, seller, key_id, 100, 1000, duration, 500,
+                )
             })
             .unwrap();
 
@@ -364,10 +371,10 @@ mod tests {
         let result = env.as_contract(&contract_id, || {
             english_auction::finalize_auction(&env, auction_id)
         });
-        assert!(result.is_err());
+        assert_eq!(result, Err(ContractError::TimelockNotElapsed));
 
-        // Finalize after end (bid at ledger 0 triggers anti-snipe extension, so end > 100)
-        env.ledger().set_sequence_number(200);
+        // Finalize at the end ledger.
+        env.ledger().set_sequence_number(duration);
         let result = env.as_contract(&contract_id, || {
             english_auction::finalize_auction(&env, auction_id)
         });
@@ -692,7 +699,7 @@ mod tests {
                 badge_access_control::BadgeGatedAction::Claim,
             )
         });
-        assert_eq!(requirements.len(), 0);
+        assert!(requirements.is_empty());
 
         let has_req = env.as_contract(&contract_id, || {
             badge_access_control::has_badge_requirement(

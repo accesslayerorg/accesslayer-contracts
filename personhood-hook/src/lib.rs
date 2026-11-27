@@ -316,7 +316,12 @@ impl PersonhoodHookContract {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        Env,
+    };
+
+    const UNLINK_COOLDOWN_SECONDS: u64 = 86_400;
 
     fn setup() -> (Env, PersonhoodHookContractClient<'static>, Address) {
         let env = Env::default();
@@ -324,7 +329,7 @@ mod test {
         let admin = Address::generate(&env);
         let contract_id = env.register(PersonhoodHookContract, ());
         let client = PersonhoodHookContractClient::new(&env, &contract_id);
-        client.initialize(&admin, &1, &86400); // 1 wallet, 1 day cooldown
+        client.initialize(&admin, &1, &UNLINK_COOLDOWN_SECONDS);
         (env, client, admin)
     }
 
@@ -385,15 +390,18 @@ mod test {
     #[test]
     fn test_unlinking_subject_to_cooldown() {
         let (env, client, _admin) = setup();
+        // The first unlink should succeed even at timestamp zero.
+        env.ledger().set_timestamp(0);
         let wallet = Address::generate(&env);
         let person_id = BytesN::from_array(&env, &[1u8; 32]);
-        let valid_until = env.ledger().timestamp() + 3600;
+        let now = env.ledger().timestamp();
+        let valid_until = now + UNLINK_COOLDOWN_SECONDS + 1;
         let signature = Bytes::from_array(&env, &[1, 2, 3, 4]);
 
         client.link_person(&wallet, &person_id, &valid_until, &signature);
         client.unlink_person(&wallet);
 
-        // Try to link again immediately (cooldown: 86400 seconds)
+        // Relinking is allowed immediately; the cooldown applies to the next unlink.
         let person_id_2 = BytesN::from_array(&env, &[2u8; 32]);
         client.link_person(&wallet, &person_id_2, &valid_until, &signature);
 
@@ -402,6 +410,10 @@ mod test {
             client.try_unlink_person(&wallet),
             Err(Ok(PersonhoodError::CooldownActive))
         );
+
+        env.ledger().set_timestamp(now + UNLINK_COOLDOWN_SECONDS);
+        client.unlink_person(&wallet);
+        assert_eq!(client.person_of(&wallet), None);
     }
 
     #[test]
