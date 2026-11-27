@@ -2,6 +2,7 @@
 members = [
     "common",
     "test-utils",
+    "contracts",
     "creator-keys",
     "creator-keys-factory",
     "referral-contract",

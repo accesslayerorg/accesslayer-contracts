@@ -94,6 +94,22 @@ To run tests matching a pattern:
 cargo test --package creator-keys -- buy_price
 ```
 
+### End-to-end lifecycle scenarios
+
+The `protocol-scenarios` crate runs cross-contract scenarios covering launch and graduation, fee and royalty reconciliation, timelocked governance, pause recovery, and escrow dispute resolution.
+
+```bash
+cargo test --package protocol-scenarios --test scenarios
+```
+
+Run one scenario:
+
+```bash
+cargo test --package protocol-scenarios --test scenarios launch_to_graduation
+```
+
+Each scenario uses a deterministic seed. On failure the seed, step label, and most expensive steps are printed; use `RUST_BACKTRACE=1` and `-- --nocapture` to see them in full.
+
 ### Interpreting output
 
 - `test result: ok. N passed; 0 failed` — all tests pass.
