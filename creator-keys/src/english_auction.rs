@@ -258,7 +258,7 @@ pub fn finalize_auction(env: &Env, auction_id: u64) -> Result<(), ContractError>
     // Check if reserve was met
     if auction.highest_bid >= auction.reserve_price && auction.highest_bidder.is_some() {
         // Successful sale
-        let winner = auction.highest_bidder.as_ref().unwrap();
+        let winner = auction.highest_bidder.as_ref().expect("checked above");
 
         // Note: In real implementation would:
         // 1. Transfer keys to winner
