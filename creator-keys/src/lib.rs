@@ -442,13 +442,13 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 161,
+    BadgeRequired = 179,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 162,
+    StalePrice = 180,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 163,
-    QuorumNotMet = 164,
-    InvalidOracleSet = 165,
+    PriceDeviation = 181,
+    QuorumNotMet = 182,
+    InvalidOracleSet = 183,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,

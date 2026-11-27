@@ -271,7 +271,7 @@ impl StorageCleanupContract {
                 let balance: i128 = env
                     .storage()
                     .persistent()
-                    .get(&DataKey::Balance(holder.clone(), Address::generate(&env)))
+                    .get(&DataKey::Balance(holder.clone(), holder.clone()))
                     .unwrap_or(0);
                 if balance != 0 {
                     CleanableStatus {
