@@ -163,7 +163,7 @@ impl PersonhoodHookContract {
             .get(&DataKey::WalletToPerson(wallet.clone()))
             .ok_or(PersonhoodError::UnverifiedWallet)?;
 
-        // Check cooldown
+        // Check cooldown — only applies if the wallet has previously unlinked
         let cooldown: u64 = env
             .storage()
             .instance()

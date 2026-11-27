@@ -64,6 +64,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -114,6 +115,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let creator = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -242,6 +244,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -296,6 +299,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
@@ -326,6 +330,7 @@ mod tests {
         let env = Env::default();
         let contract_id = env.register(crate::CreatorKeysContract, ());
         env.ledger().set_sequence_number(0);
+        let contract_id = env.register(crate::CreatorKeysContract, ());
 
         let seller = Address::generate(&env);
         let key_id = Address::generate(&env);
