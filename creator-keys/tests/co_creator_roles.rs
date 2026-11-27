@@ -99,16 +99,8 @@ fn content_role_can_announce_but_not_handle_revenue() {
     let content = Address::generate(&env);
     client.add_co_creator(&creator, &creator, &content, &CoCreatorRole::Content);
 
-    assert!(client.can_co_creator_perform(
-        &creator,
-        &content,
-        &CreatorAction::Announcement
-    ));
-    assert!(!client.can_co_creator_perform(
-        &creator,
-        &content,
-        &CreatorAction::Revenue
-    ));
+    assert!(client.can_co_creator_perform(&creator, &content, &CreatorAction::Announcement));
+    assert!(!client.can_co_creator_perform(&creator, &content, &CreatorAction::Revenue));
 
     let id = client
         .post_announcement_as_co_creator(
@@ -141,11 +133,7 @@ fn revenue_role_can_claim_but_not_announce() {
     client.add_co_creator(&creator, &creator, &revenue, &CoCreatorRole::Revenue);
 
     assert!(client.can_co_creator_perform(&creator, &revenue, &CreatorAction::Revenue));
-    assert!(!client.can_co_creator_perform(
-        &creator,
-        &revenue,
-        &CreatorAction::Announcement
-    ));
+    assert!(!client.can_co_creator_perform(&creator, &revenue, &CreatorAction::Announcement));
     assert_eq!(
         client.try_claim_royalties_as_co_creator(&creator, &revenue),
         Err(Ok(ContractError::NoDividendClaimable))
@@ -185,5 +173,8 @@ fn admin_role_can_perform_every_creator_action() {
             &creator_keys::AnnouncementCategory::Update,
         )
         .unwrap();
-    assert_eq!(client.get_announcements(&creator, &0, &10).unwrap().len(), 1);
+    assert_eq!(
+        client.get_announcements(&creator, &0, &10).unwrap().len(),
+        1
+    );
 }
