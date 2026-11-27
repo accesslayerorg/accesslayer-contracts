@@ -1,8 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, Map, Vec,
-};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -495,7 +493,7 @@ mod test {
         let (_env, client, _governor, _keeper) = setup();
         let report = client.treasury_report();
         // Report should be calculable even with no targets
-        assert!(report.len() == 0);
+        assert!(report.is_empty());
     }
 
     #[test]

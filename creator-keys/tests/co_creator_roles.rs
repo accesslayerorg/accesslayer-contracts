@@ -43,7 +43,7 @@ fn only_primary_creator_can_add_and_remove_co_creators() {
         client.try_add_co_creator(&creator, &attacker, &attacker, &CoCreatorRole::Admin),
         Err(Ok(FeatureError::Unauthorized))
     );
-    client.remove_co_creator(&creator, &creator, &content);
+    client.remove_co_creator(&creator, &content);
     assert_eq!(client.get_co_creator_role(&creator, &content), None);
     assert_eq!(client.get_co_creators(&creator).len(), 0);
 }
@@ -73,7 +73,7 @@ fn add_and_remove_emit_events_with_wallet_and_role() {
     assert_eq!(payload.wallet, admin);
     assert_eq!(payload.role, CoCreatorRole::Admin);
 
-    client.remove_co_creator(&creator, &creator, &admin);
+    client.remove_co_creator(&creator, &admin);
     let removed: std::vec::Vec<_> = env
         .events()
         .all()
@@ -112,7 +112,7 @@ fn content_role_can_announce_but_not_handle_revenue() {
         )
         .unwrap();
     assert_eq!(id, 0);
-    let announcements = client.get_announcements(&creator, &0, &10).unwrap();
+    let announcements = client.get_announcements(&creator, &0, &10);
     assert_eq!(announcements.len(), 1);
 
     assert_eq!(

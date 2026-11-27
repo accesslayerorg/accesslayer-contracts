@@ -117,13 +117,13 @@ pub mod test_issues_1086_1087_1088_1093;
 pub mod test_new_features;
 
 // New features for issues #1283-#1286
+pub mod badge_access_control;
+pub mod basket_tokens;
 pub mod creator_allocation;
 pub mod english_auction;
 pub mod holder_enumeration;
-pub mod badge_access_control;
-pub mod test_issues_1283_1284_1285_1286;
-pub mod basket_tokens;
 pub mod joint_keys;
+pub mod test_issues_1283_1284_1285_1286;
 
 // Contract error variants stability and ordering:
 //
@@ -442,13 +442,13 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 161,
+    BadgeRequired = 179,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 162,
+    StalePrice = 180,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 163,
-    QuorumNotMet = 164,
-    InvalidOracleSet = 165,
+    PriceDeviation = 181,
+    QuorumNotMet = 182,
+    InvalidOracleSet = 183,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,
@@ -14670,7 +14670,8 @@ impl CreatorKeysContract {
 
         // Record the pre-swap price and compute the post-swap price before any
         // state is committed, so a breach reverts without side effects.
-        let (pre_price, _, impact_bps) = compute_swap_price_impact(&env, &creator, amount, direction)?;
+        let (pre_price, _, impact_bps) =
+            compute_swap_price_impact(&env, &creator, amount, direction)?;
 
         // A configured floor blocks sells at or below the floor. Buys are
         // deliberately unaffected.
@@ -21560,7 +21561,10 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
-        if feeds.len() == 0 || feeds.len() > 7 || min_sources == 0 || min_sources > feeds.len()
+        if feeds.is_empty()
+            || feeds.len() > 7
+            || min_sources == 0
+            || min_sources > feeds.len()
             || max_age_ledgers == 0
         {
             return Err(ContractError::InvalidOracleSet);
@@ -21598,7 +21602,10 @@ impl CreatorKeysContract {
         let ledger = env.ledger().sequence();
         env.storage().persistent().set(
             &DataKey::FeedPrice(feed, asset),
-            &OraclePrice { price, updated_at: ledger as u64 },
+            &OraclePrice {
+                price,
+                updated_at: ledger as u64,
+            },
         );
         Ok(())
     }
@@ -21624,7 +21631,7 @@ impl CreatorKeysContract {
                 }
             }
         }
-        if samples.len() == 0 {
+        if samples.is_empty() {
             return Err(ContractError::QuorumNotMet);
         }
         let mut sorted = Vec::new(&env);
@@ -21650,11 +21657,7 @@ impl CreatorKeysContract {
         };
         let mut remaining = Vec::new(&env);
         for v in sorted.iter() {
-            let deviation = if v >= median {
-                v - median
-            } else {
-                median - v
-            };
+            let deviation = if v >= median { v - median } else { median - v };
             let limit = median.saturating_mul(cfg.max_deviation_bps as i128) / 10_000;
             if deviation <= limit {
                 remaining.push_back(v);
@@ -21685,7 +21688,11 @@ impl CreatorKeysContract {
         let mut reports = Vec::new(&env);
         let mut values = Vec::new(&env);
         for feed in cfg.feeds.iter() {
-            if let Some(p) = env.storage().persistent().get::<DataKey, OraclePrice>(&DataKey::FeedPrice(feed.clone(), asset.clone())) {
+            if let Some(p) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, OraclePrice>(&DataKey::FeedPrice(feed.clone(), asset.clone()))
+            {
                 let age = now.saturating_sub(p.updated_at as u32);
                 if age <= cfg.max_age_ledgers {
                     values.push_back(p.price);
@@ -21702,7 +21709,7 @@ impl CreatorKeysContract {
                 j -= 1;
             }
         }
-        let median = if values.len() == 0 {
+        let median = if values.is_empty() {
             0
         } else if values.len() % 2 == 1 {
             values.get(values.len() / 2).unwrap()
@@ -21710,18 +21717,31 @@ impl CreatorKeysContract {
             (values.get(values.len() / 2 - 1).unwrap() + values.get(values.len() / 2).unwrap()) / 2
         };
         for feed in cfg.feeds.iter() {
-            let p: Option<OraclePrice> = env.storage().persistent().get(&DataKey::FeedPrice(feed.clone(), asset.clone()));
+            let p: Option<OraclePrice> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::FeedPrice(feed.clone(), asset.clone()));
             let (value, age) = match p {
                 Some(v) => (v.price, now.saturating_sub(v.updated_at as u32)),
                 None => (0, cfg.max_age_ledgers.saturating_add(1)),
             };
             let limit = median.saturating_mul(cfg.max_deviation_bps as i128) / 10_000;
-            let deviation = if value >= median { value - median } else { median - value };
+            let deviation = if value >= median {
+                value - median
+            } else {
+                median - value
+            };
             let used = value > 0 && age <= cfg.max_age_ledgers && deviation <= limit;
             if !used && value > 0 && age <= cfg.max_age_ledgers {
-                env.events().publish((Symbol::new(&env, "oracle_outlier"), feed.clone()), ());
+                env.events()
+                    .publish((Symbol::new(&env, "oracle_outlier"), feed.clone()), ());
             }
-            reports.push_back(OracleReport { feed, value, age_ledgers: age, used });
+            reports.push_back(OracleReport {
+                feed,
+                value,
+                age_ledgers: age,
+                used,
+            });
         }
         reports
     }
@@ -27200,7 +27220,6 @@ mod test_issue_1172;
 #[cfg(test)]
 mod test_issue_1177;
 #[cfg(test)]
-mod test_issues_1072_1186_1250_1251;
-#[cfg(test)]
 mod test_issue_1259;
-
+#[cfg(test)]
+mod test_issues_1072_1186_1250_1251;
