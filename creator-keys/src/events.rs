@@ -208,6 +208,63 @@ pub fn lockup_released_topics(wallet: &Address, key_id: &Address) -> (Symbol, Ad
 /// Event name for quorum threshold update.
 pub const QUORUM_UPDATED_EVENT_NAME: Symbol = symbol_short!("qrm_upd");
 
+/// Event name for quorum threshold update (alias kept for conviction module consumers).
+
+/// Event name for a holder staking on a conviction-voting proposal.
+pub const STAKED_EVENT_NAME: Symbol = symbol_short!("staked");
+
+/// Event name for a holder withdrawing stake from a conviction-voting proposal.
+pub const UNSTAKED_EVENT_NAME: Symbol = symbol_short!("unstaked");
+
+/// Event name for a conviction-voting proposal being executed.
+pub const PROPOSAL_EXECUTED_EVENT_NAME: Symbol = symbol_short!("prop_exe");
+
+/// Stable field order for conviction staking event payloads.
+pub const STAKED_DATA_FIELDS: [&str; 4] = ["holder", "proposal_id", "amount", "ledger"];
+
+/// Stable conviction stake event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(STAKED_EVENT_NAME, holder, proposal_id)`
+/// - data: `StakedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct StakedEvent {
+    pub holder: Address,
+    pub proposal_id: u64,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Stable conviction unstake event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(UNSTAKED_EVENT_NAME, holder, proposal_id)`
+/// - data: `UnstakedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct UnstakedEvent {
+    pub holder: Address,
+    pub proposal_id: u64,
+    pub amount: i128,
+    pub ledger: u32,
+}
+
+/// Stable proposal execution event payload for downstream indexers.
+///
+/// Event shape:
+/// - topics: `(PROPOSAL_EXECUTED_EVENT_NAME, proposal_id)`
+/// - data: `ProposalExecutedEvent`
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ProposalExecutedEvent {
+    pub proposal_id: u64,
+    pub recipient: Address,
+    pub amount: i128,
+    pub conviction: i128,
+    pub ledger: u32,
+}
+
 /// Event name for proposal/poll closed.
 pub const POLL_CLOSED_EVENT_NAME: Symbol = symbol_short!("poll_cls");
 
