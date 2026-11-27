@@ -59,7 +59,7 @@ impl CreatorAllocation {
         // Linear vesting after cliff
         let vesting_elapsed = elapsed.saturating_sub(self.cliff_ledgers);
         let vesting_duration = self.vesting_ledgers.saturating_sub(self.cliff_ledgers);
-        
+
         if vesting_duration == 0 {
             return self.amount;
         }
@@ -108,7 +108,7 @@ pub fn set_creator_allocation(
     }
 
     // Get max allocation BPS (default to constant if not set)
-    let max_bps = env
+    let _max_bps = env
         .storage()
         .persistent()
         .get::<CreatorAllocationKey, u32>(&CreatorAllocationKey::MaxCreatorAllocationBps)
@@ -118,7 +118,7 @@ pub fn set_creator_allocation(
     // Note: This would need to be fetched from the actual key's configuration
     // For now, we'll validate against the amount directly
     // In a real implementation, this would check: amount <= (initial_supply * max_bps / 10000)
-    
+
     // Validate cliff <= vesting
     if cliff_ledgers > vesting_ledgers {
         return Err(ContractError::InvalidLockPeriod);
@@ -149,11 +149,7 @@ pub fn set_creator_allocation(
 }
 
 /// Claim vested allocation.
-pub fn claim_vested(
-    env: &Env,
-    creator: Address,
-    key_id: Address,
-) -> Result<i128, ContractError> {
+pub fn claim_vested(env: &Env, creator: Address, key_id: Address) -> Result<i128, ContractError> {
     creator.require_auth();
 
     // Load allocation
