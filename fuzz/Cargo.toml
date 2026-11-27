@@ -1,0 +1,30 @@
+[package]
+name = "accesslayer-contracts-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+creator-keys = { path = "../creator-keys" }
+libfuzzer-sys = "0.4"
+soroban-sdk = { version = "22.0.11", features = ["testutils"] }
+
+[[bin]]
+name = "trading"
+path = "fuzz_targets/trading.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "escrow"
+path = "fuzz_targets/escrow.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

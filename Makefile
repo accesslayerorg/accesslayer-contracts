@@ -1,11 +1,13 @@
-.PHONY: fmt fmt-check clippy test check ci wasm
+.PHONY: fmt fmt-check clippy test check ci wasm fuzz
 
 ## Code formatting targets
 fmt:
 	cargo fmt --all
+	cargo fmt --manifest-path fuzz/Cargo.toml --all
 
 fmt-check:
 	cargo fmt --all -- --check
+	cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
 
 ## Linting target
 clippy:
@@ -51,4 +53,9 @@ fmt-fix:
 
 ## Run all checks in sequence (alias for ci)
 all-checks: ci
+
+## Run both coverage-guided fuzz targets (requires cargo-fuzz).
+fuzz:
+	cargo fuzz run trading fuzz/corpus/trading
+	cargo fuzz run escrow fuzz/corpus/escrow
 
