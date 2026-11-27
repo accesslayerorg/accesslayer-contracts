@@ -208,9 +208,8 @@ pub fn place_bid(
         && auction.total_extensions < MAX_TOTAL_EXTENSION_LEDGERS
     {
         // Extend the auction
-        let extension = EXTENSION_AMOUNT_LEDGERS.min(
-            MAX_TOTAL_EXTENSION_LEDGERS.saturating_sub(auction.total_extensions),
-        );
+        let extension = EXTENSION_AMOUNT_LEDGERS
+            .min(MAX_TOTAL_EXTENSION_LEDGERS.saturating_sub(auction.total_extensions));
         auction.current_end_ledger = auction.current_end_ledger.saturating_add(extension);
         auction.total_extensions = auction.total_extensions.saturating_add(extension);
 
@@ -257,9 +256,12 @@ pub fn finalize_auction(env: &Env, auction_id: u64) -> Result<(), ContractError>
     auction.finalized = true;
 
     // Check if reserve was met
-    if auction.highest_bid >= auction.reserve_price && auction.highest_bidder.is_some() {
+    if let Some(winner) = auction
+        .highest_bidder
+        .as_ref()
+        .filter(|_| auction.highest_bid >= auction.reserve_price)
+    {
         // Successful sale
-        let winner = auction.highest_bidder.as_ref().unwrap();
 
         // Note: In real implementation would:
         // 1. Transfer keys to winner
@@ -295,18 +297,15 @@ pub fn finalize_auction(env: &Env, auction_id: u64) -> Result<(), ContractError>
     env.storage().persistent().set(&auction_key, &auction);
 
     // Remove active auction mapping
-    let active_key = EnglishAuctionKey::ActiveAuction(auction.seller.clone(), auction.key_id.clone());
+    let active_key =
+        EnglishAuctionKey::ActiveAuction(auction.seller.clone(), auction.key_id.clone());
     env.storage().persistent().remove(&active_key);
 
     Ok(())
 }
 
 /// Cancel an auction (only if no bids exist).
-pub fn cancel_auction(
-    env: &Env,
-    seller: Address,
-    auction_id: u64,
-) -> Result<(), ContractError> {
+pub fn cancel_auction(env: &Env, seller: Address, auction_id: u64) -> Result<(), ContractError> {
     seller.require_auth();
 
     // Load auction

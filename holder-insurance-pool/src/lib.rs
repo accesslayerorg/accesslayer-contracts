@@ -25,6 +25,7 @@ pub struct Cover {
     pub claimed: bool,
 }
 #[contracttype]
+#[allow(clippy::enum_variant_names)]
 enum Key {
     Admin,
     Pool,
