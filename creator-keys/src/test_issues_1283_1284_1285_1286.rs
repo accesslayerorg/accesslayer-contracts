@@ -13,10 +13,7 @@ mod tests {
         Address, Env, Vec,
     };
 
-    use crate::{
-        badge_access_control, creator_allocation, english_auction, holder_enumeration,
-        ContractError,
-    };
+    use crate::{badge_access_control, creator_allocation, english_auction, holder_enumeration};
 
     // ============================================================================
     // Issue #1283: Creator allocation with vesting
@@ -147,8 +144,6 @@ mod tests {
 
         // After cliff, claim partial
         env.ledger().set_sequence_number(550);
-        let claimed =
-            creator_allocation::claim_vested(&env, creator.clone(), key_id.clone()).unwrap();
         let claimed = env
             .as_contract(&contract_id, || {
                 creator_allocation::claim_vested(&env, creator.clone(), key_id.clone())
@@ -193,8 +188,6 @@ mod tests {
 
         // Extend vesting
         let additional_ledgers = 500;
-        let result =
-            creator_allocation::extend_vesting(&env, admin, key_id.clone(), additional_ledgers);
         let result = env.as_contract(&contract_id, || {
             creator_allocation::extend_vesting(&env, admin, key_id.clone(), additional_ledgers)
         });
@@ -289,8 +282,6 @@ mod tests {
         assert!(result.is_ok());
 
         // Second bid below minimum increment - should fail
-        let result =
-            english_auction::place_bid(&env, bidder2.clone(), auction_id, reserve_price + 10);
         let result = env.as_contract(&contract_id, || {
             english_auction::place_bid(&env, bidder2.clone(), auction_id, reserve_price + 10)
         });
@@ -324,9 +315,6 @@ mod tests {
         let bidder = Address::generate(&env);
 
         let duration = 200;
-        let auction_id =
-            english_auction::start_english_auction(&env, seller, key_id, 100, 1000, duration, 500)
-                .unwrap();
         let auction_id = env
             .as_contract(&contract_id, || {
                 english_auction::start_english_auction(
@@ -361,9 +349,6 @@ mod tests {
         let key_id = Address::generate(&env);
         let bidder = Address::generate(&env);
 
-        let auction_id =
-            english_auction::start_english_auction(&env, seller, key_id, 100, 1000, 100, 500)
-                .unwrap();
         let auction_id = env
             .as_contract(&contract_id, || {
                 english_auction::start_english_auction(&env, seller, key_id, 100, 1000, 100, 500)
@@ -529,16 +514,6 @@ mod tests {
         let holder3 = Address::generate(&env);
 
         // Add holders and update their balances
-        holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone()).unwrap();
-        holder_enumeration::update_top_holders(&env, key_id.clone(), holder1.clone(), 1000)
-            .unwrap();
-
-        holder_enumeration::add_holder(&env, key_id.clone(), holder2.clone()).unwrap();
-        holder_enumeration::update_top_holders(&env, key_id.clone(), holder2.clone(), 2000)
-            .unwrap();
-
-        holder_enumeration::add_holder(&env, key_id.clone(), holder3.clone()).unwrap();
-        holder_enumeration::update_top_holders(&env, key_id.clone(), holder3.clone(), 500).unwrap();
         env.as_contract(&contract_id, || {
             holder_enumeration::add_holder(&env, key_id.clone(), holder1.clone()).unwrap();
             holder_enumeration::update_top_holders(&env, key_id.clone(), holder1.clone(), 1000)
