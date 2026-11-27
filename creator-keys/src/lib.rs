@@ -23871,7 +23871,6 @@ impl CreatorKeysContract {
                 ledger: env.ledger().sequence(),
             },
         );
-
         Ok(())
     }
 

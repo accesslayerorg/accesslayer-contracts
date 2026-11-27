@@ -68,7 +68,7 @@ fn add_and_remove_emit_events_with_wallet_and_role() {
         })
         .collect();
     assert_eq!(added.len(), 1);
-    let payload: events::CoCreatorAddedEvent = added[0].2.clone().into_val(&env);
+    let payload: events::CoCreatorAddedEvent = added[0].2.into_val(&env);
     assert_eq!(payload.key_id, creator);
     assert_eq!(payload.wallet, admin);
     assert_eq!(payload.role, CoCreatorRole::Admin);
@@ -87,7 +87,7 @@ fn add_and_remove_emit_events_with_wallet_and_role() {
         })
         .collect();
     assert_eq!(removed.len(), 1);
-    let payload: events::CoCreatorRoleRemovedEvent = removed[0].2.clone().into_val(&env);
+    let payload: events::CoCreatorRoleRemovedEvent = removed[0].2.into_val(&env);
     assert_eq!(payload.wallet, admin);
     assert_eq!(payload.role, CoCreatorRole::Admin);
 }
