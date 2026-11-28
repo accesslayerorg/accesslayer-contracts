@@ -1,0 +1,326 @@
+{
+  "package": "@accesslayer/contracts-bindings",
+  "version": "0.1.0",
+  "sorobanSdk": "22.0.11",
+  "generator": "scripts/generate-bindings.sh",
+  "contracts": [
+    {
+      "name": "batch-trade-contract",
+      "crate": "batch-trade-contract",
+      "crateDir": "batch-trade-contract",
+      "interfaceSha256": "ad4c537f4567493fcbd6986fa6935569dce20a0b5242beb1deb944bfe5bbdc78",
+      "entrypoints": 3,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "batch"
+      ]
+    },
+    {
+      "name": "creator-penalty",
+      "crate": "creator-penalty",
+      "crateDir": "creator-penalty",
+      "interfaceSha256": "f0b5d94543a65cc492618fc354303c4626ade17a978d4eea2959b6d3188aadfe",
+      "entrypoints": 4,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "slash"
+      ]
+    },
+    {
+      "name": "fee-discount-contract",
+      "crate": "fee-discount-contract",
+      "crateDir": "fee-discount-contract",
+      "interfaceSha256": "13878dc0a50b51d04d0f460abd2b90f1b5de173c7b2a9696d3ab93c0cea0cd6a",
+      "entrypoints": 4,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "tier"
+      ]
+    },
+    {
+      "name": "holder-insurance-pool",
+      "crate": "holder-insurance-pool",
+      "crateDir": "holder-insurance-pool",
+      "interfaceSha256": "6b54bd48a955072dc6fa37a97b1c1e14fb8a2aa1e6c9833f92ae789cc66169ff",
+      "entrypoints": 6,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "claim",
+        "trigger"
+      ]
+    },
+    {
+      "name": "key-analytics",
+      "crate": "key-analytics",
+      "crateDir": "key-analytics",
+      "interfaceSha256": "af5b013e74c6f932034fe2182a4343f42c02e03a51aed6c5559cbb1f7c2b90b2",
+      "entrypoints": 5,
+      "errorEnums": [
+        "AnalyticsSnapshotError"
+      ],
+      "events": [
+        "snp_take"
+      ]
+    },
+    {
+      "name": "key-health-score",
+      "crate": "key-health-score",
+      "crateDir": "key-health-score",
+      "interfaceSha256": "d897b994c57521fb6f3b629aca5db36064492d90e5057a31aa61f8583f432f70",
+      "entrypoints": 8,
+      "errorEnums": [
+        "HealthScoreError"
+      ],
+      "events": []
+    },
+    {
+      "name": "key-liquidity-depth",
+      "crate": "key-liquidity-depth",
+      "crateDir": "key-liquidity-depth",
+      "interfaceSha256": "11d8c5d109ac438906a459fe8587475cdd4789ea1703bfc79837ddde949712b2",
+      "entrypoints": 6,
+      "errorEnums": [
+        "LiquidityDepthError"
+      ],
+      "events": [
+        "depth_upd"
+      ]
+    },
+    {
+      "name": "key-staking-contract",
+      "crate": "key-staking-contract",
+      "crateDir": "key-staking-contract",
+      "interfaceSha256": "841c02c950804cf0e201e00633d65acffcf477907dd88b43ff5cf926ae6fa217",
+      "entrypoints": 11,
+      "errorEnums": [
+        "KeyStakingError"
+      ],
+      "events": [
+        "ep_dist",
+        "ep_fund",
+        "staked",
+        "unstaked"
+      ]
+    },
+    {
+      "name": "launch-auction",
+      "crate": "launch-auction",
+      "crateDir": "launch-auction",
+      "interfaceSha256": "4fe2a3798b2db0261f3ecea46bde7a75ade3db43a0f20ad1989111012699e547",
+      "entrypoints": 9,
+      "errorEnums": [
+        "AuctionError"
+      ],
+      "events": [
+        "auc_creat",
+        "auc_settl",
+        "bid_place"
+      ]
+    },
+    {
+      "name": "lp-reward-contract",
+      "crate": "lp-reward-contract",
+      "crateDir": "lp-reward-contract",
+      "interfaceSha256": "d149b0cbce369b08dd0734228ed855baad38607781bddf57f1e9357eca051197",
+      "entrypoints": 9,
+      "errorEnums": [
+        "LpRewardError"
+      ],
+      "events": [
+        "lp_claim",
+        "lp_rem",
+        "LPAdded"
+      ]
+    },
+    {
+      "name": "multisig-admin",
+      "crate": "multisig-admin",
+      "crateDir": "multisig-admin",
+      "interfaceSha256": "31eee1d6b354f440ff35a214db31e2bc1b5ae6bc963f6ace88700f245469232f",
+      "entrypoints": 12,
+      "errorEnums": [
+        "MultisigError"
+      ],
+      "events": [
+        "initialized",
+        "ThresholdUpdateExecuted",
+        "ThresholdUpdateProposed"
+      ]
+    },
+    {
+      "name": "nonce-registry",
+      "crate": "nonce-registry",
+      "crateDir": "nonce-registry",
+      "interfaceSha256": "a8fe9c417902fa5c95689fa5ec30a7474a214d37ef9a9beb0e3a3980483c6e3c",
+      "entrypoints": 3,
+      "errorEnums": [
+        "NonceRegistryError"
+      ],
+      "events": []
+    },
+    {
+      "name": "personhood-hook",
+      "crate": "personhood-hook",
+      "crateDir": "personhood-hook",
+      "interfaceSha256": "160ed8c66ab9f58fe45661a4a4e8a9abcb8b04b383d78d9a0f8b1bbd3678b25a",
+      "entrypoints": 9,
+      "errorEnums": [
+        "PersonhoodError"
+      ],
+      "events": []
+    },
+    {
+      "name": "referral-contract",
+      "crate": "referral-contract",
+      "crateDir": "referral-contract",
+      "interfaceSha256": "8678498646ccd7bbe18e414da18c61d798c6fd4971c75190b6e91ba62417a11c",
+      "entrypoints": 30,
+      "errorEnums": [
+        "ContractError"
+      ],
+      "events": [
+        "init",
+        "ref_clm",
+        "ref_dist",
+        "ref_rwd",
+        "tier_upg"
+      ]
+    },
+    {
+      "name": "safe-mode-contract",
+      "crate": "safe-mode-contract",
+      "crateDir": "safe-mode-contract",
+      "interfaceSha256": "71ccd52f75e1ed8679aaea629d39a92d398b06fd957d0b3f125d71111c0ef6a5",
+      "entrypoints": 5,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "mode"
+      ]
+    },
+    {
+      "name": "sealed-launch-auction",
+      "crate": "sealed-launch-auction",
+      "crateDir": "sealed-launch-auction",
+      "interfaceSha256": "fa3afa9a7595fbcadf28cb5c907199ee46dd707c5fa8a6978b6de1fb88ef6956",
+      "entrypoints": 4,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "settled"
+      ]
+    },
+    {
+      "name": "session-nonce",
+      "crate": "session-nonce",
+      "crateDir": "session-nonce",
+      "interfaceSha256": "e5d32cc1e810752e612eefb364617d203723aaf100315692293a6befa151dd88",
+      "entrypoints": 2,
+      "errorEnums": [
+        "SessionNonceError"
+      ],
+      "events": []
+    },
+    {
+      "name": "social-metadata-contract",
+      "crate": "social-metadata-contract",
+      "crateDir": "social-metadata-contract",
+      "interfaceSha256": "f41dac852c8bb0991399f1b4a48053970f6964d939cedce79a8162844c82e48d",
+      "entrypoints": 4,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "metadata"
+      ]
+    },
+    {
+      "name": "sponsored-transactions",
+      "crate": "sponsored-transactions",
+      "crateDir": "sponsored-transactions",
+      "interfaceSha256": "07b6615815c237a463b5c5dab866c33f9d2ca0f23415a5b472455a705c83ef92",
+      "entrypoints": 3,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "sponsor"
+      ]
+    },
+    {
+      "name": "storage-cleanup",
+      "crate": "storage-cleanup",
+      "crateDir": "storage-cleanup",
+      "interfaceSha256": "09c111ce399ae643e925d8c6ff380b4a021726d2afbeacd5ee92f6984263600e",
+      "entrypoints": 8,
+      "errorEnums": [
+        "CleanupError"
+      ],
+      "events": []
+    },
+    {
+      "name": "subscription-contract",
+      "crate": "subscription-contract",
+      "crateDir": "subscription-contract",
+      "interfaceSha256": "0796ab6bf7cb47da54f94cdf6326953abf82bbc144fde8b8cfa5afa7a64c0524",
+      "entrypoints": 4,
+      "errorEnums": [
+        "ContractError"
+      ],
+      "events": [
+        "sub_crt",
+        "sub_ren"
+      ]
+    },
+    {
+      "name": "treasury-diversification",
+      "crate": "treasury-diversification",
+      "crateDir": "treasury-diversification",
+      "interfaceSha256": "c13f603b5848b0122d85da3080b8ea14cd8ee3730fa351c6bda418a70099c392",
+      "entrypoints": 9,
+      "errorEnums": [
+        "DiversificationError"
+      ],
+      "events": []
+    },
+    {
+      "name": "vote-escrow-contract",
+      "crate": "vote-escrow-contract",
+      "crateDir": "vote-escrow-contract",
+      "interfaceSha256": "77e29735292345c995abc2645b3540f77f2da1e36756fc9f942e2d3dac1bc36a",
+      "entrypoints": 6,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "extended",
+        "locked",
+        "withdraw"
+      ]
+    }
+  ],
+  "skipped": [
+    {
+      "crate": "creator-keys",
+      "reason": "wasm build failed"
+    },
+    {
+      "crate": "creator-keys-factory",
+      "reason": "wasm build failed"
+    },
+    {
+      "crate": "dividend-contract",
+      "reason": "wasm build failed"
+    }
+  ]
+}

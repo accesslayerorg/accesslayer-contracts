@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check clippy test check ci wasm
+.PHONY: fmt fmt-check clippy test check ci wasm bindings bindings-check
 
 ## Code formatting targets
 fmt:
@@ -39,6 +39,19 @@ wasm:
 	@echo "factory deploys, not the factory itself. The factory tests only assert on"
 	@echo "registry addresses and never invoke the deployed contract, so a small"
 	@echo "placeholder is sufficient there."
+
+## Generate the TypeScript bindings in ./bindings from the contract WASM.
+## Requires the Stellar CLI and the wasm32v1-none target; see docs/typescript-bindings.md.
+bindings:
+	./scripts/generate-bindings.sh
+
+## Regenerate the bindings and fail when the committed output is stale.
+## This is what CI runs; it is the check that catches an interface change
+## that was not regenerated.
+bindings-check:
+	./scripts/generate-bindings.sh
+	@git diff --exit-code -- bindings || (echo "Generated bindings are out of date. Commit the result of 'make bindings'."; exit 1)
+	@test -z "$$(git status --porcelain -- bindings)" || (git status --porcelain -- bindings; echo "Untracked generated binding files - commit them."; exit 1)
 
 ## Full CI workflow: runs format check, lint, tests, and compilation
 ## This is the standard check sequence to run before pushing to a branch
