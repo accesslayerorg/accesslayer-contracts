@@ -91,6 +91,15 @@ For testnet deployment steps, required CLI setup, and the release checklist used
 - Add or update tests for every behavior change.
 - Keep names and comments specific to Access Layer and Stellar, not generic template wording.
 
+## Cross-contract call checklist
+
+Every new or changed call into another contract (token transfers, callbacks, oracle reads, `invoke_contract`) must:
+
+- [ ] Add the call and its expected authorization tree to [docs/auth-trees.md](./docs/auth-trees.md).
+- [ ] Add a test that uses strict `env.mock_auths(...)` with exactly that tree and asserts `env.auths()` equals it (see `creator-keys/tests/auth_trees.rs`).
+- [ ] Use `authorize_as_current_contract` only with a single named function, its full argument list, and no `sub_invocations` unless a nested call is strictly required and documented.
+- [ ] Add a negative test with a malicious mock contract (token, receiver, breaker, or target) that requests an extra authorization, and assert the call fails without moving funds.
+
 ## Good first issue guidance
 
 Good first issues in this repo should:
