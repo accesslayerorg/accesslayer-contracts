@@ -5,10 +5,15 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
+    /// Contract has already been initialized.
     AlreadyInitialized = 1,
+    /// Caller is not authorized to perform this action.
     Unauthorized = 2,
+    /// Penalty amount must be greater than zero.
     InvalidAmount = 3,
+    /// Creator or slash record not found.
     NotFound = 4,
+    /// Creator has already been slashed for this violation.
     AlreadySlashed = 5,
 }
 

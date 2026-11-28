@@ -5,10 +5,15 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
+    /// Contract has already been initialized.
     AlreadyInitialized = 1,
+    /// Caller is not authorized to perform this action.
     Unauthorized = 2,
+    /// Transaction nonce has already been used.
     NonceUsed = 3,
+    /// Sponsored transaction has expired.
     Expired = 4,
+    /// Fee amount is invalid or below the required minimum.
     InvalidFee = 5,
 }
 #[contracttype]
