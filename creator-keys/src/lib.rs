@@ -6,7 +6,7 @@ use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contracterror, contractimpl, contracttype,
     xdr::ToXdr,
-    Address, Bytes, BytesN, Env, IntoVal, String, Symbol, Val, Vec,
+    Address, Bytes, BytesN, Env, IntoVal, Map, String, Symbol, TryFromVal, Val, Vec,
 };
 pub mod bootstrapping;
 pub use common::{KeyReceiver, KeyReceiverClient, KEY_RECEIVED_ACK};
@@ -69,6 +69,9 @@ pub enum CircuitBreakerRemoteError {
     ArithmeticOverflow = 5,
 }
 
+// Standalone example contracts whose exported symbols (`init`) collide with the
+// main contract in a wasm build. Native (test) builds only, see #1309.
+#[cfg(not(target_family = "wasm"))]
 pub mod acl_dividend_twap_gov;
 pub mod acl_limits_merge_sunset;
 pub mod acl_roles;
@@ -96,9 +99,11 @@ pub mod key_ownership_transfer;
 pub mod launch_window;
 pub mod lp_reward;
 pub mod multi_buy;
+#[cfg(not(target_family = "wasm"))]
 pub mod p2p_swap_dividend_stream_oracle;
 pub mod price_alerts;
 pub mod protocol_governance;
+#[cfg(not(target_family = "wasm"))]
 pub mod proxy;
 pub mod ratings_royalties_dividends;
 pub mod social_recovery;
@@ -108,6 +113,7 @@ pub mod supply_milestones;
 pub mod timed_pause;
 pub mod token_rescue;
 pub mod trading_primitives;
+#[cfg(not(target_family = "wasm"))]
 pub use proxy::{BondingCurveProxy, BondingCurveProxyClient};
 pub mod vote_delegation;
 pub use vote_delegation::VoteDelegationKey;
@@ -298,6 +304,9 @@ pub enum ContractError {
     // --- Price impact circuit breaker (Issue #996) ---
     /// Price impact circuit breaker tripped.
     CircuitBreakerTripped = 102,
+    // --- Storage migration (Issue #1309) ---
+    /// `migrate` has already run for this storage layout version.
+    AlreadyMigrated = 179,
     InvalidSignature = 103,
     NonceAlreadyUsed = 104,
     /// The requested holder cap is above the currently stored cap; the cap can
@@ -442,13 +451,13 @@ pub enum ContractError {
     PriceFloorBreached = 165,
     // --- New error variants for issues #1283-#1286 ---
     /// Badge required for this action (Issue #1286).
-    BadgeRequired = 179,
+    BadgeRequired = 180,
     /// Oracle price is older than the configured max age and no fresh fallback exists.
-    StalePrice = 180,
+    StalePrice = 181,
     /// Fresh primary and fallback prices differ by more than the allowed bps.
-    PriceDeviation = 181,
-    QuorumNotMet = 182,
-    InvalidOracleSet = 183,
+    PriceDeviation = 182,
+    QuorumNotMet = 183,
+    InvalidOracleSet = 184,
     InvalidBasket = 166,
     BasketNotFound = 167,
     RebalanceTimelock = 168,
@@ -944,6 +953,7 @@ pub mod constants {
         pub const PAUSED: DataKey = DataKey::Paused;
         pub const PAUSED_SINCE: DataKey = DataKey::PausedSince;
         pub const CONTRACT_VERSION: DataKey = DataKey::ContractVersion;
+        pub const STORAGE_VERSION: DataKey = DataKey::StorageVersion;
         pub const SUPPLY_MILESTONES: DataKey = DataKey::SupplyMilestones;
         pub const CURVE_SLOPE: DataKey = DataKey::CurveSlope;
         pub const TREASURY_BALANCE: DataKey = DataKey::TreasuryBalance;
@@ -2127,6 +2137,8 @@ pub struct RetentionPolicy {
     pub batch_size: u32,
 }
 
+/// Current storage layout version. Bump when `DataKey` or stored types change.
+pub const CURRENT_STORAGE_VERSION: u32 = 1;
 /// Lifecycle state of a creator's archive (#709).
 ///
 /// A creator is `Active` until `archive_creator` records a manifest for it.
@@ -2431,6 +2443,8 @@ pub enum DataKey {
     WhitelistPermanentlyDisabled(Address),
     /// (creator, beneficiary) -> cliff-vesting config (issue #916).
     VestingCliffConfig(Address, Address),
+    /// Storage layout version, written once by `migrate` (Issue #1309).
+    StorageVersion,
     /// Graduated bonding curve milestones for a creator.
     GraduatedCurve(Address),
     TrustedForwarder,
@@ -4666,6 +4680,44 @@ fn collect_protocol_trade_fee(
     Ok(net_amount)
 }
 
+/// Reads a creator's staking rewards pool state, tolerating the pre-upgrade
+/// layout written by releases that predate the `total_weight` field.
+///
+/// `#[contracttype]` structs are stored as maps keyed by field name and decoded
+/// into a fixed-length slice, so unpacking a shorter legacy map straight into
+/// [`StakingRewardsState`] traps with `UnexpectedSize`. Reading the raw map and
+/// pulling fields by name keeps upgrades from older releases working.
+fn read_staking_rewards_state(env: &Env, pool_key: &DataKey) -> StakingRewardsState {
+    let fallback = StakingRewardsState {
+        pool: 0,
+        total_staked: 0,
+        total_weight: 0,
+    };
+    let Some(raw) = env.storage().persistent().get::<_, Val>(pool_key) else {
+        return fallback;
+    };
+    let Ok(map) = Map::<Symbol, Val>::try_from_val(env, &raw) else {
+        return fallback;
+    };
+    let pool = map
+        .get(Symbol::new(env, "pool"))
+        .and_then(|v| i128::try_from_val(env, &v).ok())
+        .unwrap_or(0);
+    let total_staked = map
+        .get(Symbol::new(env, "total_staked"))
+        .and_then(|v| u32::try_from_val(env, &v).ok())
+        .unwrap_or(0);
+    let total_weight = map
+        .get(Symbol::new(env, "total_weight"))
+        .and_then(|v| i128::try_from_val(env, &v).ok())
+        .unwrap_or(0);
+    StakingRewardsState {
+        pool,
+        total_staked,
+        total_weight,
+    }
+}
+
 /// Credits the configured share of a protocol trade fee into the creator's
 /// staking rewards pool. No-op for zero share/dormant pools (the pool entry is
 /// only created once a fee actually accrues).
@@ -4680,15 +4732,7 @@ fn credit_staking_rewards_pool(
         return Ok(());
     }
     let pool_key = constants::storage::staking_rewards_pool(creator);
-    let mut state: StakingRewardsState =
-        env.storage()
-            .persistent()
-            .get(&pool_key)
-            .unwrap_or(StakingRewardsState {
-                pool: 0,
-                total_staked: 0,
-                total_weight: 0,
-            });
+    let mut state = read_staking_rewards_state(env, &pool_key);
     state.pool = state
         .pool
         .checked_add(share)
@@ -10343,6 +10387,35 @@ impl CreatorKeysContract {
         balance
     }
 
+    /// Read-only view: the storage layout version. 0 means `migrate` has not
+    /// run since deployment or since the last layout change (Issue #1309).
+    pub fn get_storage_version(env: Env) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&constants::storage::STORAGE_VERSION)
+            .unwrap_or(0)
+    }
+
+    /// One-shot post-upgrade migration to [`CURRENT_STORAGE_VERSION`].
+    ///
+    /// Admin only. Fails with [`ContractError::AlreadyMigrated`] once the stored
+    /// version has reached the current one. Existing balances, supply and
+    /// pending records are not rewritten.
+    pub fn migrate(env: Env, admin: Address) -> Result<u32, ContractError> {
+        admin.require_auth();
+        assert_is_admin(&env, &admin)?;
+        if Self::get_storage_version(env.clone()) >= CURRENT_STORAGE_VERSION {
+            return Err(ContractError::AlreadyMigrated);
+        }
+        env.storage().persistent().set(
+            &constants::storage::STORAGE_VERSION,
+            &CURRENT_STORAGE_VERSION,
+        );
+        extend_key_ttl_to_full_window(&env, &constants::storage::STORAGE_VERSION);
+        Ok(CURRENT_STORAGE_VERSION)
+    }
+
+    /// Sets the protocol-wide deadline ledger after which buys are rejected.
     /// Redeems all keys held by `holder` for a deprecated creator key.
     ///
     /// Transfers `holder_balance * buyback_price_per_key` XLM from the escrow
@@ -23928,6 +24001,7 @@ impl CreatorKeysContract {
                 ledger: env.ledger().sequence(),
             },
         );
+
         Ok(())
     }
 
@@ -27141,6 +27215,9 @@ mod test_issue_1000;
 
 #[cfg(test)]
 mod test_proxy;
+
+#[cfg(test)]
+mod test_upgrade_rehearsal;
 
 #[cfg(test)]
 mod test_announcements;
