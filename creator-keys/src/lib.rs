@@ -6,7 +6,7 @@ use soroban_sdk::{
     auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contractclient, contracterror, contractimpl, contracttype,
     xdr::ToXdr,
-    Address, Bytes, BytesN, Env, IntoVal, String, Symbol, Val, Vec,
+    Address, Bytes, BytesN, Env, IntoVal, Map, String, Symbol, TryFromVal, Val, Vec,
 };
 pub mod bootstrapping;
 pub use common::{KeyReceiver, KeyReceiverClient, KEY_RECEIVED_ACK};
@@ -4680,6 +4680,44 @@ fn collect_protocol_trade_fee(
     Ok(net_amount)
 }
 
+/// Reads a creator's staking rewards pool state, tolerating the pre-upgrade
+/// layout written by releases that predate the `total_weight` field.
+///
+/// `#[contracttype]` structs are stored as maps keyed by field name and decoded
+/// into a fixed-length slice, so unpacking a shorter legacy map straight into
+/// [`StakingRewardsState`] traps with `UnexpectedSize`. Reading the raw map and
+/// pulling fields by name keeps upgrades from older releases working.
+fn read_staking_rewards_state(env: &Env, pool_key: &DataKey) -> StakingRewardsState {
+    let fallback = StakingRewardsState {
+        pool: 0,
+        total_staked: 0,
+        total_weight: 0,
+    };
+    let Some(raw) = env.storage().persistent().get::<_, Val>(pool_key) else {
+        return fallback;
+    };
+    let Ok(map) = Map::<Symbol, Val>::try_from_val(env, &raw) else {
+        return fallback;
+    };
+    let pool = map
+        .get(Symbol::new(env, "pool"))
+        .and_then(|v| i128::try_from_val(env, &v).ok())
+        .unwrap_or(0);
+    let total_staked = map
+        .get(Symbol::new(env, "total_staked"))
+        .and_then(|v| u32::try_from_val(env, &v).ok())
+        .unwrap_or(0);
+    let total_weight = map
+        .get(Symbol::new(env, "total_weight"))
+        .and_then(|v| i128::try_from_val(env, &v).ok())
+        .unwrap_or(0);
+    StakingRewardsState {
+        pool,
+        total_staked,
+        total_weight,
+    }
+}
+
 /// Credits the configured share of a protocol trade fee into the creator's
 /// staking rewards pool. No-op for zero share/dormant pools (the pool entry is
 /// only created once a fee actually accrues).
@@ -4694,15 +4732,7 @@ fn credit_staking_rewards_pool(
         return Ok(());
     }
     let pool_key = constants::storage::staking_rewards_pool(creator);
-    let mut state: StakingRewardsState =
-        env.storage()
-            .persistent()
-            .get(&pool_key)
-            .unwrap_or(StakingRewardsState {
-                pool: 0,
-                total_staked: 0,
-                total_weight: 0,
-            });
+    let mut state = read_staking_rewards_state(env, &pool_key);
     state.pool = state
         .pool
         .checked_add(share)
