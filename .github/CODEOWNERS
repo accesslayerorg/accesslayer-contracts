@@ -1,0 +1,57 @@
+# Code owners for sensitive contract paths.
+#
+# Mirrors .github/sensitive-paths.yml (the security-review workflow fails if
+# the two drift). See docs/review.md for the approval rules per area.
+#
+# Later lines take precedence over earlier ones. Paths with no owner here
+# need the default single approval from any maintainer.
+
+# auth: Authorization, roles, nonces, signatures and account recovery
+/access-control/                                      @Chucks1093
+/multisig-admin/                                      @Chucks1093
+/nonce-registry/                                      @Chucks1093
+/session-nonce/                                       @Chucks1093
+/sponsored-transactions/                              @Chucks1093
+/personhood-hook/                                     @Chucks1093
+/timelock/                                            @Chucks1093
+/common/src/guard.rs                                  @Chucks1093
+/creator-keys/src/acl_*.rs                            @Chucks1093
+/creator-keys/src/badge_access_control.rs             @Chucks1093
+/creator-keys/src/key_ownership_transfer.rs           @Chucks1093
+/creator-keys/src/social_recovery.rs                  @Chucks1093
+/creator-keys/src/protocol_governance.rs              @Chucks1093
+
+# fees: Fee computation, fee recipients and discounts
+/protocol-fee-contract/                               @Chucks1093
+/fee-discount-contract/                               @Chucks1093
+/creator-keys/src/dynamic_fees.rs                     @Chucks1093
+
+# reserve: Reserves, treasuries and other fund movement
+/reserve-contract/                                    @Chucks1093
+/treasury-contract/                                   @Chucks1093
+/treasury-diversification/                            @Chucks1093
+/holder-insurance-pool/                               @Chucks1093
+/creator-keys/src/token_rescue.rs                     @Chucks1093
+/creator-keys/src/multi_asset_payment.rs              @Chucks1093
+
+# upgrade: Contract upgrades, proxies, factories and emergency stops
+/creator-keys/src/lib.rs                              @Chucks1093
+/creator-keys/src/proxy.rs                            @Chucks1093
+/creator-keys/src/emergency_pause.rs                  @Chucks1093
+/creator-keys/src/timed_pause.rs                      @Chucks1093
+/creator-keys/test_wasm/                              @Chucks1093
+/creator-keys-factory/                                @Chucks1093
+/safe-mode-contract/                                  @Chucks1093
+/circuit-breaker/                                     @Chucks1093
+
+# storage: Persistent storage layout, keys and TTL handling
+/creator-keys/src/lib.rs                              @Chucks1093
+/storage-cleanup/                                     @Chucks1093
+
+# review-process: The review gate itself, so it cannot be weakened unreviewed
+/.github/CODEOWNERS                                   @Chucks1093
+/.github/sensitive-paths.yml                          @Chucks1093
+/.github/labeler.yml                                  @Chucks1093
+/.github/PULL_REQUEST_TEMPLATE.md                     @Chucks1093
+/.github/workflows/                                   @Chucks1093
+/scripts/security_checklist/                          @Chucks1093
