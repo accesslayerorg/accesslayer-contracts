@@ -1,0 +1,16 @@
+services:
+  stellar-quickstart:
+    image: stellar/quickstart:latest
+    container_name: access-layer-quickstart
+    command: --local --enable-soroban-rpc --enable-soroban-diagnostic-events
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    environment:
+      - ENABLE_SOROBAN_RPC=true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}' http://localhost:8000/soroban/rpc || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s

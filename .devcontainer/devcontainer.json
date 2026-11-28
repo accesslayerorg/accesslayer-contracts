@@ -1,0 +1,22 @@
+{
+  "name": "Access Layer Contracts",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {}
+  },
+  "containerEnv": {
+    "RUSTUP_TOOLCHAIN": "stable"
+  },
+  "postCreateCommand": "rustup target add wasm32v1-none && rustup component add rustfmt clippy && cargo install --locked stellar-cli && make ci",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+  "forwardPorts": [8000, 8001],
+  "remoteUser": "vscode"
+}

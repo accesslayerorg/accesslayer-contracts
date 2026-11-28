@@ -2,6 +2,10 @@ target/
 .DS_Store
 .soroban/
 
+# Local development sandbox generated files
+.env.local
+.dev-state/
+
 # Local working notes
 fix.md
 claude.md
