@@ -2159,6 +2159,14 @@ pub struct ArchiveManifest {
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype(export = false)]
 pub enum DataKey {
+    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
+    EventConfig(Address, u32),
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event.
+    EventRedeemed(Address, u32, Address),
+    /// (key_id, event_id) -> number of redemptions recorded.
+    EventRedeemedCount(Address, u32),
+    /// (key_id, holder) -> ledger until which redeemed keys are locked.
+    EventLockUntil(Address, Address),
     Creator(Address),
     FeeConfig,
     KeyPrice,
@@ -6555,26 +6563,23 @@ fn read_snapshot_retention_ledgers(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-/// Prunes snapshots for `creator` that are older than the configured retention
-/// window (based on `snapshot_ledger`). Works by walking forward from the
-/// `OldestSnapshotId` until it finds a snapshot that is still within the
-/// retention window (or exhausts known ids up to `current_snapshot_id`).
-///
-/// This is a best-effort prune: it stops on the first snapshot it cannot find
-/// (already pruned or never stored) to avoid runaway loops.
-fn prune_old_snapshots(env: &Env, creator: &Address, current_snapshot_id: u32) {
+const SNAPSHOT_PRUNE_SCAN_LIMIT: u32 = 32;
+
+/// Scans at most one page of IDs and removes at most one expired snapshot.
+fn prune_old_snapshots(env: &Env, creator: &Address, current_snapshot_id: u32) -> Option<u32> {
     let retention = read_snapshot_retention_ledgers(env);
     if retention == 0 {
-        return;
+        return None;
     }
     let current_ledger = env.ledger().sequence();
     let cutoff = current_ledger.saturating_sub(retention);
 
     let oldest_key = constants::storage::oldest_snapshot_id(creator);
-    let oldest_id: u32 = env.storage().persistent().get(&oldest_key).unwrap_or(0);
+    let oldest_id: u32 = env.storage().persistent().get(&oldest_key)?;
 
     let mut cursor = oldest_id;
-    while cursor < current_snapshot_id {
+    let end = current_snapshot_id.min(cursor.saturating_add(SNAPSHOT_PRUNE_SCAN_LIMIT));
+    while cursor < end {
         let meta_key = constants::storage::snapshot_meta(creator, cursor);
         let meta: Option<HolderSnapshotMeta> = env.storage().persistent().get(&meta_key);
         let Some(meta) = meta else {
@@ -6619,6 +6624,7 @@ fn prune_old_snapshots(env: &Env, creator: &Address, current_snapshot_id: u32) {
         );
 
         cursor += 1;
+        break;
     }
 
     // Advance the oldest pointer to avoid re-scanning pruned ids.
@@ -6626,6 +6632,7 @@ fn prune_old_snapshots(env: &Env, creator: &Address, current_snapshot_id: u32) {
         env.storage().persistent().set(&oldest_key, &cursor);
         extend_key_ttl_to_full_window(env, &oldest_key);
     }
+    (cursor < current_snapshot_id && cursor != oldest_id).then_some(cursor)
 }
 
 /// Reads the ascending list of recorded leaderboard snapshot ledgers for a
@@ -11910,6 +11917,9 @@ impl CreatorKeysContract {
     ) -> Result<u32, ContractError> {
         admin.require_auth();
         assert_is_admin(&env, &admin)?;
+        if holders.len() > MAX_SNAPSHOT_HOLDERS {
+            return Err(ContractError::SnapshotHolderLimitExceeded);
+        }
 
         let pool_key = RevenueKey::Pool(creator.clone());
         let pool: i128 = env.storage().persistent().get(&pool_key).unwrap_or(0);
@@ -12039,7 +12049,7 @@ impl CreatorKeysContract {
     ///   holders' total keys do not match supply.
     /// - Fails with [`ContractError::ZeroDistributionAmount`] if `amount < supply as i128` (dust threshold).
     /// - Fails with [`ContractError::InsufficientBalance`] if `creator_fee_balance < amount`.
-    /// - Fails with [`ContractError::SnapshotHolderLimitExceeded`] if eligible holders exceed [`MAX_SNAPSHOT_HOLDERS`].
+    /// - Fails with [`ContractError::SnapshotHolderLimitExceeded`] if registry entries exceed [`MAX_SNAPSHOT_HOLDERS`].
     /// - Floor-division dust stays in the creator's fee balance; only `total_allocated` is debited.
     ///
     /// # Returns
@@ -12068,6 +12078,9 @@ impl CreatorKeysContract {
         }
 
         let registry = Self::get_holder_registry(env.clone(), key_id.clone());
+        if registry.len() > MAX_SNAPSHOT_HOLDERS {
+            return Err(ContractError::SnapshotHolderLimitExceeded);
+        }
 
         let mut eligible_holders = soroban_sdk::Vec::new(&env);
         let mut eligible_balances = soroban_sdk::Vec::new(&env);
@@ -12095,10 +12108,6 @@ impl CreatorKeysContract {
         if eligible_count == 0 {
             return Err(ContractError::NoKeyHolders);
         }
-        if eligible_count > MAX_SNAPSHOT_HOLDERS {
-            return Err(ContractError::SnapshotHolderLimitExceeded);
-        }
-
         // Allocate shares and compute sum
         let mut total_allocated: i128 = 0;
         let mut shares = soroban_sdk::Vec::new(&env);
@@ -13039,7 +13048,7 @@ impl CreatorKeysContract {
         }
 
         // Prune snapshots that have aged out.
-        prune_old_snapshots(&env, &creator, snapshot_id);
+        let _ = prune_old_snapshots(&env, &creator, snapshot_id);
 
         env.events().publish(
             events::snapshot_taken_topics(&creator, snapshot_id),
@@ -13052,6 +13061,18 @@ impl CreatorKeysContract {
         );
 
         Ok(())
+    }
+
+    /// Continues age-based cleanup of snapshots below an existing snapshot ID.
+    /// The next cursor is stored on-chain and is also returned when more work may remain.
+    pub fn prune_snapshot_page(
+        env: Env,
+        creator: Address,
+        current_snapshot_id: u32,
+    ) -> Result<Option<u32>, ContractError> {
+        Self::get_snapshot_meta(env.clone(), creator.clone(), current_snapshot_id)
+            .ok_or(ContractError::SnapshotNotFound)?;
+        Ok(prune_old_snapshots(&env, &creator, current_snapshot_id))
     }
 
     // =========================================================================
@@ -14948,6 +14969,9 @@ impl CreatorKeysContract {
     ) -> Result<(), ContractError> {
         creator.require_auth();
         assert_not_paused(&env)?;
+        if holders.len() > MAX_SNAPSHOT_HOLDERS {
+            return Err(ContractError::SnapshotHolderLimitExceeded);
+        }
 
         if total_amount <= 0 {
             return Err(ContractError::ZeroDistributionAmount);
@@ -23928,6 +23952,7 @@ impl CreatorKeysContract {
                 ledger: env.ledger().sequence(),
             },
         );
+
         Ok(())
     }
 

@@ -519,7 +519,6 @@ fn test_create_airdrop_reverts_when_holder_limit_exceeded() {
     let mut registry = Vec::new(&env);
     for _ in 0..=MAX_AIRDROP_HOLDERS {
         let wallet = Address::generate(&env);
-        mock.set_key_balance(&key_id, &wallet, &1u32);
         registry.push_back(wallet);
     }
     mock.set_holder_registry(&key_id, &registry);

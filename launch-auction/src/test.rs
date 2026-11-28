@@ -341,6 +341,54 @@ fn test_zero_bids_auction_settles_at_min_bid_and_opens_curve() {
 }
 
 #[test]
+fn settlement_pages_at_bid_limit_preserve_ties_and_allow_one_refund() {
+    use crate::{MAX_AUCTION_BIDS, SETTLEMENT_PAGE_SIZE};
+
+    let env = test_env();
+    let (client, _) = register_launch_auction(&env);
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+    let auction_id = client.create_auction(&first, &1, &60, &5);
+    for _ in 0..MAX_AUCTION_BIDS / 2 {
+        env.cost_estimate().budget().reset_default();
+        client.place_bid(&first, &auction_id, &10);
+        env.cost_estimate().budget().reset_default();
+        client.place_bid(&second, &auction_id, &10);
+    }
+    assert_eq!(
+        client.try_place_bid(&first, &auction_id, &10),
+        Err(Ok(AuctionError::TooManyItems))
+    );
+
+    env.ledger().set_timestamp(60);
+    env.cost_estimate().budget().reset_default();
+    let mut page = client.settle_auction_page(&auction_id, &0);
+    assert_eq!(page.cursor, SETTLEMENT_PAGE_SIZE);
+    assert!(!client.is_bonding_curve_open(&auction_id));
+    assert_eq!(
+        client.try_settle_auction_page(&auction_id, &0),
+        Err(Ok(AuctionError::InvalidCursor))
+    );
+    assert_eq!(
+        client.try_claim_refund(&auction_id, &second),
+        Err(Ok(AuctionError::AuctionNotClosed))
+    );
+    while !page.complete {
+        env.cost_estimate().budget().reset_default();
+        page = client.settle_auction_page(&auction_id, &page.cursor);
+    }
+    assert_eq!(page.cursor, 2 * MAX_AUCTION_BIDS);
+    assert_eq!(client.get_allocation(&auction_id, &first), 1);
+    assert_eq!(client.get_allocation(&auction_id, &second), 0);
+    assert_eq!(client.claim_refund(&auction_id, &first), 150);
+    assert_eq!(client.claim_refund(&auction_id, &second), 160);
+    assert_eq!(
+        client.try_claim_refund(&auction_id, &second),
+        Err(Ok(AuctionError::NoRefund))
+    );
+}
+
+#[test]
 fn test_get_bids_returns_all_placed_bids() {
     let env = test_env();
     let (client, _) = register_launch_auction(&env);

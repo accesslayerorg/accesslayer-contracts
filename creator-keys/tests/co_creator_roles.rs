@@ -22,7 +22,7 @@ fn setup(env: &soroban_sdk::Env) -> (creator_keys::CreatorKeysContractClient<'_>
 }
 
 #[test]
-fn only_primary_creator_can_add_and_remove_co_creators() {
+fn only_primary_creator_can_add_and_co_creator_can_remove_own_role() {
     let env = test_env_with_auths();
     let (client, creator) = setup(&env);
     let attacker = Address::generate(&env);
