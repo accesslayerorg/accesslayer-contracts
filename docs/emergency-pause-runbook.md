@@ -1,5 +1,9 @@
 # Emergency Pause Runbook
 
+For incident roles, severity, communication, and the first-hour checklist, see
+the [incident response runbook](runbooks/incident.md). The safer-by-default
+command-line wrappers and playbooks are also documented there.
+
 The `CreatorKeysContract` exposes `pause(admin)` and `unpause(admin)` entry points
 that allow the protocol admin to halt all state-mutating operations without a contract
 upgrade or migration. This document describes when to use them, how to execute them
@@ -65,8 +69,10 @@ operational and can be used to diagnose the issue while the contract is paused.
 
 ## 4. How to Pause
 
-1. **Confirm admin key is available** — locate the admin keypair for the deployed
-   network (testnet or mainnet). Never use a hot key for the admin on mainnet.
+1. **Confirm authorized signing is available** — use the approved Stellar CLI
+   key alias for the deployed network. Never paste or pass a secret key through
+   a command, environment variable, source file, chat, or log. Never use a hot
+   key for the admin on mainnet.
 
 2. **Invoke `pause(admin)` on-chain:**
 
@@ -74,40 +80,36 @@ operational and can be used to diagnose the issue while the contract is paused.
    ```sh
    stellar contract invoke \
      --id <CONTRACT_ID> \
-     --source <ADMIN_SECRET_KEY_OR_ALIAS> \
+     --source <ADMIN_KEY_ALIAS> \
      --network <mainnet|testnet> \
+     --send=yes \
      -- pause \
      --admin <ADMIN_STELLAR_ADDRESS>
    ```
 
-   Using the JavaScript SDK:
-   ```ts
-   import { Contract, TransactionBuilder, Networks, Keypair } from '@stellar/stellar-sdk';
-
-   const contract = new Contract(CONTRACT_ID);
-   const adminKeypair = Keypair.fromSecret(ADMIN_SECRET);
-   const account = await server.loadAccount(adminKeypair.publicKey());
-   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: Networks.PUBLIC })
-     .addOperation(contract.call('pause', xdr.ScVal.scvAddress(...)))
-     .setTimeout(30)
-     .build();
-   tx.sign(adminKeypair);
-   await server.sendTransaction(tx);
+   Prefer the confirmation-gated repository wrapper:
+   ```sh
+   bash scripts/emergency/pause.sh \
+     --network <network> --contract <CONTRACT_ID> \
+     --source <ADMIN_KEY_ALIAS> --admin <ADMIN_STELLAR_ADDRESS> --execute
    ```
+   If an SDK integration is required, use the approved signer service; do not
+   load a raw secret into the application process.
 
 3. **Verify the pause is in effect:**
    ```sh
    stellar contract invoke \
      --id <CONTRACT_ID> \
      --network <mainnet|testnet> \
+     --send=no \
      -- get_is_paused
    ```
    Expected output: `true`
 
 4. **Communicate to users** — post a status update on the protocol's public channels
    (Discord, Twitter/X, status page) explaining that the contract is temporarily
-   paused and that funds are safe. Avoid disclosing exploit details until a fix is
-   deployed.
+   paused and which functions are affected. Do not claim funds are safe unless
+   that has been verified. Avoid disclosing exploit details until a fix is deployed.
 
 ---
 
@@ -143,8 +145,8 @@ Do **not** unpause until all of the following are true:
 - [ ] The vulnerability is **fully understood** — root cause identified, not just
   symptoms suppressed
 - [ ] A **fix is deployed** on mainnet (not just testnet) via `upgrade`
-- [ ] The fix has been **independently verified** by a second engineer running the
-  exploit scenario against the upgraded contract
+- [ ] A second engineer has **independently verified** the fix and regression
+  scenario on testnet and confirmed the expected deployed WASM hash on mainnet
 - [ ] Any **affected users have been identified** and a remediation plan exists (even
   if not yet executed)
 - [ ] A **post-mortem draft** is ready to publish within 24 hours of unpausing
@@ -162,22 +164,24 @@ deployment with state replay.
 Once all criteria above are satisfied:
 
 ```sh
-stellar contract invoke \
-  --id <CONTRACT_ID> \
-  --source <ADMIN_SECRET_KEY_OR_ALIAS> \
-  --network mainnet \
-  -- unpause \
-  --admin <ADMIN_STELLAR_ADDRESS>
+bash scripts/emergency/safe-mode.sh unpause \
+  --network mainnet --contract <CONTRACT_ID> \
+  --source <ADMIN_KEY_ALIAS> --admin <ADMIN_STELLAR_ADDRESS>
 ```
+
+Review the dry run and add `--execute`; confirm the exact network and contract
+when prompted.
 
 Immediately verify:
 ```sh
-stellar contract invoke --id <CONTRACT_ID> --network mainnet -- get_is_paused
+stellar contract invoke --id <CONTRACT_ID> --network mainnet --send=no -- get_is_paused
 # Expected: false
 ```
 
-Then verify a test `buy_key` transaction succeeds on mainnet with a small amount
-before announcing to users that the protocol is operational again.
+Use read-only health checks and monitor normal operations before announcing
+recovery. Do not submit a test trade to mainnet unless the incident commander
+explicitly approves the risk; exercise transaction-level smoke tests on the
+designated testnet.
 
 ---
 
