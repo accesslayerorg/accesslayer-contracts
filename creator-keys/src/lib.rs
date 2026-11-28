@@ -113,6 +113,7 @@ pub mod vote_delegation;
 pub use vote_delegation::VoteDelegationKey;
 
 pub mod test_feature_impl;
+pub mod test_issue_1253;
 pub mod test_issues_1086_1087_1088_1093;
 pub mod test_new_features;
 
@@ -461,6 +462,19 @@ pub enum ContractError {
     InvalidWeights = 176,
     NoticePeriodActive = 177,
     CyclicReferral = 178,
+    // --- Rage-quit (Issue #1253) ---
+    /// The holder voted in favour of the proposal and is not eligible to rage-quit.
+    RageQuitVotedFor = 184,
+    /// The rage-quit window for this proposal has not opened yet (voting still ongoing)
+    /// or has already closed.
+    RageQuitWindowClosed = 185,
+    /// The holder did not hold any keys at the proposal snapshot and cannot rage-quit.
+    RageQuitNotEligible = 186,
+    /// The rage-quit cap (max_ragequit_bps of snapshot supply) has been reached for
+    /// this proposal.
+    RageQuitCapReached = 187,
+    /// The rage-quit window ledger setting is zero or exceeds the allowed ceiling.
+    InvalidRageQuitWindow = 188,
 }
 
 impl ContractError {
