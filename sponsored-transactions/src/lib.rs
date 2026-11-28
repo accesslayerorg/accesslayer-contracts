@@ -5,10 +5,20 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
+    /// The contract admin has already been initialized.
+    /// Action: Do not initialize again; use the existing admin configuration.
     AlreadyInitialized = 1,
+    /// Reserved for admin-authorized operations when the caller is not the configured admin.
+    /// Action: Invoke admin-only operations with the configured admin address and its authorization.
     Unauthorized = 2,
+    /// The user nonce has already been recorded for a sponsored authorization.
+    /// Action: Generate a fresh unused nonce for the user and retry the authorization.
     NonceUsed = 3,
+    /// The sponsored authorization has passed its expiry ledger timestamp.
+    /// Action: Create a new authorization with an unexpired `expires_at` timestamp and retry.
     Expired = 4,
+    /// The provided maximum relayer fee is negative.
+    /// Action: Provide a `max_fee` of zero or a positive value within the caller's intended limit.
     InvalidFee = 5,
 }
 #[contracttype]

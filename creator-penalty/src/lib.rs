@@ -5,10 +5,20 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
+    /// The contract admin has already been initialized.
+    /// Action: Do not initialize again; use the existing admin configuration.
     AlreadyInitialized = 1,
+    /// The contract admin is not configured in storage for an admin-gated operation.
+    /// Action: Initialize the contract and invoke admin-gated operations with the configured admin.
     Unauthorized = 2,
+    /// The slash amount is zero or negative.
+    /// Action: Provide a slash amount greater than zero.
     InvalidAmount = 3,
+    /// No violation record exists for the requested creator.
+    /// Action: Verify the creator address has a recorded violation before resolving or querying it.
     NotFound = 4,
+    /// A violation is already recorded for the creator and has not been replaced.
+    /// Action: Resolve or inspect the existing violation before attempting to slash the same creator again.
     AlreadySlashed = 5,
 }
 
