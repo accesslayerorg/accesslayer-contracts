@@ -163,7 +163,7 @@ impl PersonhoodHookContract {
             .get(&DataKey::WalletToPerson(wallet.clone()))
             .ok_or(PersonhoodError::UnverifiedWallet)?;
 
-        // Check cooldown
+        // Check cooldown — only applies if the wallet has previously unlinked
         let cooldown: u64 = env
             .storage()
             .instance()
@@ -177,6 +177,15 @@ impl PersonhoodHookContract {
 
         if last_unlink.is_some_and(|timestamp| now.saturating_sub(timestamp) < cooldown) {
             return Err(PersonhoodError::CooldownActive);
+        let now = env.ledger().timestamp();
+        if let Some(last_unlink) = env
+            .storage()
+            .persistent()
+            .get::<_, u64>(&DataKey::LastUnlink(wallet.clone()))
+        {
+            if now < last_unlink.saturating_add(cooldown) {
+                return Err(PersonhoodError::CooldownActive);
+            }
         }
 
         // Unlink wallet
@@ -463,6 +472,7 @@ mod test {
         let person_id = BytesN::from_array(&env, &[1u8; 32]);
         env.ledger().set_timestamp(1);
         let valid_until = 0;
+        let valid_until = 0u64; // Expired: timestamp 0 is never in the future
         let signature = Bytes::from_array(&env, &[1, 2, 3, 4]);
 
         assert_eq!(

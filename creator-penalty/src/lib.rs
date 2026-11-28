@@ -67,6 +67,7 @@ impl CreatorPenaltyContract {
             .set(&Key::Violation(creator.clone()), &v);
         e.events()
             .publish((soroban_sdk::symbol_short!("slash"), creator), v);
+            .publish((soroban_sdk::symbol_short!("slash"), creator), v.clone());
         Ok(())
     }
     pub fn resolve(e: Env, creator: Address) -> Result<(), Error> {

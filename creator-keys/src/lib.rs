@@ -2480,6 +2480,14 @@ pub enum DataKey {
     OracleSet,
     /// Per-(feed, asset) latest published oracle sample.
     FeedPrice(Address, Address),
+    /// (key_id, event_id) -> redeemable event pass configuration (issue #1257).
+    EventConfig(Address, u32),
+    /// (key_id, event_id, holder) -> whether the holder has redeemed the event (issue #1257).
+    EventRedeemed(Address, u32, Address),
+    /// (key_id, event_id) -> number of redemptions recorded (issue #1257).
+    EventRedeemedCount(Address, u32),
+    /// (key_id, holder) -> ledger until which redeemed keys are locked (issue #1257).
+    EventLockUntil(Address, Address),
 }
 
 /// Maximum callback payload size accepted by `transfer_and_call`.

@@ -26,6 +26,8 @@ pub struct Cover {
 }
 #[contracttype]
 enum StorageKey {
+#[allow(clippy::enum_variant_names)]
+enum Key {
     Admin,
     Pool,
     NextId,
