@@ -43,7 +43,7 @@ fn only_primary_creator_can_add_and_remove_co_creators() {
         client.try_add_co_creator(&creator, &attacker, &attacker, &CoCreatorRole::Admin),
         Err(Ok(FeatureError::Unauthorized))
     );
-    client.remove_co_creator(&creator, &creator, &content);
+    client.remove_co_creator(&creator, &content);
     assert_eq!(client.get_co_creator_role(&creator, &content), None);
     assert_eq!(client.get_co_creators(&creator).len(), 0);
 }
@@ -73,7 +73,7 @@ fn add_and_remove_emit_events_with_wallet_and_role() {
     assert_eq!(payload.wallet, admin);
     assert_eq!(payload.role, CoCreatorRole::Admin);
 
-    client.remove_co_creator(&creator, &creator, &admin);
+    client.remove_co_creator(&creator, &admin);
     let removed: std::vec::Vec<_> = env
         .events()
         .all()
@@ -99,28 +99,18 @@ fn content_role_can_announce_but_not_handle_revenue() {
     let content = Address::generate(&env);
     client.add_co_creator(&creator, &creator, &content, &CoCreatorRole::Content);
 
-    assert!(client.can_co_creator_perform(
-        &creator,
-        &content,
-        &CreatorAction::Announcement
-    ));
-    assert!(!client.can_co_creator_perform(
-        &creator,
-        &content,
-        &CreatorAction::Revenue
-    ));
+    assert!(client.can_co_creator_perform(&creator, &content, &CreatorAction::Announcement));
+    assert!(!client.can_co_creator_perform(&creator, &content, &CreatorAction::Revenue));
 
-    let id = client
-        .post_announcement_as_co_creator(
-            &creator,
-            &content,
-            &String::from_str(&env, "Title"),
-            &String::from_str(&env, "hash"),
-            &creator_keys::AnnouncementCategory::Update,
-        )
-        .unwrap();
+    let id = client.post_announcement_as_co_creator(
+        &creator,
+        &content,
+        &String::from_str(&env, "Title"),
+        &String::from_str(&env, "hash"),
+        &creator_keys::AnnouncementCategory::Update,
+    );
     assert_eq!(id, 0);
-    let announcements = client.get_announcements(&creator, &0, &10).unwrap();
+    let announcements = client.get_announcements(&creator, &0, &10);
     assert_eq!(announcements.len(), 1);
 
     assert_eq!(
@@ -141,11 +131,7 @@ fn revenue_role_can_claim_but_not_announce() {
     client.add_co_creator(&creator, &creator, &revenue, &CoCreatorRole::Revenue);
 
     assert!(client.can_co_creator_perform(&creator, &revenue, &CreatorAction::Revenue));
-    assert!(!client.can_co_creator_perform(
-        &creator,
-        &revenue,
-        &CreatorAction::Announcement
-    ));
+    assert!(!client.can_co_creator_perform(&creator, &revenue, &CreatorAction::Announcement));
     assert_eq!(
         client.try_claim_royalties_as_co_creator(&creator, &revenue),
         Err(Ok(ContractError::NoDividendClaimable))
@@ -176,14 +162,12 @@ fn admin_role_can_perform_every_creator_action() {
     ] {
         assert!(client.can_co_creator_perform(&creator, &admin, &action));
     }
-    client
-        .post_announcement_as_co_creator(
-            &creator,
-            &admin,
-            &String::from_str(&env, "Title"),
-            &String::from_str(&env, "hash"),
-            &creator_keys::AnnouncementCategory::Update,
-        )
-        .unwrap();
-    assert_eq!(client.get_announcements(&creator, &0, &10).unwrap().len(), 1);
+    client.post_announcement_as_co_creator(
+        &creator,
+        &admin,
+        &String::from_str(&env, "Title"),
+        &String::from_str(&env, "hash"),
+        &creator_keys::AnnouncementCategory::Update,
+    );
+    assert_eq!(client.get_announcements(&creator, &0, &10).len(), 1);
 }

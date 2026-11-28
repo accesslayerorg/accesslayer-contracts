@@ -76,7 +76,11 @@ fn validate_legs(legs: &Vec<MultiBuyLeg>, deadline: u32, env: &Env) -> Result<i1
 /// underfunded order must not mutate a single creator's supply. When no XLM
 /// Stellar Asset Contract has been configured the check is skipped because the
 /// contract has no token account to inspect.
-fn assert_sufficient_balance(env: &Env, buyer: &Address, required: i128) -> Result<(), ContractError> {
+fn assert_sufficient_balance(
+    env: &Env,
+    buyer: &Address,
+    required: i128,
+) -> Result<(), ContractError> {
     if let Some(token) = env
         .storage()
         .persistent()
@@ -155,10 +159,7 @@ impl CreatorKeysContract {
     }
 
     /// Read-only helper returning the worst-case XLM budget for a set of legs.
-    pub fn get_multi_buy_budget(
-        env: Env,
-        legs: Vec<MultiBuyLeg>,
-    ) -> Result<i128, ContractError> {
+    pub fn get_multi_buy_budget(env: Env, legs: Vec<MultiBuyLeg>) -> Result<i128, ContractError> {
         let deadline = env.ledger().sequence();
         validate_legs(&legs, deadline, &env)
     }
