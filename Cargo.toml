@@ -17,20 +17,7 @@ members = [
     "key-analytics",
     "dividend-contract",
     "subscription-contract",
-    "fee-discount-contract",
-    "batch-trade-contract",
-    "social-metadata-contract",
-    "key-liquidity-depth",
-    "treasury-diversification",
-    "storage-cleanup",
-    "key-health-score",
-    "personhood-hook",
-    "creator-penalty",
-    "sponsored-transactions",
-    "vote-escrow-contract",
-    "safe-mode-contract",
-    "holder-insurance-pool",
-    "sealed-launch-auction",
+    "bounty-board",
 ]
 resolver = "2"
 
