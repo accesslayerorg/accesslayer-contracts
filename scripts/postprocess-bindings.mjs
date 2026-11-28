@@ -441,9 +441,19 @@ function main() {
     const exportedTypes = listExportedTypes(client);
     const registryEntries = [];
     for (const errorEnum of errorEnums) {
-      if (!exportedTypes.has(errorEnum.name)) continue;
+      // The CLI appends an `s` when the Rust enum name would shadow a global
+      // (e.g. `Error` is exported as `Errors`), so resolve the actual export.
+      const exportedName = [errorEnum.name, `${errorEnum.name}s`].find((candidate) =>
+        exportedTypes.has(candidate),
+      );
+      if (exportedName === undefined) {
+        throw new Error(
+          `${descriptor.name}: error enum ${errorEnum.name} is in the contract spec ` +
+            "but the generated client does not export it",
+        );
+      }
       const local = `${alias}_${errorEnum.name}`;
-      errorImports.push(`import { ${errorEnum.name} as ${local} } from "./contracts/${descriptor.name}.js";`);
+      errorImports.push(`import { ${exportedName} as ${local} } from "./contracts/${descriptor.name}.js";`);
       registryEntries.push(`    "${errorEnum.name}": ${local},`);
     }
     if (registryEntries.length > 0) {

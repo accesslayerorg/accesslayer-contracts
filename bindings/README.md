@@ -4,7 +4,7 @@ Generated TypeScript bindings for the AccessLayer Soroban contracts. Each
 contract gets a typed client generated from its WASM interface, plus typed
 error enums and typed event decoders. Every contract module is versioned
 together as one package, and [manifest.json](./manifest.json) records the exact
-WASM hash each module was generated from.
+interface hash each module was generated from.
 
 > Do not edit `src/contracts/`, `src/errors.ts`, `src/events.ts`, `src/index.ts`
 > or `manifest.json` by hand. They are produced by

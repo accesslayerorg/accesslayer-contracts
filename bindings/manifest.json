@@ -18,6 +18,19 @@
       ]
     },
     {
+      "name": "creator-penalty",
+      "crate": "creator-penalty",
+      "crateDir": "creator-penalty",
+      "interfaceSha256": "f0b5d94543a65cc492618fc354303c4626ade17a978d4eea2959b6d3188aadfe",
+      "entrypoints": 4,
+      "errorEnums": [
+        "Error"
+      ],
+      "events": [
+        "slash"
+      ]
+    },
+    {
       "name": "fee-discount-contract",
       "crate": "fee-discount-contract",
       "crateDir": "fee-discount-contract",
@@ -245,6 +258,17 @@
       ]
     },
     {
+      "name": "storage-cleanup",
+      "crate": "storage-cleanup",
+      "crateDir": "storage-cleanup",
+      "interfaceSha256": "09c111ce399ae643e925d8c6ff380b4a021726d2afbeacd5ee92f6984263600e",
+      "entrypoints": 8,
+      "errorEnums": [
+        "CleanupError"
+      ],
+      "events": []
+    },
+    {
       "name": "subscription-contract",
       "crate": "subscription-contract",
       "crateDir": "subscription-contract",
@@ -295,15 +319,7 @@
       "reason": "wasm build failed"
     },
     {
-      "crate": "creator-penalty",
-      "reason": "wasm build failed"
-    },
-    {
       "crate": "dividend-contract",
-      "reason": "wasm build failed"
-    },
-    {
-      "crate": "storage-cleanup",
       "reason": "wasm build failed"
     }
   ]

@@ -7,6 +7,7 @@
 import type { RawContractEvent } from "./decode.js";
 import { decodeEvent } from "./decode.js";
 import type * as BatchTradeContract from "./contracts/batch-trade-contract.js";
+import type * as CreatorPenaltyContract from "./contracts/creator-penalty.js";
 import type * as FeeDiscountContract from "./contracts/fee-discount-contract.js";
 import type * as HolderInsurancePoolContract from "./contracts/holder-insurance-pool.js";
 import type * as KeyAnalyticsContract from "./contracts/key-analytics.js";
@@ -46,6 +47,31 @@ export function decodeBatchTradeContractEvent(
   const decoded = decodeEvent(event);
   if (decoded === null || !batchTradeContractEventNames.has(decoded.name)) return null;
   return decoded as unknown as BatchTradeContractDecodedEvent;
+}
+
+/** Payload types for every documented `creator-penalty` event. */
+export interface CreatorPenaltyEventPayloads {
+  "slash": unknown;
+}
+
+export type CreatorPenaltyEventName = keyof CreatorPenaltyEventPayloads;
+
+export interface CreatorPenaltyDecodedEvent<N extends CreatorPenaltyEventName = CreatorPenaltyEventName> {
+  name: N;
+  contract: "creator-penalty";
+  topics: readonly unknown[];
+  data: CreatorPenaltyEventPayloads[N];
+}
+
+const creatorPenaltyEventNames: ReadonlySet<string> = new Set(["slash"]);
+
+/** Decodes a `creator-penalty` contract event, or returns `null` for events it does not know. */
+export function decodeCreatorPenaltyEvent(
+  event: RawContractEvent,
+): CreatorPenaltyDecodedEvent | null {
+  const decoded = decodeEvent(event);
+  if (decoded === null || !creatorPenaltyEventNames.has(decoded.name)) return null;
+  return decoded as unknown as CreatorPenaltyDecodedEvent;
 }
 
 /** Payload types for every documented `fee-discount-contract` event. */

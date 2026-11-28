@@ -3,7 +3,7 @@
 Client and server code that hand-writes contract call types drifts from the
 deployed interface and fails at runtime. This repository publishes generated
 bindings instead: typed clients, typed error enums, typed event decoders, and a
-manifest that records the WASM hash every binding was generated from.
+manifest that records the interface hash every binding was generated from.
 
 Package: [`bindings/`](../bindings) (`@accesslayer/contracts-bindings`).
 

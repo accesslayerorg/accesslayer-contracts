@@ -2,6 +2,7 @@
 // Regenerate with: ./scripts/generate-bindings.sh
 
 export * as batchTradeContract from "./contracts/batch-trade-contract.js";
+export * as creatorPenalty from "./contracts/creator-penalty.js";
 export * as feeDiscountContract from "./contracts/fee-discount-contract.js";
 export * as holderInsurancePool from "./contracts/holder-insurance-pool.js";
 export * as keyAnalytics from "./contracts/key-analytics.js";
@@ -19,6 +20,7 @@ export * as sealedLaunchAuction from "./contracts/sealed-launch-auction.js";
 export * as sessionNonce from "./contracts/session-nonce.js";
 export * as socialMetadataContract from "./contracts/social-metadata-contract.js";
 export * as sponsoredTransactions from "./contracts/sponsored-transactions.js";
+export * as storageCleanup from "./contracts/storage-cleanup.js";
 export * as subscriptionContract from "./contracts/subscription-contract.js";
 export * as treasuryDiversification from "./contracts/treasury-diversification.js";
 export * as voteEscrowContract from "./contracts/vote-escrow-contract.js";
